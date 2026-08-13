@@ -63,3 +63,43 @@ begin
   returning id into new_id;
   return new_id;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- Storage, enough of it for migration 0005's bucket and object policies.
+--
+-- Supabase provides all of this. Locally we need the two tables and
+-- storage.foldername(), because the docs policies parse the object path with
+-- it — and a policy that cannot be executed cannot be tested.
+-- ---------------------------------------------------------------------------
+create schema if not exists storage;
+
+create table if not exists storage.buckets (
+  id                 text primary key,
+  name               text not null,
+  public             boolean not null default false,
+  file_size_limit    bigint,
+  allowed_mime_types text[],
+  created_at         timestamptz not null default now()
+);
+
+create table if not exists storage.objects (
+  id         uuid primary key default gen_random_uuid(),
+  bucket_id  text references storage.buckets(id),
+  name       text not null,
+  owner      uuid,
+  created_at timestamptz not null default now(),
+  metadata   jsonb
+);
+
+alter table storage.objects enable row level security;
+
+/* Splits an object path into its segments, 1-indexed, exactly as Supabase's
+   own implementation does: 'a/b/c.pdf' -> {a,b}. The filename is dropped. */
+create or replace function storage.foldername(name text)
+returns text[] language sql immutable as $$
+  select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1];
+$$;
+
+grant usage on schema storage to anon, authenticated;
+grant select, insert, update, delete on storage.objects to authenticated;
+grant select on storage.buckets to anon, authenticated;

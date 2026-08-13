@@ -1,5 +1,5 @@
-import { Placeholder } from '@/components/common/Placeholder'
+import { VaultPage } from '@/modules/documents'
 
-export default function DocumentsPage() {
-  return <Placeholder title="Documents" phase="Phase 4" />
+export default function Documents() {
+  return <VaultPage />
 }

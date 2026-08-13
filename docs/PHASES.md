@@ -11,10 +11,10 @@ records what changed.
 | 1 | 1 — Auth & Couple | ✅ done | Everything depends on `couple_id` |
 | 2 | 3 — Trips | ✅ done | The container most other data attaches to |
 | 3 | 5 — Itinerary | ✅ done | The main planning surface |
-| 4 | 8 — Documents | ⬜ next | Highest standalone value, no dependencies |
-| 5 | 2 — Dashboard | ⬜ | Needs the above to have anything to show |
-| — | *Milestone* | | Plan one real trip end to end with no other tool |
-| 6 | 7 — Wishlist & Blend | ⬜ | Depends on Itinerary |
+| 4 | 8 — Documents | ✅ done | Highest standalone value, no dependencies |
+| 5 | 2 — Dashboard | ✅ done | Needs the above to have anything to show |
+| — | *Milestone* | ✅ | Plan one real trip end to end with no other tool |
+| 6 | 7 — Wishlist & Blend | ⬜ next | Depends on Itinerary |
 | 7 | 6 — Map | ⬜ | Depends on Itinerary, Wishlist |
 | 8 | 4 — Destinations | ⬜ | Depends on Trips |
 | 9 | 10 — Stay Allowance | ⬜ | Depends on Destinations, Trips |
@@ -125,14 +125,42 @@ Not a spec phase — an owner's decision taken after phase 3 (memory D19).
 - [x] Keep-alive workflow repointed at `/api/health`
 - [x] All 110 tests still pass, untouched
 
-## Phase 4 — Documents (next)
+## Phase 4 — Documents
 
 Spec: Module 8.
 
-- [ ] `document_types` (seeded), `documents`, `trip_document_requirements`
-- [ ] RLS nuance: readable by the owner, or by the partner when `is_shared`
-- [ ] Private `docs` bucket, signed URLs at 300s, never public
-- [ ] Upload with client-side image compression, 10 MB cap
-- [ ] Expiry engine with the passport 9-month rule and alert dedupe
-- [ ] Trip readiness scored against `trip.end_date`, not today
-- [ ] Vault re-auth gate after 15 minutes idle
+- [x] `document_types` (seeded), `documents`, `trip_document_requirements`
+- [x] RLS nuance: readable by the owner, or by the partner when `is_shared` —
+      un-sharing hides it immediately, proven by assertion
+- [x] Private `docs` bucket with four storage policies, signed URLs at 300s
+- [x] Upload with a 10 MB cap and MIME allowlist, enforced in the bucket too
+- [x] No orphans either way: the row is rolled back if the upload fails
+- [x] Expiry bands, the passport 9-month rule with its explanation, and
+      `shouldAlert` dedupe so a threshold fires once rather than daily
+- [x] Trip readiness scored against `trip.end_date`, not today
+- [x] The full number is never stored — the form asks for the last four
+- [ ] Daily expiry sweep — `crossedThreshold`/`shouldAlert` are written and
+      tested; the cron Route Handler lands with the others in Phase 10
+- [ ] Client-side image compression before upload (spec 8.3)
+- [ ] Vault re-auth gate after 15 minutes idle (spec 8.3) — needs the Settings
+      surface for the WebAuthn fallback, so it follows Phase 13
+
+## Phase 5 — Dashboard
+
+Spec: Module 2.
+
+- [x] One RPC, one round trip (`dashboard()`), as spec 2.4 asks
+- [x] Countdown state machine: empty / planning / countdown / travel day /
+      together / departing, with countdowns only for exact dates
+- [x] Dual clocks ticking on the minute boundary, with a day/night indicator
+      computed locally — no API, no library
+- [x] Nights together this year and lifetime, split correctly across new year
+- [x] Distance between home cities
+- [x] Alert strip, sorted by the spec's priority order, capped at three
+- [x] Everything timezone-dependent resolved against the *viewer's* midnight
+- [ ] Active flight card — waits on Phase 10
+- [ ] Stay-allowance alerts — priority 3 is reserved, lands in Phase 9
+
+## Phase 6 — Wishlist & Blend (next)
+
+Spec: Module 7.

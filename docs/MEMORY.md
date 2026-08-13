@@ -12,12 +12,12 @@ work up next — including a future session with no memory of this one.
 
 | | |
 | --- | --- |
-| Phase | 3 complete, then migrated to Next.js |
-| Next | Phase 4 — Documents (spec Module 8) |
+| Phase | 5 complete — Stage 1 milestone reached |
+| Next | Phase 6 — Wishlist & Blend (spec Module 7) |
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0004, live |
+| Migrations applied | 0001–0006, live |
 | Deployed | no |
 
 ### What runs today
@@ -27,7 +27,12 @@ create trips, set their dates at whatever precision you actually know, set each
 partner's own arrival and departure, and see how many nights you overlap — then
 plan the trip itself: collect ideas in a pool, drag them onto days, reorder
 them, and read the day list or the month grid depending on how long the stay is.
-Typecheck, lint, 110 unit tests and a production build pass.
+**The Stage 1 milestone is met: a trip can be planned end to end with no other
+tool.** Sign in, pair, create a trip, plan it, store the documents it needs,
+and see the whole thing from the dashboard.
+
+Typecheck, lint, 170 unit tests, 56 database assertions and a production build
+pass.
 
 Sign-in is now settled on the server: `src/app/(app)/layout.tsx` redirects an
 unauthenticated request before any app JavaScript ships. Pairing and profile
@@ -214,6 +219,56 @@ React hooks. Marking the modules themselves, rather than every importer, means
 a module's `index.ts` barrel can still be imported from a Server Component that
 only wants the page component out of it.
 
+### D28 — Readiness is computed in SQL, not the client
+
+The rule is that a document must be valid *through the end of the trip*, not
+today. That join — documents against requirements, filtered by
+`expires_on >= trip.end_date` — is the whole feature, and doing it client-side
+would mean fetching every document to answer a question about one trip. It also
+puts the rule somewhere a future caller cannot forget it. `buildReadiness` only
+groups and counts the rows the RPC returns.
+
+A passport is required for both travellers implicitly rather than being a row
+someone has to add. Nobody travels without one, and a readiness score that
+starts at 0/0 until you tell it what you need is not a readiness score.
+
+### D29 — Storage paths are load-bearing
+
+`{couple_id}/{owner_id}/{document_id}/{filename}` is not a convention, it is
+the input to the storage policies: they read `foldername[1]` and
+`foldername[2]` to decide access. `storagePath()` is the only place that shape
+is built, and its tests say so, because changing it silently means changing who
+can read what.
+
+### D30 — The document row is rolled back if its upload fails
+
+Spec 8.7 wants no orphan rows and no orphan objects. The path contains the
+document id, so the row must exist first — which means a failed upload leaves a
+document claiming a file it does not have. `uploadDocument` deletes the row it
+just created rather than leaving that behind.
+
+### D31 — Vague trips never enter the live countdown states
+
+Caught by a test while writing Phase 5. A trip pinned to "2026" is stored as
+`2026-01-01`; once that date passed, the state machine saw `start <= today` and
+declared the couple **Together** for a trip nobody had booked. Anything less
+precise than `exact` now stays in COUNTDOWN with its label and never reaches
+travel-day / together / departing.
+
+### D32 — The dashboard RPC returns no derived dates
+
+It returns rows and dates; the client resolves them. "Which year is this night
+in?" and "is today travel day?" have different answers for the two people
+looking, and spec 2.6 settles it in favour of the viewer's timezone — which the
+database does not know. Nights-together arithmetic, the countdown and the year
+boundary are therefore all client-side, over data the server merely gathered.
+
+### D33 — Nights together counts only nights already lived
+
+A trip you are on right now contributes the nights up to today, not to its end.
+Counting the whole booked window would make the lifetime total *decrease* if a
+trip were cut short, which is a strange property for a counter of shared nights.
+
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 
 Supabase's linter, run against the live project, showed every helper and
@@ -293,6 +348,12 @@ tab is picked up for free.
 | 5.3 day-type promotion | Runs as a trigger, not in the client | D13 |
 | 5.2 week view | Not built | The spec calls it optional and worth building only if the month grid feels too coarse. It has not been used in anger yet. |
 | 5.1 `destination_id` | Column exists, FK deferred | `trip_destinations` arrives in Phase 8; adding the constraint then is one line |
+| 8.1 `documents` | Adds `last_alerted_threshold` | Spec 8.4 requires alert dedupe but names no column for it |
+| 8.1 `trip_document_requirements` | Adds `is_manual`, drops `is_satisfied` | Satisfaction is derived by `trip_readiness()`, so storing it would be a cache that goes stale the moment a document is edited. `is_manual` distinguishes the implicit passport from what someone added. |
+| 8.3 client-side image compression | Not built | The 10 MB cap is enforced in the form and the bucket; compression is an optimisation on top and needs a real photo to tune against |
+| 8.3 vault re-auth gate | Not built | Needs the Settings surface for the WebAuthn fallback (Phase 13) |
+| 2.2 active flight card | Not built | Flights are Phase 10 |
+| 2.1 `dashboard_cache` | Not built | The spec calls it optional and says it will not be needed at this scale. One RPC is currently a single query. |
 | 0.1 React 18 + Vite, browser SPA | Next.js 16 App Router, React 19 | D19 — owner's decision |
 | 0.9 Edge Functions | Route Handlers in `src/app/api` | D19 |
 | 0.2 project structure | Adds `src/app/`, `src/proxy.ts`; drops `main.tsx`, `App.tsx`, `routes.tsx`, `supabase/functions/` | Follows from D19 |
@@ -336,4 +397,11 @@ Ordered by how much they block.
    module (Phase 7) makes real distances visible.
 7. **Bulk actions** have a working mutation (`useBulkMove`) and no UI. Worth
    adding once a real trip has enough items for multi-select to pay off.
-8. **Health module scope.** The spec says design it together, last. Left alone.
+8. **The expiry sweep has no scheduler yet.** `crossedThreshold` and
+   `shouldAlert` are written and tested, but nothing calls them on a timer.
+   They need a cron Route Handler plus a notification channel — which is the
+   same infrastructure the flight sweep needs, so both land together in Phase 10.
+9. **Deleted storage objects are not swept.** Deleting a document soft-deletes
+   the row and deliberately leaves the file, so a mistake is fully recoverable.
+   The 30-day hard delete needs the same cron as above.
+10. **Health module scope.** The spec says design it together, last. Left alone.

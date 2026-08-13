@@ -426,6 +426,193 @@ export type Database = {
           },
         ]
       }
+      document_types: {
+        Row: {
+          couple_id: string
+          created_at: string
+          has_expiry: boolean
+          id: string
+          name: string
+          requires_country: boolean
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          couple_id: string
+          created_at?: string
+          has_expiry?: boolean
+          id?: string
+          name: string
+          requires_country?: boolean
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          couple_id?: string
+          created_at?: string
+          has_expiry?: boolean
+          id?: string
+          name?: string
+          requires_country?: boolean
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'document_types_couple_id_fkey'
+            columns: ['couple_id']
+            isOneToOne: false
+            referencedRelation: 'couples'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      documents: {
+        Row: {
+          couple_id: string
+          country_code: string | null
+          created_at: string
+          deleted_at: string | null
+          expires_on: string | null
+          file_name: string | null
+          file_size: number | null
+          id: string
+          is_shared: boolean
+          issued_on: string | null
+          label: string
+          last_alerted_threshold: string | null
+          mime_type: string | null
+          notes: string | null
+          number_last4: string | null
+          owner_id: string
+          storage_path: string | null
+          type_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          couple_id: string
+          country_code?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          expires_on?: string | null
+          file_name?: string | null
+          file_size?: number | null
+          id?: string
+          is_shared?: boolean
+          issued_on?: string | null
+          label: string
+          last_alerted_threshold?: string | null
+          mime_type?: string | null
+          notes?: string | null
+          number_last4?: string | null
+          owner_id: string
+          storage_path?: string | null
+          type_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          couple_id?: string
+          country_code?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          expires_on?: string | null
+          file_name?: string | null
+          file_size?: number | null
+          id?: string
+          is_shared?: boolean
+          issued_on?: string | null
+          label?: string
+          last_alerted_threshold?: string | null
+          mime_type?: string | null
+          notes?: string | null
+          number_last4?: string | null
+          owner_id?: string
+          storage_path?: string | null
+          type_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'documents_couple_id_fkey'
+            columns: ['couple_id']
+            isOneToOne: false
+            referencedRelation: 'couples'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'documents_owner_id_fkey'
+            columns: ['owner_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'documents_type_id_fkey'
+            columns: ['type_id']
+            isOneToOne: false
+            referencedRelation: 'document_types'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      trip_document_requirements: {
+        Row: {
+          created_at: string
+          document_id: string | null
+          id: string
+          is_manual: boolean
+          note: string | null
+          trip_id: string
+          type_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          document_id?: string | null
+          id?: string
+          is_manual?: boolean
+          note?: string | null
+          trip_id: string
+          type_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          document_id?: string | null
+          id?: string
+          is_manual?: boolean
+          note?: string | null
+          trip_id?: string
+          type_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'trip_document_requirements_trip_id_fkey'
+            columns: ['trip_id']
+            isOneToOne: false
+            referencedRelation: 'trips'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'trip_document_requirements_type_id_fkey'
+            columns: ['type_id']
+            isOneToOne: false
+            referencedRelation: 'document_types'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'trip_document_requirements_user_id_fkey'
+            columns: ['user_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+        ]
+      }
       trip_travelers: {
         Row: {
           arrival_date: string | null
@@ -577,6 +764,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      dashboard: { Args: never; Returns: Json }
       generate_invite_code: { Args: never; Returns: string }
       health: { Args: never; Returns: Json }
       is_couple_member: { Args: { target: string }; Returns: boolean }
@@ -586,8 +774,21 @@ export type Database = {
       partner_id: { Args: never; Returns: string }
       regenerate_invite_code: { Args: never; Returns: string }
       seed_categories: { Args: { target: string }; Returns: undefined }
+      seed_document_types: { Args: { target: string }; Returns: undefined }
       seed_trip_statuses: { Args: { target: string }; Returns: undefined }
       sync_trip_days: { Args: { target: string }; Returns: number }
+      trip_readiness: {
+        Args: { target: string }
+        Returns: {
+          user_id: string
+          type_id: string
+          type_name: string
+          is_manual: boolean
+          document_id: string | null
+          expires_on: string | null
+          satisfied: boolean
+        }[]
+      }
       trip_item_counts_by_day: {
         Args: { target: string }
         Returns: {

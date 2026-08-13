@@ -43,6 +43,7 @@ export const qk = {
   tray: (tripId: string) => ['suggestion-tray', tripId] as const,
 
   documents: (filter?: string) => ['documents', filter ?? 'all'] as const,
+  signedUrl: (path: string) => ['signed-url', path] as const,
   document: (id: string) => ['document', id] as const,
   documentTypes: ['document-types'] as const,
   readiness: (tripId: string) => ['readiness', tripId] as const,

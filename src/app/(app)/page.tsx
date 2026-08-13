@@ -1,5 +1,5 @@
-import { Placeholder } from '@/components/common/Placeholder'
+import { DashboardPage } from '@/modules/dashboard'
 
-export default function HomePage() {
-  return <Placeholder title="Home" phase="Phase 5 (Dashboard)" />
+export default function Home() {
+  return <DashboardPage />
 }
