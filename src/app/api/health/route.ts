@@ -8,6 +8,7 @@
  */
 import { NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { toAppError } from '@/lib/errors'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,8 +19,13 @@ export async function GET() {
     if (error) throw error
     return NextResponse.json({ ok: true, database: data })
   } catch (e) {
+    // Say what actually failed. A Postgrest error is not an Error instance, so
+    // reading `.message` off it directly reports nothing useful — which is
+    // exactly what you don't want from the endpoint you check when things break.
+    const err = toAppError(e)
+    console.error('health check failed', err.kind, err.code, err.cause)
     return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : 'unknown' },
+      { ok: false, kind: err.kind, code: err.code ?? null, error: err.message },
       { status: 503 },
     )
   }
