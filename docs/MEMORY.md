@@ -16,7 +16,8 @@ work up next — including a future session with no memory of this one.
 | Next | Phase 4 — Documents (spec Module 8) |
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
-| Supabase project | **not yet provisioned** — see Open questions |
+| Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
+| Migrations applied | 0001–0004, live |
 | Deployed | no |
 
 ### What runs today
@@ -213,6 +214,33 @@ React hooks. Marking the modules themselves, rather than every importer, means
 a module's `index.ts` barrel can still be imported from a Server Component that
 only wants the page component out of it.
 
+### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
+
+Supabase's linter, run against the live project, showed every helper and
+trigger function reachable unauthenticated at `/rest/v1/rpc/<name>`. The cause
+is a Postgres default nobody thinks about: a new function grants EXECUTE to
+PUBLIC, and `anon` inherits PUBLIC. 0001–0003 granted to `authenticated` and
+never revoked the default, which on its own does nothing.
+
+Nothing was exploitable — each one either checks `auth.uid()`, goes through
+`is_couple_member()`, or is a trigger function that fails without a NEW record.
+But that is a property of today's code, not a guarantee, and the linter was
+right to flag it. 0004 revokes from PUBLIC and grants back deliberately, sets a
+default privilege so it cannot creep back on future migrations, and pins the
+one mutable `search_path`. `health()` stays anon-callable because the
+keep-alive cron has no session.
+
+Verified after applying: `has_function_privilege('anon', …)` is false for all
+seventeen functions except `health()`.
+
+### D27 — Generated types replaced the hand-written ones
+
+`src/types/database.ts` now comes from `supabase gen types typescript`. Doing
+so immediately caught a real mismatch: `create_couple`'s argument has a SQL
+default, making it *optional* rather than *nullable*, and the client was
+passing an explicit `null`. Passing null to a `text` parameter with a default
+is not the same as omitting it.
+
 ### D24 — The migrations are verified against a real Postgres
 
 `supabase/tests/` applies every migration to a throwaway database and asserts
@@ -279,20 +307,17 @@ verbatim.
 
 Ordered by how much they block.
 
-1. **Supabase project.** Still none — the Supabase connector dropped out of the
-   session it was going to be created in, so this is the one setup step nobody
-   has done yet. `docs/SETUP.md` walks through it and the SQL is already proven
-   by `npm run db:test`, so it should be a paste and two OAuth forms. Create it
-   (region chosen deliberately: near whichever partner reads more), then:
-   - apply `supabase/migrations/0001_foundation.sql`
-   - enable the Google provider and set the OAuth redirect to the deployed origin
-   - set the `APP_URL` repository secret (the deployed origin) for the
-     keep-alive workflow, which now pings `/api/health`
-   - add `/auth/callback` on both origins to the Google redirect allowlist
-   - regenerate `src/types/database.ts`
-   The spec's Stage 0 gate is already verified at the database level by
-   `supabase/tests/` — what a live project adds is confirmation that the *app*
-   is wired to those same policies.
+1. **Nobody has signed in yet.** The project is live, all four migrations are
+   applied, RLS is on across all ten tables and the signup trigger is installed
+   on `auth.users` — but `auth.users` is empty, so the end-to-end path (Google →
+   profile row → pair → shared data) has never actually run. That is the one
+   remaining piece of the spec's Stage 0 gate; the database half is proven by
+   `supabase/tests/`.
+   Worth double-checking when you first sign in: Supabase's **URL Configuration
+   → Redirect URLs** must include `/auth/callback` on whichever origin you use.
+   That path is this app's own route, not the Supabase default, and a sign-in
+   that completes at Google and then bounces back to `/login` means it is
+   missing.
 2. **Hosting.** Vercel's free tier is the obvious fit now that this is a Next
    app — Cloudflare Pages would need the OpenNext adapter. No rewrite rules
    needed; the App Router handles deep links itself.

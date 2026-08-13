@@ -95,15 +95,9 @@ export function toAppError(e: unknown): AppError {
     return new AppError(e.message || 'Something went wrong.', { code: e.code, cause: e })
   }
 
-  if (e instanceof TypeError && /fetch|network/i.test(e.message)) {
-    return new AppError("Couldn't reach the server. Check your connection.", {
-      kind: 'network',
-      retryable: true,
-      cause: e,
-    })
-  }
-
   if (e instanceof Error) {
+    if (isNetworkMessage(e.message)) return networkError(e)
+
     const domain = RPC_MESSAGES[e.message.trim()]
     if (domain) {
       return new AppError(domain.message, {
@@ -116,7 +110,32 @@ export function toAppError(e: unknown): AppError {
     return new AppError(e.message, { cause: e })
   }
 
+  // Not every failure arrives as an Error. supabase-js wraps some transport
+  // problems in a plain object, and so do proxies sitting in front of it —
+  // which is how a blocked host was reaching the user as "Something went
+  // wrong." rather than "couldn't reach the server".
+  if (typeof e === 'object' && e !== null && 'message' in e) {
+    const message = String((e as { message: unknown }).message)
+    if (isNetworkMessage(message)) return networkError(e)
+    return new AppError(message || 'Something went wrong.', { cause: e })
+  }
+
   return new AppError('Something went wrong.', { cause: e })
+}
+
+/** Transport failures, however they are dressed up. */
+function isNetworkMessage(message: string): boolean {
+  return /fetch failed|network|econnrefused|enotfound|etimedout|socket hang up|allowlist|failed to fetch/i.test(
+    message,
+  )
+}
+
+function networkError(cause: unknown): AppError {
+  return new AppError("Couldn't reach the server. Check your connection.", {
+    kind: 'network',
+    retryable: true,
+    cause,
+  })
 }
 
 /**

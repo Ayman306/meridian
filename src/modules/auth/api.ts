@@ -51,7 +51,9 @@ export async function getPartner(): Promise<Profile | null> {
 }
 
 export async function createCouple(name?: string): Promise<Couple> {
-  const { data, error } = await supabase.rpc('create_couple', { couple_name: name ?? null })
+  // The RPC's argument has a SQL default, so it is optional rather than
+  // nullable — omit it entirely when the couple is unnamed.
+  const { data, error } = await supabase.rpc('create_couple', name ? { couple_name: name } : {})
   if (error) throw toAppError(error)
   if (!data) throw new AppError('Could not create your couple.', { kind: 'unknown' })
   return data as Couple

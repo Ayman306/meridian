@@ -45,8 +45,12 @@ Spec: Part 0, Part 15 Stage 0.
 - [x] `supabase/setup.sql` — one paste to stand up a project — generated and
       CI-checked against the migrations
 - [x] `docs/SETUP.md` covering the project, Google OAuth and `.env.local`
-- [ ] **Needs a human:** create the Supabase project, run the setup SQL, and
-      configure Google OAuth. See `docs/SETUP.md`.
+- [x] Supabase project live (`ylrpxrfneonjzctgtnmj`, ap-northeast-1), migrations
+      0001–0004 applied, RLS confirmed on all ten tables
+- [x] Function grants hardened after the Supabase linter flagged them (0004)
+- [x] `src/types/database.ts` regenerated from the live schema
+- [ ] **Needs a human:** sign in once with two Google accounts to confirm the
+      app is wired to the same policies the database tests prove.
 
 **Verify before Phase 2 can be called complete:** two accounts pair, and account A
 cannot read account B's rows via a direct query with A's JWT.
