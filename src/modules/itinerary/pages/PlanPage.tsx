@@ -38,6 +38,7 @@ import { IdeaPool } from '../components/IdeaPool'
 import { DaySection } from '../components/DaySection'
 import { MonthGrid } from '../components/MonthGrid'
 import { ItemEditor } from '../components/ItemEditor'
+import { SuggestionTray } from '../components/SuggestionTray'
 import { ItemCard } from '../components/ItemCard'
 import type { ItineraryItem } from '../types'
 
@@ -124,6 +125,8 @@ export function PlanPage() {
       onDragEnd={onDragEnd}
     >
       <div className="space-y-6">
+        <SuggestionTray tripId={tripId} />
+
         <IdeaPool
           items={plan.pool}
           categories={cats}

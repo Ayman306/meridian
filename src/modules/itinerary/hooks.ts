@@ -132,6 +132,17 @@ export function useSuggestionTray(tripId: string | undefined) {
   })
 }
 
+export function useAcceptSuggestion(tripId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.acceptSuggestion(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: qk.tray(tripId) })
+      invalidatePlan(qc, tripId)
+    },
+  })
+}
+
 export function useDismissSuggestion(tripId: string) {
   const qc = useQueryClient()
   return useMutation({

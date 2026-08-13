@@ -11,6 +11,7 @@ export {
   useDeleteItem,
   useRestoreItem,
   useSuggestionTray,
+  useAcceptSuggestion,
   useDismissSuggestion,
 } from './hooks'
 export {

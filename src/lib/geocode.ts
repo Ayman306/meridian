@@ -37,7 +37,15 @@ interface NominatimPlace {
   lat: string
   lon: string
   name?: string
-  address?: { country?: string; country_code?: string }
+  type?: string
+  category?: string
+  address?: {
+    country?: string
+    country_code?: string
+    city?: string
+    town?: string
+    village?: string
+  }
 }
 
 export async function searchCity(query: string, signal?: AbortSignal): Promise<CityResult[]> {
@@ -65,6 +73,61 @@ export async function searchCity(query: string, signal?: AbortSignal): Promise<C
     const places = (await res.json()) as NominatimPlace[]
     return places.map(toCityResult)
   })
+}
+
+/**
+ * Any place, not just cities — a restaurant, a viewpoint, a street.
+ *
+ * Separate from `searchCity` because the two want different results for the
+ * same string: "Porto" as a destination is the city, "Porto" while adding a
+ * wishlist save might be the wine cellar. Same throttle, same policy.
+ */
+export async function searchPlaces(query: string, signal?: AbortSignal): Promise<PlaceResult[]> {
+  const q = query.trim()
+  if (q.length < 2) return []
+
+  return throttled(async () => {
+    const url = new URL(`${NOMINATIM_BASE}/search`)
+    url.searchParams.set('q', q)
+    url.searchParams.set('format', 'jsonv2')
+    url.searchParams.set('addressdetails', '1')
+    url.searchParams.set('limit', '8')
+
+    const res = await fetch(url, {
+      signal: signal ?? null,
+      headers: { Accept: 'application/json', 'Accept-Language': 'en' },
+    })
+    if (!res.ok) {
+      throw new AppError('Place search is unavailable right now.', {
+        kind: res.status === 429 ? 'rate_limit' : 'upstream',
+        retryable: true,
+      })
+    }
+
+    const places = (await res.json()) as NominatimPlace[]
+    return places.map((p) => {
+      const parts = p.display_name.split(',').map((s) => s.trim())
+      return {
+        name: p.name || parts[0] || p.display_name,
+        displayName: p.display_name,
+        city: p.address?.city ?? p.address?.town ?? p.address?.village ?? null,
+        countryCode: p.address?.country_code?.toUpperCase() ?? null,
+        kind: p.type ?? p.category ?? null,
+        lat: Number(p.lat),
+        lng: Number(p.lon),
+      }
+    })
+  })
+}
+
+export interface PlaceResult {
+  name: string
+  displayName: string
+  city: string | null
+  countryCode: string | null
+  kind: string | null
+  lat: number
+  lng: number
 }
 
 function toCityResult(p: NominatimPlace): CityResult {

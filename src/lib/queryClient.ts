@@ -42,6 +42,11 @@ export const qk = {
   categories: ['categories'] as const,
   tray: (tripId: string) => ['suggestion-tray', tripId] as const,
 
+  wishlist: (coupleId: string) => ['wishlist', coupleId] as const,
+
+  mapPins: (scope: string) => ['map-pins', scope] as const,
+  geocode: (query: string) => ['geocode', query] as const,
+
   documents: (filter?: string) => ['documents', filter ?? 'all'] as const,
   signedUrl: (path: string) => ['signed-url', path] as const,
   document: (id: string) => ['document', id] as const,

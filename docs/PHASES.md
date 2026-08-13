@@ -14,9 +14,9 @@ records what changed.
 | 4 | 8 — Documents | ✅ done | Highest standalone value, no dependencies |
 | 5 | 2 — Dashboard | ✅ done | Needs the above to have anything to show |
 | — | *Milestone* | ✅ | Plan one real trip end to end with no other tool |
-| 6 | 7 — Wishlist & Blend | ⬜ next | Depends on Itinerary |
-| 7 | 6 — Map | ⬜ | Depends on Itinerary, Wishlist |
-| 8 | 4 — Destinations | ⬜ | Depends on Trips |
+| 6 | 7 — Wishlist & Blend | ✅ done | Depends on Itinerary |
+| 7 | 6 — Map | ✅ done | Depends on Itinerary, Wishlist |
+| 8 | 4 — Destinations | ⬜ next | Depends on Trips |
 | 9 | 10 — Stay Allowance | ⬜ | Depends on Destinations, Trips |
 | 10 | 9 — Flights | ⬜ | First external API; polling discipline matters |
 | 11 | 11 — Gallery | ⬜ | Largest module; free-tier storage drives its design |
@@ -107,8 +107,8 @@ Spec: Module 5.
       proves too coarse in real use
 - [ ] Bulk actions UI — `useBulkMove` exists, no multi-select surface yet
 - [ ] Work-hours overlay — needs the Settings fields (Phase 13)
-- [ ] Suggestion tray UI — nothing generates suggestions until Wishlist &
-      Blend (Phase 6), so the tray reads empty by construction
+- [x] Suggestion tray UI — shipped in Phase 6, once Blend had something to put
+      in it
 
 ## Next.js migration
 
@@ -161,6 +161,51 @@ Spec: Module 2.
 - [ ] Active flight card — waits on Phase 10
 - [ ] Stay-allowance alerts — priority 3 is reserved, lands in Phase 9
 
-## Phase 6 — Wishlist & Blend (next)
+## Phase 6 — Wishlist & Blend
 
 Spec: Module 7.
+
+- [x] `wishlist_items`, `wishlist_verdicts` + RLS: both partners read
+      everything, each writes only their own — including verdicts
+- [x] Verdicts in their own table, so reacting to a save never edits it
+- [x] Save a place with a title alone; city optional, before any destination
+- [x] Link paste → OpenGraph title and image, via `/api/extract`
+- [x] Place search sets coordinates, city and country in one pick
+- [x] Blend view: both of us / your picks / their picks / undecided / clashes,
+      each section hidden rather than shown empty
+- [x] "Both of us" computed by proximity (150 m) or normalised name in a city
+- [x] Verdicts optimistic — one click, no confirmation, click again to un-vote
+- [x] Push to the idea pool through one RPC: attribution preserved, a second
+      push warns instead of duplicating
+- [x] Draft generator: select → cluster → order → pace → balance, pure
+      TypeScript, no model. Long stays get 40% of days at most
+- [x] Generated drafts land in the suggestion tray and nowhere else
+- [x] Suggestion tray UI on the plan tab — Keep or Discard, nothing automatic
+- [x] Realtime on saves and verdicts
+- [ ] Bulk "push all undecided" — only "both of us" and multi-select ship now
+- [ ] Blend scoped by a real destination — it matches on the trip title until
+      Module 4 (Phase 8) gives trips a destination
+
+## Phase 7 — Map
+
+Spec: Module 6.
+
+- [x] Leaflet + OSM tiles, no API key, attribution always visible
+- [x] Layers: scheduled, idea pool, wishlist (wishlist on the all-time map only)
+- [x] Filters by day, person, category and state
+- [x] Pins coloured by whose pick, numbered when a single day is selected
+- [x] Clustering below zoom 13 (`leaflet.markercluster`)
+- [x] Day route drawn as straight lines, labelled as not walking distance
+- [x] Popup with title, time, whose pick and a Google Maps link built from
+      coordinates first
+- [x] Long-press (or right-click) the map to add an item at that location
+- [x] Items without coordinates counted in "Not on map (n)", never dropped
+- [x] `/map` — every place across every trip and the whole wishlist
+- [x] Geocode cache table, 600 ms debounce, one network call per query
+- [ ] Photo and accommodation layers — those modules do not exist yet
+- [ ] Empty map centred on the destination — needs Module 4 (Phase 8); it
+      centres on the world until then
+
+## Phase 8 — Destinations (next)
+
+Spec: Module 4.

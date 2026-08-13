@@ -19,6 +19,7 @@ import { TravelerDates } from '../components/TravelerDates'
 
 const TABS = [
   { segment: 'plan', label: 'Plan' },
+  { segment: 'blend', label: 'Blend' },
   { segment: 'map', label: 'Map' },
   { segment: 'docs', label: 'Docs' },
   { segment: 'money', label: 'Money' },

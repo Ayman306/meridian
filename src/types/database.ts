@@ -4,7 +4,7 @@
  *   npm run db:types
  *   # supabase gen types typescript --project-id <ref> > src/types/database.ts
  *
- * Generated from the live project after migrations 0001-0004. The aliases at
+ * Generated from the live project after migrations 0001-0007. The aliases at
  * the bottom are the only hand-written part: they are what the modules import,
  * and they are re-added after each regeneration.
  */
@@ -126,6 +126,24 @@ export type Database = {
           invite_expires_at?: string | null
           name?: string | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      geocode_cache: {
+        Row: {
+          cached_at: string
+          query: string
+          results: Json
+        }
+        Insert: {
+          cached_at?: string
+          query: string
+          results: Json
+        }
+        Update: {
+          cached_at?: string
+          query?: string
+          results?: Json
         }
         Relationships: []
       }
@@ -740,6 +758,133 @@ export type Database = {
           },
         ]
       }
+      wishlist_items: {
+        Row: {
+          address: string | null
+          category_id: string | null
+          city: string | null
+          country_code: string | null
+          couple_id: string
+          created_at: string
+          deleted_at: string | null
+          id: string
+          image_url: string | null
+          intensity: number | null
+          lat: number | null
+          lng: number | null
+          maps_url: string | null
+          notes: string | null
+          place_name: string | null
+          title: string
+          updated_at: string
+          url: string | null
+          user_id: string
+        }
+        Insert: {
+          address?: string | null
+          category_id?: string | null
+          city?: string | null
+          country_code?: string | null
+          couple_id: string
+          created_at?: string
+          deleted_at?: string | null
+          id?: string
+          image_url?: string | null
+          intensity?: number | null
+          lat?: number | null
+          lng?: number | null
+          maps_url?: string | null
+          notes?: string | null
+          place_name?: string | null
+          title: string
+          updated_at?: string
+          url?: string | null
+          user_id: string
+        }
+        Update: {
+          address?: string | null
+          category_id?: string | null
+          city?: string | null
+          country_code?: string | null
+          couple_id?: string
+          created_at?: string
+          deleted_at?: string | null
+          id?: string
+          image_url?: string | null
+          intensity?: number | null
+          lat?: number | null
+          lng?: number | null
+          maps_url?: string | null
+          notes?: string | null
+          place_name?: string | null
+          title?: string
+          updated_at?: string
+          url?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'wishlist_items_category_id_fkey'
+            columns: ['category_id']
+            isOneToOne: false
+            referencedRelation: 'categories'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'wishlist_items_couple_id_fkey'
+            columns: ['couple_id']
+            isOneToOne: false
+            referencedRelation: 'couples'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'wishlist_items_user_id_fkey'
+            columns: ['user_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      wishlist_verdicts: {
+        Row: {
+          created_at: string
+          updated_at: string
+          user_id: string
+          verdict: string
+          wishlist_id: string
+        }
+        Insert: {
+          created_at?: string
+          updated_at?: string
+          user_id: string
+          verdict: string
+          wishlist_id: string
+        }
+        Update: {
+          created_at?: string
+          updated_at?: string
+          user_id?: string
+          verdict?: string
+          wishlist_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'wishlist_verdicts_user_id_fkey'
+            columns: ['user_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'wishlist_verdicts_wishlist_id_fkey'
+            columns: ['wishlist_id']
+            isOneToOne: false
+            referencedRelation: 'wishlist_items'
+            referencedColumns: ['id']
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -772,6 +917,14 @@ export type Database = {
       leave_couple: { Args: never; Returns: undefined }
       my_couple_id: { Args: never; Returns: string }
       partner_id: { Args: never; Returns: string }
+      push_wishlist_to_itinerary: {
+        Args: {
+          new_sort_key: string
+          target_trip_id: string
+          wishlist_item_id: string
+        }
+        Returns: string
+      }
       regenerate_invite_code: { Args: never; Returns: string }
       seed_categories: { Args: { target: string }; Returns: undefined }
       seed_document_types: { Args: { target: string }; Returns: undefined }
