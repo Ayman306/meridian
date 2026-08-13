@@ -190,6 +190,111 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['trip_days']['Insert']>
         Relationships: []
       }
+      categories: {
+        Row: {
+          id: string
+          couple_id: string
+          name: string
+          icon: string | null
+          color: string | null
+          is_default: boolean
+          sort_order: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          couple_id: string
+          name: string
+          icon?: string | null
+          color?: string | null
+          is_default?: boolean
+          sort_order?: number
+        }
+        Update: Partial<Database['public']['Tables']['categories']['Insert']>
+        Relationships: []
+      }
+      itinerary_items: {
+        Row: {
+          id: string
+          couple_id: string
+          trip_id: string
+          title: string
+          scheduled_date: string | null
+          start_time: string | null
+          end_time: string | null
+          duration_minutes: number | null
+          destination_id: string | null
+          place_name: string | null
+          lat: number | null
+          lng: number | null
+          address: string | null
+          maps_url: string | null
+          category_id: string | null
+          notes: string | null
+          url: string | null
+          cost_estimate: number | null
+          currency: string | null
+          proposed_by: string | null
+          source: string
+          state: string
+          sort_key: string
+          created_at: string
+          updated_at: string
+          deleted_at: string | null
+        }
+        Insert: {
+          id?: string
+          couple_id: string
+          trip_id: string
+          title: string
+          scheduled_date?: string | null
+          start_time?: string | null
+          end_time?: string | null
+          duration_minutes?: number | null
+          destination_id?: string | null
+          place_name?: string | null
+          lat?: number | null
+          lng?: number | null
+          address?: string | null
+          maps_url?: string | null
+          category_id?: string | null
+          notes?: string | null
+          url?: string | null
+          cost_estimate?: number | null
+          currency?: string | null
+          proposed_by?: string | null
+          source?: string
+          state?: string
+          sort_key: string
+          deleted_at?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['itinerary_items']['Insert']>
+        Relationships: []
+      }
+      suggestion_tray: {
+        Row: {
+          id: string
+          couple_id: string
+          trip_id: string | null
+          payload: Json
+          source: string | null
+          generated_at: string
+          accepted_at: string | null
+          dismissed_at: string | null
+        }
+        Insert: {
+          id?: string
+          couple_id: string
+          trip_id?: string | null
+          payload: Json
+          source?: string | null
+          accepted_at?: string | null
+          dismissed_at?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['suggestion_tray']['Insert']>
+        Relationships: []
+      }
     }
     Views: Record<never, never>
     Functions: {
@@ -206,6 +311,11 @@ export interface Database {
       health: { Args: Record<never, never>; Returns: Json }
       seed_trip_statuses: { Args: { target: string }; Returns: undefined }
       sync_trip_days: { Args: { target: string }; Returns: number }
+      seed_categories: { Args: { target: string }; Returns: undefined }
+      trip_item_counts_by_day: {
+        Args: { target: string }
+        Returns: { date: string; item_count: number }[]
+      }
     }
     Enums: Record<never, never>
     CompositeTypes: Record<never, never>

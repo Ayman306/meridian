@@ -22,9 +22,13 @@ export function CardDescription({ className, ...props }: React.HTMLAttributes<HT
   return <p className={cn('text-sm text-muted-foreground', className)} {...props} />
 }
 
-export function CardContent({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('p-5 pt-0', className)} {...props} />
-}
+// Forwards a ref because drop targets (dnd-kit) attach to the content area.
+export const CardContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ className, ...props }, ref) => (
+    <div ref={ref} className={cn('p-5 pt-0', className)} {...props} />
+  ),
+)
+CardContent.displayName = 'CardContent'
 
 export function CardFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={cn('flex items-center gap-2 p-5 pt-0', className)} {...props} />

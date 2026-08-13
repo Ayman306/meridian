@@ -9,8 +9,8 @@ records what changed.
 | 0 | Foundations | ✅ done | Scaffold, lib, providers, shell, RLS primitives |
 | 1 | 1 — Auth & Couple | ✅ done | Everything depends on `couple_id` |
 | 2 | 3 — Trips | ✅ done | The container most other data attaches to |
-| 3 | 5 — Itinerary | ⬜ next | The main planning surface |
-| 4 | 8 — Documents | ⬜ | Highest standalone value, no dependencies |
+| 3 | 5 — Itinerary | ✅ done | The main planning surface |
+| 4 | 8 — Documents | ⬜ next | Highest standalone value, no dependencies |
 | 5 | 2 — Dashboard | ⬜ | Needs the above to have anything to show |
 | — | *Milestone* | | Plan one real trip end to end with no other tool |
 | 6 | 7 — Wishlist & Blend | ⬜ | Depends on Itinerary |
@@ -80,15 +80,36 @@ Spec: Module 3.
 - [x] Realtime on trips / travelers / days — last write wins
 - [ ] The bin screen that lists and restores deleted trips (Settings, Phase 13)
 
-## Phase 3 — Itinerary (next)
+## Phase 3 — Itinerary
 
 Spec: Module 5.
 
-- [ ] `categories` (seeded), `itinerary_items`, `suggestion_tray` + RLS
-- [ ] Idea pool: everything with `scheduled_date is null`, always visible
-- [ ] Day list for short trips, month grid for long stays
-- [ ] **Blank days on a long stay render `RestfulEmpty` — no call to action**
-- [ ] Drag pool → day → pool, one UPDATE per move
-- [ ] Item editor: title required, everything else optional
-- [ ] Day types, with manual types never demoted
-- [ ] Conflict badges: overlap, tight connection, busy day — warn, never block
+- [x] `categories` (seeded), `itinerary_items`, `suggestion_tray` + RLS
+- [x] Idea pool: everything with `scheduled_date is null`, always visible
+- [x] Day list for short trips, month grid for long stays
+- [x] **Blank days on a long stay render `RestfulEmpty` — no call to action**
+- [x] Drag pool → day → pool, one UPDATE per move, optimistic
+- [x] Item editor: title required, everything else optional
+- [x] Day types, with manual types never demoted (enforced by DB trigger)
+- [x] Conflict badges: overlap, tight connection, busy day — warn, never block
+- [x] Items stranded by a date change surface in "Outside the trip dates"
+- [x] Shortening a trip unschedules affected items instead of deleting them
+- [x] Realtime on items and the suggestion tray
+- [ ] Week view — the spec calls it optional; skipped until the month grid
+      proves too coarse in real use
+- [ ] Bulk actions UI — `useBulkMove` exists, no multi-select surface yet
+- [ ] Work-hours overlay — needs the Settings fields (Phase 13)
+- [ ] Suggestion tray UI — nothing generates suggestions until Wishlist &
+      Blend (Phase 6), so the tray reads empty by construction
+
+## Phase 4 — Documents (next)
+
+Spec: Module 8.
+
+- [ ] `document_types` (seeded), `documents`, `trip_document_requirements`
+- [ ] RLS nuance: readable by the owner, or by the partner when `is_shared`
+- [ ] Private `docs` bucket, signed URLs at 300s, never public
+- [ ] Upload with client-side image compression, 10 MB cap
+- [ ] Expiry engine with the passport 9-month rule and alert dedupe
+- [ ] Trip readiness scored against `trip.end_date`, not today
+- [ ] Vault re-auth gate after 15 minutes idle

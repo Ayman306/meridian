@@ -12,8 +12,8 @@ work up next — including a future session with no memory of this one.
 
 | | |
 | --- | --- |
-| Phase | 2 complete (Foundations, Auth & Couple, Trips) |
-| Next | Phase 3 — Itinerary (spec Module 5) |
+| Phase | 3 complete (Foundations, Auth & Couple, Trips, Itinerary) |
+| Next | Phase 4 — Documents (spec Module 8) |
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Supabase project | **not yet provisioned** — see Open questions |
 | Deployed | no |
@@ -22,9 +22,10 @@ work up next — including a future session with no memory of this one.
 
 Sign in with Google → create or join a couple by code → fill in a profile →
 create trips, set their dates at whatever precision you actually know, set each
-partner's own arrival and departure, and see how many nights you overlap. The
-trip detail page has its full tab bar; the tabs themselves land in later phases.
-Typecheck, lint, 79 unit tests and a production build pass.
+partner's own arrival and departure, and see how many nights you overlap — then
+plan the trip itself: collect ideas in a pool, drag them onto days, reorder
+them, and read the day list or the month grid depending on how long the stay is.
+Typecheck, lint, 110 unit tests and a production build pass.
 
 ### What is stubbed
 
@@ -126,6 +127,49 @@ to exist for that to be editable, so `createTrip` seeds a `trip_travelers` row
 for each member with null dates, and the UI falls back to the trip's own dates
 while they stay null. That keeps "inherited" visually distinct from "chosen".
 
+### D13 — Day-type promotion is a database trigger
+
+Spec 5.3 says a day gains its first item and becomes "planned", but only if it
+is currently "open" — a manual rest or work day is never demoted. Putting that
+in a trigger rather than the client means it holds however the item arrived:
+drag, bulk move, an accepted suggestion, or a future Edge Function. The rule
+cannot be forgotten at a new call site because there is only one site.
+
+### D14 — Timed items sort before untimed ones
+
+Spec 5.3 offers both orderings and says only that we must pick one. A day with
+a 09:00 flight and a loose "buy stamps" reads as a schedule with slack; the
+reverse reads as a pile with a flight buried in it. Timed first.
+
+### D15 — A time cannot exist without a date
+
+Enforced by a check constraint, not just the form. "8pm on no particular day"
+is not a plan, and letting it into the pool would mean every consumer of pool
+items has to handle a time that means nothing. Unscheduling an item therefore
+clears its times too — in `moveItem`, in `bulkMove`, and in `sync_trip_days`.
+
+### D16 — Shortening a trip unschedules items rather than deleting them
+
+The spec's prompt offers "move to Ideas, or cancel". Rather than a second
+round trip after the user chooses, `sync_trip_days()` always unschedules
+out-of-range items before deleting their days, inside the same transaction.
+The prompt is then honest about a thing that has already been made safe, and
+the outcome is the same whoever changed the dates — including a future Edge
+Function that never sees the dialog.
+
+### D17 — `trips` calls the item-count RPC directly
+
+The shortening prompt needs to know which days carry items. Importing the
+itinerary module from the trips module would create a cycle, since the plan
+page imports trips. A four-line duplicated RPC call in `trips/api.ts` is the
+cheaper of the two.
+
+### D18 — Drag and drop is optimistic
+
+A drag that visibly snaps back while the server thinks about it reads as
+broken even when it succeeds. `useMoveItem` writes the new date into the cache
+immediately and rolls back on error.
+
 ---
 
 ## Deviations from the spec
@@ -139,7 +183,11 @@ while they stay null. That keeps "inherited" visually distinct from "chosen".
 | 3.1 `trip_days` | Adds `created_at` / `updated_at` | Part 0.3 requires them on every table; the module's own schema block omitted them |
 | 3.1 `trip_travelers` | Same | Same |
 | 3.3 day regeneration | Set difference runs in `sync_trip_days()` | D9 |
-| 3.2 shortening prompt | Prompts on days carrying a note or a non-open day type | Itinerary items don't exist until Phase 3; the check extends to them then |
+| 3.2 shortening prompt | Prompts on days carrying items, a note, or a manual day type | Extended in Phase 3 to count items |
+| 5.1 `itinerary_items` | Adds a `time_needs_date` check constraint | D15 |
+| 5.3 day-type promotion | Runs as a trigger, not in the client | D13 |
+| 5.2 week view | Not built | The spec calls it optional and worth building only if the month grid feels too coarse. It has not been used in anger yet. |
+| 5.1 `destination_id` | Column exists, FK deferred | `trip_destinations` arrives in Phase 8; adding the constraint then is one line |
 
 Nothing else diverges. Where the spec gave SQL verbatim, the migration uses it
 verbatim.
@@ -171,4 +219,10 @@ Ordered by how much they block.
 5. **Overlap warnings** are computed (`overlappingTrips`) but not yet surfaced.
    The natural home is the trip list, once there are enough trips for it to
    matter.
-6. **Health module scope.** The spec says design it together, last. Left alone.
+6. **The tight-connection heuristic** assumes 25 km/h door to door and scales
+   straight-line distance by 1.4. Both numbers are guesses that suit a dense
+   European city and will be wrong for a road trip. Revisit once the map
+   module (Phase 7) makes real distances visible.
+7. **Bulk actions** have a working mutation (`useBulkMove`) and no UI. Worth
+   adding once a real trip has enough items for multi-select to pay off.
+8. **Health module scope.** The spec says design it together, last. Left alone.

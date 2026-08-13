@@ -210,6 +210,22 @@ export async function setDayType(tripId: string, date: DateOnly, dayType: DayTyp
   )
 }
 
+/**
+ * How many itinerary items sit on each day, so the shortening prompt can name
+ * what is at stake.
+ *
+ * This calls the RPC directly rather than importing the itinerary module: the
+ * itinerary module already imports trips, and a cycle between the two would be
+ * worse than one duplicated four-line call.
+ */
+export async function itemCountsByDay(tripId: string): Promise<Record<string, number>> {
+  const { data, error } = await supabase.rpc('trip_item_counts_by_day', { target: tripId })
+  if (error) throw toAppError(error)
+  const out: Record<string, number> = {}
+  for (const row of data ?? []) out[row.date] = Number(row.item_count)
+  return out
+}
+
 /** Soft delete. Photos are deliberately untouched — they survive as Unfiled. */
 export async function deleteTrip(id: string): Promise<void> {
   const { error } = await supabase

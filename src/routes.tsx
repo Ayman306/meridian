@@ -17,6 +17,7 @@ import { useCouple } from '@/providers/CoupleProvider'
 import { LoginPage, PairPage, SetupPage } from '@/modules/auth'
 import { needsProfileSetup } from '@/modules/auth/logic'
 import { NewTripPage, TripDetailPage, TripListPage } from '@/modules/trips'
+import { PlanPage } from '@/modules/itinerary'
 
 function RequireAuth() {
   const { session, isLoading } = useAuth()
@@ -79,7 +80,7 @@ export function AppRoutes() {
               <Route path="trips/new" element={<NewTripPage />} />
               <Route path="trips/:id" element={<TripDetailPage />}>
                 <Route index element={<Navigate to="plan" replace />} />
-                <Route path="plan" element={<Placeholder title="Plan" phase="Phase 3" />} />
+                <Route path="plan" element={<PlanPage />} />
                 <Route path="map" element={<Placeholder title="Map" phase="Phase 7" />} />
                 <Route path="docs" element={<Placeholder title="Docs" phase="Phase 4" />} />
                 <Route path="money" element={<Placeholder title="Money" phase="Phase 12" />} />

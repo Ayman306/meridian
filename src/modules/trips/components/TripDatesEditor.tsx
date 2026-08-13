@@ -11,6 +11,7 @@ import { pluralise } from '@/lib/utils'
 import { userMessage } from '@/lib/errors'
 import type { DateOnly } from '@/lib/dates'
 import { diffTripDays } from '../logic'
+import { itemCountsByDay } from '../api'
 import { useSetTripDates } from '../hooks'
 import type { DatePrecision, TripDetail } from '../types'
 
@@ -29,6 +30,7 @@ export function TripDatesEditor({ trip, onDone }: { trip: TripDetail; onDone: ()
   const [precision, setPrecision] = useState<DatePrecision>(trip.date_precision as DatePrecision)
   const [openEnded, setOpenEnded] = useState(trip.is_open_ended)
   const [pendingRemoval, setPendingRemoval] = useState<DateOnly[] | null>(null)
+  const [atRiskItems, setAtRiskItems] = useState(0)
 
   const commit = async () => {
     await setDates.mutateAsync({
@@ -49,15 +51,18 @@ export function TripDatesEditor({ trip, onDone }: { trip: TripDetail; onDone: ()
       openEnded,
     )
 
-    // Only days the user has actually annotated are worth pausing over. Once
-    // Itinerary lands (Phase 3) this also counts scheduled items on those days.
+    // Only days carrying something are worth pausing over: a scheduled item,
+    // a note, or a day type the user set by hand.
+    const counts = await itemCountsByDay(trip.id)
     const meaningful = toRemove.filter((date) => {
+      if ((counts[date] ?? 0) > 0) return true
       const day = trip.days.find((d) => d.date === date)
-      return day && (day.day_type !== 'open' || day.title || day.note)
+      return Boolean(day && (day.day_type !== 'open' || day.title || day.note))
     })
 
     if (meaningful.length > 0) {
       setPendingRemoval(meaningful)
+      setAtRiskItems(meaningful.reduce((sum, d) => sum + (counts[d] ?? 0), 0))
       return
     }
     await commit()
@@ -137,7 +142,10 @@ export function TripDatesEditor({ trip, onDone }: { trip: TripDetail; onDone: ()
           pendingRemoval
             ? `${pluralise(pendingRemoval.length, 'day')} you've marked up fall outside the new dates: ${pendingRemoval
                 .slice(0, 5)
-                .join(', ')}${pendingRemoval.length > 5 ? '…' : ''}. Their notes and day types go with them.`
+                .join(', ')}${pendingRemoval.length > 5 ? '…' : ''}.` +
+              (atRiskItems > 0
+                ? ` ${pluralise(atRiskItems, 'scheduled item')} goes back to the idea pool rather than being deleted. Notes and day types on those days do not survive.`
+                : ' Their notes and day types go with them.')
             : undefined
         }
         confirmLabel="Drop them"
