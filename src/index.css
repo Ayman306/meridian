@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 40 30% 98%;
+    --foreground: 222 25% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 25% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 25% 12%;
+    --primary: 222 40% 18%;
+    --primary-foreground: 40 30% 98%;
+    --secondary: 40 20% 94%;
+    --secondary-foreground: 222 25% 12%;
+    --muted: 40 16% 94%;
+    --muted-foreground: 222 10% 42%;
+    --accent: 38 92% 50%;
+    --accent-foreground: 222 40% 12%;
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 40 12% 88%;
+    --input: 40 12% 88%;
+    --ring: 38 92% 50%;
+    --radius: 0.75rem;
+
+    --ok: 152 55% 38%;
+    --warn: 38 92% 45%;
+    --danger: 0 72% 48%;
+  }
+
+  .dark {
+    --background: 222 30% 7%;
+    --foreground: 40 20% 94%;
+    --card: 222 26% 10%;
+    --card-foreground: 40 20% 94%;
+    --popover: 222 26% 10%;
+    --popover-foreground: 40 20% 94%;
+    --primary: 40 20% 94%;
+    --primary-foreground: 222 30% 10%;
+    --secondary: 222 20% 16%;
+    --secondary-foreground: 40 20% 94%;
+    --muted: 222 20% 16%;
+    --muted-foreground: 220 10% 62%;
+    --accent: 38 92% 55%;
+    --accent-foreground: 222 40% 10%;
+    --destructive: 0 62% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 222 18% 20%;
+    --input: 222 18% 20%;
+    --ring: 38 92% 55%;
+
+    --ok: 152 45% 48%;
+    --warn: 38 88% 58%;
+    --danger: 0 68% 60%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings:
+      'rlig' 1,
+      'calt' 1;
+  }
+
+  /* Visible focus everywhere. Keyboard navigation is a build requirement. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
