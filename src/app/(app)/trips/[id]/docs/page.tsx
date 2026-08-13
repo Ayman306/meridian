@@ -1,5 +1,5 @@
-import { Placeholder } from '@/components/common/Placeholder'
+import { TripDocsPage } from '@/modules/documents/pages/TripDocsPage'
 
 export default function TripDocs() {
-  return <Placeholder title="Docs" phase="Phase 4" />
+  return <TripDocsPage />
 }

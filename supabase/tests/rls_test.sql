@@ -314,6 +314,144 @@ select assert(
 
 -- ---------------------------------------------------------------------------
 \echo ''
+\echo '== documents: private by owner, shared by choice =='
+set request.jwt.claim.sub = :'ada_ada';
+select public.seed_document_types(:'ada_couple');
+select assert(
+  (select count(*) from public.document_types where couple_id = :'ada_couple') = 9,
+  'nine document types seeded'
+);
+
+select id as passport_type from public.document_types
+ where couple_id = :'ada_couple' and name = 'Passport' \gset ada_
+
+insert into public.documents (couple_id, owner_id, type_id, label, expires_on, is_shared)
+values (:'ada_couple', :'ada_ada', :'ada_passport_type', 'Ada passport', '2031-01-01', true)
+returning id as shared_doc \gset ada_
+
+insert into public.documents (couple_id, owner_id, type_id, label, expires_on, is_shared)
+values (:'ada_couple', :'ada_ada', :'ada_passport_type', 'Ada private note', '2031-01-01', false)
+returning id as private_doc \gset ada_
+
+select assert(
+  (select count(*) from public.documents) = 2,
+  'the owner sees both of their own documents'
+);
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.documents) = 1,
+  'the partner sees only the shared one'
+);
+select assert(
+  (select count(*) from public.documents where id = :'ada_private_doc') = 0,
+  'a private document is invisible to the partner, even by id'
+);
+
+-- Un-sharing has to take effect immediately, which is only true if the policy
+-- enforces it rather than the UI filtering.
+set request.jwt.claim.sub = :'ada_ada';
+update public.documents set is_shared = false where id = :'ada_shared_doc';
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.documents) = 0,
+  'un-sharing hides it from the partner straight away'
+);
+
+-- The partner cannot edit or create documents in someone else's name.
+do $$
+declare
+  affected int;
+begin
+  update public.documents set label = 'tampered';
+  get diagnostics affected = row_count;
+  perform assert(affected = 0, 'the partner cannot edit the owner''s documents');
+end $$;
+
+select assert_raises(
+  format(
+    'insert into public.documents (couple_id, owner_id, label) values (%L, %L, %L)',
+    :'ada_couple', :'ada_ada', 'forged'
+  ),
+  'violates row-level security',
+  'nobody can create a document in their partner''s name'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.documents) = 0,
+  'a stranger sees no documents at all'
+);
+select assert(
+  (select count(*) from public.document_types) = 0,
+  'a stranger sees no document types'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== readiness checks the trip end date, not today =='
+set request.jwt.claim.sub = :'ada_ada';
+update public.documents set is_shared = true where id = :'ada_shared_doc';
+
+-- A trip that ends after the passport expires.
+insert into public.trips (couple_id, title, start_date, end_date, date_precision, created_by)
+values (:'ada_couple', 'Far future', '2031-06-01', '2031-06-10', 'exact', :'ada_ada')
+returning id as future_trip \gset ada_
+
+select assert(
+  (select satisfied from public.trip_readiness(:'ada_future_trip')
+    where user_id = :'ada_ada' and type_name = 'Passport') = false,
+  'a passport expiring before the trip ends does NOT satisfy the requirement'
+);
+
+-- The same passport against a trip that ends before it expires.
+insert into public.trips (couple_id, title, start_date, end_date, date_precision, created_by)
+values (:'ada_couple', 'Soon', '2030-06-01', '2030-06-10', 'exact', :'ada_ada')
+returning id as near_trip \gset ada_
+
+select assert(
+  (select satisfied from public.trip_readiness(:'ada_near_trip')
+    where user_id = :'ada_ada' and type_name = 'Passport') = true,
+  'the same passport DOES satisfy a trip that ends before it expires'
+);
+
+select assert(
+  (select count(*) from public.trip_readiness(:'ada_near_trip')) = 2,
+  'a passport is required for both travellers without anyone adding it'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert_raises(
+  format('select * from public.trip_readiness(%L)', :'ada_near_trip'),
+  'NOT_A_MEMBER',
+  'a stranger cannot ask about someone else''s readiness'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== the dashboard RPC is scoped to the caller =='
+set request.jwt.claim.sub = :'ada_ada';
+select assert(
+  (public.dashboard() ->> 'paired')::boolean,
+  'a paired user gets a real payload'
+);
+select assert(
+  jsonb_array_length(public.dashboard() -> 'expiring_documents') >= 0,
+  'the payload carries the expiring-documents array'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (public.dashboard() ->> 'paired')::boolean = false,
+  'an unpaired user gets paired:false rather than an error'
+);
+select assert(
+  public.dashboard() -> 'next_trip' is null,
+  'and no trip data leaks into it'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
 \echo '== leaving =='
 set request.jwt.claim.sub = :'bo_bo';
 select public.leave_couple();
