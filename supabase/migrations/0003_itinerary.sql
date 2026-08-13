@@ -81,8 +81,10 @@ create index if not exists suggestion_tray_open_idx
   on public.suggestion_tray (trip_id)
   where accepted_at is null and dismissed_at is null;
 
+drop trigger if exists categories_updated_at on public.categories;
 create trigger categories_updated_at before update on public.categories
   for each row execute function public.set_updated_at();
+drop trigger if exists itinerary_items_updated_at on public.itinerary_items;
 create trigger itinerary_items_updated_at before update on public.itinerary_items
   for each row execute function public.set_updated_at();
 
@@ -93,20 +95,26 @@ alter table public.categories      enable row level security;
 alter table public.itinerary_items enable row level security;
 alter table public.suggestion_tray enable row level security;
 
+drop policy if exists "couple read" on public.categories;
 create policy "couple read" on public.categories
   for select using (public.is_couple_member(couple_id));
+drop policy if exists "couple write" on public.categories;
 create policy "couple write" on public.categories
   for all using (public.is_couple_member(couple_id))
       with check (public.is_couple_member(couple_id));
 
+drop policy if exists "couple read" on public.itinerary_items;
 create policy "couple read" on public.itinerary_items
   for select using (public.is_couple_member(couple_id));
+drop policy if exists "couple write" on public.itinerary_items;
 create policy "couple write" on public.itinerary_items
   for all using (public.is_couple_member(couple_id))
       with check (public.is_couple_member(couple_id));
 
+drop policy if exists "couple read" on public.suggestion_tray;
 create policy "couple read" on public.suggestion_tray
   for select using (public.is_couple_member(couple_id));
+drop policy if exists "couple write" on public.suggestion_tray;
 create policy "couple write" on public.suggestion_tray
   for all using (public.is_couple_member(couple_id))
       with check (public.is_couple_member(couple_id));
@@ -157,6 +165,7 @@ begin
   return new;
 end $$;
 
+drop trigger if exists itinerary_promotes_day on public.itinerary_items;
 create trigger itinerary_promotes_day
   after insert or update of scheduled_date on public.itinerary_items
   for each row execute function public.promote_day_on_item();

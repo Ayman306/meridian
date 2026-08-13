@@ -41,9 +41,12 @@ Spec: Part 0, Part 15 Stage 0.
 - [x] `EmptyState`, `RestfulEmpty`, `ErrorState`, `Skeleton`, `DualTime`, `PersonBadge`
 - [x] GitHub Actions keep-alive cron against `health()`
 - [x] CI: typecheck, lint, test, build
-- [ ] **Blocked on a Supabase project:** apply migrations, configure Google OAuth,
-      wire `supabase gen types typescript` into the build, and run the two-account
-      RLS verification below.
+- [x] Migrations verified against a real Postgres, RLS assertions in CI
+- [x] `supabase/setup.sql` — one paste to stand up a project — generated and
+      CI-checked against the migrations
+- [x] `docs/SETUP.md` covering the project, Google OAuth and `.env.local`
+- [ ] **Needs a human:** create the Supabase project, run the setup SQL, and
+      configure Google OAuth. See `docs/SETUP.md`.
 
 **Verify before Phase 2 can be called complete:** two accounts pair, and account A
 cannot read account B's rows via a direct query with A's JWT.

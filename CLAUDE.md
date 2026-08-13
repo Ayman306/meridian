@@ -7,6 +7,7 @@ Travel planning for long-distance couples. Next.js 16 (App Router) + Supabase, f
 | File | What it is |
 | --- | --- |
 | `docs/SPEC.md` | The full implementation spec, verbatim. The source of truth. |
+| `docs/SETUP.md` | How to stand up Supabase and Google sign-in. |
 | `docs/MEMORY.md` | Application memory: phase status, decisions, deviations, open questions. Update it every phase. |
 | `docs/PHASES.md` | The phase plan and what "done" means for each. |
 
@@ -17,6 +18,7 @@ These come from the spec (Part 15, "Non-negotiables") and apply to every change:
 1. **RLS before UI.** Never ship a screen whose table lacks policies.
 2. **No API keys in the browser bundle.** Third-party calls go through Route Handlers in `src/app/api`. A key must never be a `NEXT_PUBLIC_` var.
 3. **No public storage buckets.** Signed URLs only, 300s.
+   Also: never commit a `.env`. Only `.env.example`, with placeholders, is tracked.
 4. **Advisory data is labelled advisory.** Visa and stay-allowance surfaces always carry source link, verified date, and disclaimer.
 5. **Nothing auto-inserts.** Generated content lands in the suggestion tray.
 6. **Open days are not empty days.** On stays over 5 nights, blank is the goal — `RestfulEmpty`, never a call to action.
@@ -37,7 +39,8 @@ These come from the spec (Part 15, "Non-negotiables") and apply to every change:
 
 ## Checklist per module
 
-- [ ] Migration written and applied
+- [ ] Migration written, and `npm run db:test` passes with new assertions for it
+- [ ] `npm run db:bundle` re-run so `supabase/setup.sql` stays in sync
 - [ ] RLS policies written **before** any screen
 - [ ] `src/types/database.ts` updated to match
 - [ ] `logic.ts` pure functions unit-tested
@@ -55,6 +58,8 @@ npm run dev         # next dev
 npm run typecheck   # tsc --noEmit
 npm run lint
 npm run test:run    # vitest, single pass
+npm run db:test     # migrations + RLS assertions against a scratch Postgres
+npm run db:bundle   # regenerate supabase/setup.sql
 npm run build
 ```
 

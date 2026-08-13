@@ -71,12 +71,16 @@ create index if not exists trips_couple_start_idx on public.trips (couple_id, st
 create index if not exists trips_live_idx on public.trips (couple_id) where deleted_at is null;
 create index if not exists trip_days_trip_date_idx on public.trip_days (trip_id, date);
 
+drop trigger if exists trip_statuses_updated_at on public.trip_statuses;
 create trigger trip_statuses_updated_at before update on public.trip_statuses
   for each row execute function public.set_updated_at();
+drop trigger if exists trips_updated_at on public.trips;
 create trigger trips_updated_at before update on public.trips
   for each row execute function public.set_updated_at();
+drop trigger if exists trip_travelers_updated_at on public.trip_travelers;
 create trigger trip_travelers_updated_at before update on public.trip_travelers
   for each row execute function public.set_updated_at();
+drop trigger if exists trip_days_updated_at on public.trip_days;
 create trigger trip_days_updated_at before update on public.trip_days
   for each row execute function public.set_updated_at();
 
@@ -88,25 +92,31 @@ alter table public.trips          enable row level security;
 alter table public.trip_travelers enable row level security;
 alter table public.trip_days      enable row level security;
 
+drop policy if exists "couple read" on public.trip_statuses;
 create policy "couple read" on public.trip_statuses
   for select using (public.is_couple_member(couple_id));
+drop policy if exists "couple write" on public.trip_statuses;
 create policy "couple write" on public.trip_statuses
   for all using (public.is_couple_member(couple_id))
       with check (public.is_couple_member(couple_id));
 
+drop policy if exists "couple read" on public.trips;
 create policy "couple read" on public.trips
   for select using (public.is_couple_member(couple_id));
+drop policy if exists "couple write" on public.trips;
 create policy "couple write" on public.trips
   for all using (public.is_couple_member(couple_id))
       with check (public.is_couple_member(couple_id));
 
 -- trip_travelers and trip_days have no couple_id of their own; they inherit
 -- access from their trip.
+drop policy if exists "couple read" on public.trip_travelers;
 create policy "couple read" on public.trip_travelers
   for select using (exists (
     select 1 from public.trips t
     where t.id = trip_id and public.is_couple_member(t.couple_id)
   ));
+drop policy if exists "couple write" on public.trip_travelers;
 create policy "couple write" on public.trip_travelers
   for all using (exists (
     select 1 from public.trips t
@@ -116,11 +126,13 @@ create policy "couple write" on public.trip_travelers
     where t.id = trip_id and public.is_couple_member(t.couple_id)
   ));
 
+drop policy if exists "couple read" on public.trip_days;
 create policy "couple read" on public.trip_days
   for select using (exists (
     select 1 from public.trips t
     where t.id = trip_id and public.is_couple_member(t.couple_id)
   ));
+drop policy if exists "couple write" on public.trip_days;
 create policy "couple write" on public.trip_days
   for all using (exists (
     select 1 from public.trips t

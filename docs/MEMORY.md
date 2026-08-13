@@ -213,6 +213,32 @@ React hooks. Marking the modules themselves, rather than every importer, means
 a module's `index.ts` barrel can still be imported from a Server Component that
 only wants the page component out of it.
 
+### D24 — The migrations are verified against a real Postgres
+
+`supabase/tests/` applies every migration to a throwaway database and asserts
+39 things about the result, including the isolation check the spec gates Stage 1
+on: a stranger can neither read nor write another couple's rows. CI runs it on
+every push against a Postgres service.
+
+This exists because RLS is the only thing protecting the data and it is
+invisible in code review — a policy with a subtly wrong `USING` clause looks
+exactly like a correct one. `00_shim.sql` fakes the small part of Supabase's
+`auth` schema the migrations touch (`auth.users`, `auth.uid()` from a session
+GUC), so the real migrations run unmodified.
+
+Writing the suite immediately found two things: an assertion of mine was wrong
+(an UPDATE filtered out by RLS returns zero rows rather than raising — correct
+behaviour, wrong test), and the migrations were not idempotent, because
+`create trigger` and `create policy` were unguarded. A second run of the setup
+would have failed halfway through. Both fixed.
+
+### D25 — `supabase/setup.sql` is generated and CI-checked
+
+Someone standing up a project should paste one thing, not three in the right
+order. `scripts/build-setup.mjs` concatenates the migrations; the output is
+committed and CI fails if it has drifted, so the convenience copy cannot become
+a stale second source of truth.
+
 ### D23 — Preferences read through `useSyncExternalStore`
 
 `ThemeProvider` used to seed `useState` from localStorage, which crashes during
@@ -253,17 +279,20 @@ verbatim.
 
 Ordered by how much they block.
 
-1. **Supabase project.** None exists yet — the org has only an unrelated
-   `ascent-track`. Someone needs to create one (region chosen deliberately: put
-   it near whichever partner reads more, latency-wise), then:
+1. **Supabase project.** Still none — the Supabase connector dropped out of the
+   session it was going to be created in, so this is the one setup step nobody
+   has done yet. `docs/SETUP.md` walks through it and the SQL is already proven
+   by `npm run db:test`, so it should be a paste and two OAuth forms. Create it
+   (region chosen deliberately: near whichever partner reads more), then:
    - apply `supabase/migrations/0001_foundation.sql`
    - enable the Google provider and set the OAuth redirect to the deployed origin
    - set the `APP_URL` repository secret (the deployed origin) for the
      keep-alive workflow, which now pings `/api/health`
    - add `/auth/callback` on both origins to the Google redirect allowlist
    - regenerate `src/types/database.ts`
-   Until then the RLS verification in Phase 0 cannot run, and it is the one thing
-   the spec says to confirm before proceeding.
+   The spec's Stage 0 gate is already verified at the database level by
+   `supabase/tests/` — what a live project adds is confirmation that the *app*
+   is wired to those same policies.
 2. **Hosting.** Vercel's free tier is the obvious fit now that this is a Next
    app — Cloudflare Pages would need the OpenNext adapter. No rewrite rules
    needed; the App Router handles deep links itself.

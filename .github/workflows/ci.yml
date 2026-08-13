@@ -6,7 +6,8 @@ on:
   pull_request:
 
 jobs:
-  check:
+  app:
+    name: Typecheck, lint, test, build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,9 +19,39 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test -- --run
+      - name: setup.sql is in sync with the migrations
+        run: node scripts/build-setup.mjs --check
       - name: Build
         env:
           # Build-time placeholders; the real values are set in the host.
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
         run: npm run build
+
+  database:
+    name: Migrations and RLS policies
+    runs-on: ubuntu-latest
+    # Applies every migration to a real Postgres and asserts the policies hold,
+    # including the isolation check the spec gates Stage 1 on.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install psql
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - run: ./supabase/tests/run.sh

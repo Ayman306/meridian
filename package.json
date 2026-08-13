@@ -10,8 +10,10 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test:run": "vitest run",
-    "db:types": "echo 'supabase gen types typescript --project-id $SUPABASE_PROJECT_REF > src/types/database.ts'",
-    "start": "next start"
+    "db:types": "supabase gen types typescript --project-id $SUPABASE_PROJECT_REF > src/types/database.ts",
+    "start": "next start",
+    "db:bundle": "node scripts/build-setup.mjs",
+    "db:test": "./supabase/tests/run.sh"
   },
   "license": "MIT",
   "private": true,

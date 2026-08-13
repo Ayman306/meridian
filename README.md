@@ -21,14 +21,10 @@ cp .env.example .env.local   # fill in your Supabase URL and anon key
 npm run dev
 ```
 
-You need a Supabase project first:
-
-1. Create one, then apply everything in `supabase/migrations/` in order.
-2. Enable the Google auth provider (scopes: `openid email profile`) and add your
-   dev and production origins to the redirect allowlist.
-3. Regenerate types: `supabase gen types typescript --project-id <ref> > src/types/database.ts`.
-4. Add `APP_URL` as a repository secret, pointing at the deployed origin, so the
-   keep-alive workflow can stop the free-tier project auto-pausing.
+You need a Supabase project first — **[docs/SETUP.md](docs/SETUP.md)** walks
+through it: create the project, paste `supabase/setup.sql` into the SQL editor,
+wire up Google sign-in, and fill in `.env.local`. About fifteen minutes, all on
+the free tier.
 
 ## Scripts
 
@@ -39,6 +35,8 @@ You need a Supabase project first:
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
 | `npm run test:run` | Vitest, single pass |
+| `npm run db:test` | Apply the migrations to a scratch Postgres and assert the RLS policies |
+| `npm run db:bundle` | Regenerate `supabase/setup.sql` from the migrations |
 
 ## Layout
 
@@ -53,7 +51,10 @@ src/
   types/         database (generated) and domain (hand-written)
 supabase/
   migrations/    numbered SQL, applied in order
+  setup.sql      generated: every migration in one paste-able file
+  tests/         applies the migrations to a real Postgres and asserts the RLS
 docs/
+  SETUP.md       getting Supabase and Google sign-in working
   SPEC.md        the full implementation spec
   PHASES.md      build order and per-phase definition of done
   MEMORY.md      decisions, deviations, open questions
