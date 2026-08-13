@@ -2,12 +2,7 @@
  * Normalised error shapes (spec 0.7). Every data view must be able to render
  * "what failed" and offer a retry, so every failure funnels through AppError.
  */
-import type {
-  PostgrestError,
-  PostgrestMaybeSingleResponse,
-  PostgrestResponse,
-  PostgrestSingleResponse,
-} from '@supabase/supabase-js'
+import type { PostgrestError } from '@supabase/supabase-js'
 
 export type ErrorKind =
   | 'auth' // not signed in / session expired
@@ -124,25 +119,34 @@ export function toAppError(e: unknown): AppError {
   return new AppError('Something went wrong.', { cause: e })
 }
 
+/**
+ * A Supabase response is a union: `{ data: T, error: null } | { data: null,
+ * error: PostgrestError }`. Inferring a bare `<T>` against that union picks up
+ * `null` from the failure branch and collapses the row type to nothing, so we
+ * infer the envelope and dig the payload out with a distributive conditional.
+ */
+type Envelope = { data: unknown; error: unknown }
+type Payload<R extends Envelope> = R extends { data: infer D } ? Exclude<D, null> : never
+
 /** A list result. Errors throw; an empty list is a legitimate answer. */
-export function unwrapList<T>(res: PostgrestResponse<T>): T[] {
+export function unwrapList<R extends Envelope>(res: R): Payload<R> {
   if (res.error) throw toAppError(res.error)
-  return res.data ?? []
+  return (res.data ?? []) as Payload<R>
 }
 
 /** Unwrap a Supabase `{ data, error }` envelope or throw a normalised error. */
-export function unwrap<T>(res: PostgrestSingleResponse<T>): T {
+export function unwrap<R extends Envelope>(res: R): Payload<R> {
   if (res.error) throw toAppError(res.error)
   if (res.data === null || res.data === undefined) {
     throw new AppError('Not found.', { kind: 'not_found', retryable: false })
   }
-  return res.data
+  return res.data as Payload<R>
 }
 
 /** Same as `unwrap`, but a null result is legitimate (e.g. "no couple yet"). */
-export function unwrapMaybe<T>(res: PostgrestMaybeSingleResponse<T>): T | null {
+export function unwrapMaybe<R extends Envelope>(res: R): Payload<R> | null {
   if (res.error) throw toAppError(res.error)
-  return res.data
+  return (res.data ?? null) as Payload<R> | null
 }
 
 /** Message safe to render to a user. Never leaks stack traces or SQL. */

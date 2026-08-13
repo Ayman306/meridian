@@ -8,8 +8,8 @@ records what changed.
 | --- | --- | --- | --- |
 | 0 | Foundations | ✅ done | Scaffold, lib, providers, shell, RLS primitives |
 | 1 | 1 — Auth & Couple | ✅ done | Everything depends on `couple_id` |
-| 2 | 3 — Trips | ⬜ next | The container most other data attaches to |
-| 3 | 5 — Itinerary | ⬜ | The main planning surface |
+| 2 | 3 — Trips | ✅ done | The container most other data attaches to |
+| 3 | 5 — Itinerary | ⬜ next | The main planning surface |
 | 4 | 8 — Documents | ⬜ | Highest standalone value, no dependencies |
 | 5 | 2 — Dashboard | ⬜ | Needs the above to have anything to show |
 | — | *Milestone* | | Plan one real trip end to end with no other tool |
@@ -61,15 +61,34 @@ Spec: Module 1.
 - [x] Regenerate code (members only, refused once the couple is full)
 - [ ] Leave couple — RPC exists; the Settings screen that calls it lands in Phase 13
 
-## Phase 2 — Trips (next)
+## Phase 2 — Trips
 
 Spec: Module 3.
 
-- [ ] `trip_statuses` (seeded), `trips`, `trip_travelers`, `trip_days` + RLS
-- [ ] Create with a title alone; dates prominent but skippable
-- [ ] Date precision: exact / month / season / year / unknown — display only
-- [ ] Trip list grouped Active → Upcoming → Planning → Past
-- [ ] Per-traveler arrival/departure and the computed "together" window
-- [ ] Day scaffolding: generate on set, extend on lengthen, **prompt** on shorten
-- [ ] Long-stay mode at > 5 nights
-- [ ] Soft delete, restorable 30 days; photos survive as Unfiled
+- [x] `trip_statuses` (seeded), `trips`, `trip_travelers`, `trip_days` + RLS
+- [x] Create with a title alone; dates prominent but skippable
+- [x] Date precision: exact / month / season / year / unknown — display only,
+      and countdowns render for `exact` alone
+- [x] Trip list grouped Active → Upcoming → Planning → Past, each sorted by what
+      you'd reach for first
+- [x] Per-traveler arrival/departure, defaulting to the trip's dates, and the
+      computed "together" window — a non-overlap is surfaced, not clamped
+- [x] Day scaffolding via `sync_trip_days()`: generate on set, extend on
+      lengthen, **prompt** before dropping annotated days
+- [x] Long-stay mode at > 5 nights
+- [x] Soft delete with a confirm; restore RPC in place
+- [x] Realtime on trips / travelers / days — last write wins
+- [ ] The bin screen that lists and restores deleted trips (Settings, Phase 13)
+
+## Phase 3 — Itinerary (next)
+
+Spec: Module 5.
+
+- [ ] `categories` (seeded), `itinerary_items`, `suggestion_tray` + RLS
+- [ ] Idea pool: everything with `scheduled_date is null`, always visible
+- [ ] Day list for short trips, month grid for long stays
+- [ ] **Blank days on a long stay render `RestfulEmpty` — no call to action**
+- [ ] Drag pool → day → pool, one UPDATE per move
+- [ ] Item editor: title required, everything else optional
+- [ ] Day types, with manual types never demoted
+- [ ] Conflict badges: overlap, tight connection, busy day — warn, never block

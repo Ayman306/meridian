@@ -86,6 +86,110 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['couple_members']['Insert']>
         Relationships: []
       }
+      trip_statuses: {
+        Row: {
+          id: string
+          couple_id: string
+          name: string
+          color: string | null
+          sort_order: number
+          is_terminal: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          couple_id: string
+          name: string
+          color?: string | null
+          sort_order?: number
+          is_terminal?: boolean
+        }
+        Update: Partial<Database['public']['Tables']['trip_statuses']['Insert']>
+        Relationships: []
+      }
+      trips: {
+        Row: {
+          id: string
+          couple_id: string
+          title: string
+          start_date: string | null
+          end_date: string | null
+          date_precision: string
+          is_open_ended: boolean
+          timezone: string | null
+          status_id: string | null
+          cover_media_id: string | null
+          notes: string | null
+          custom: Json
+          created_by: string | null
+          created_at: string
+          updated_at: string
+          deleted_at: string | null
+        }
+        Insert: {
+          id?: string
+          couple_id: string
+          title: string
+          start_date?: string | null
+          end_date?: string | null
+          date_precision?: string
+          is_open_ended?: boolean
+          timezone?: string | null
+          status_id?: string | null
+          cover_media_id?: string | null
+          notes?: string | null
+          custom?: Json
+          created_by?: string | null
+          deleted_at?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['trips']['Insert']>
+        Relationships: []
+      }
+      trip_travelers: {
+        Row: {
+          trip_id: string
+          user_id: string
+          origin_airport: string | null
+          arrival_date: string | null
+          departure_date: string | null
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          trip_id: string
+          user_id: string
+          origin_airport?: string | null
+          arrival_date?: string | null
+          departure_date?: string | null
+          notes?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['trip_travelers']['Insert']>
+        Relationships: []
+      }
+      trip_days: {
+        Row: {
+          id: string
+          trip_id: string
+          date: string
+          day_type: string
+          title: string | null
+          note: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          trip_id: string
+          date: string
+          day_type?: string
+          title?: string | null
+          note?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['trip_days']['Insert']>
+        Relationships: []
+      }
     }
     Views: Record<never, never>
     Functions: {
@@ -100,6 +204,8 @@ export interface Database {
       partner_id: { Args: Record<never, never>; Returns: string | null }
       is_couple_member: { Args: { target: string }; Returns: boolean }
       health: { Args: Record<never, never>; Returns: Json }
+      seed_trip_statuses: { Args: { target: string }; Returns: undefined }
+      sync_trip_days: { Args: { target: string }; Returns: number }
     }
     Enums: Record<never, never>
     CompositeTypes: Record<never, never>
