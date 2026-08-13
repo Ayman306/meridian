@@ -1,4 +1,6 @@
-import { Link } from 'react-router-dom'
+'use client'
+
+import Link from 'next/link'
 import { Card, Badge } from '@/components/ui/card'
 import { useCouple } from '@/providers/CoupleProvider'
 import { pluralise } from '@/lib/utils'
@@ -14,7 +16,7 @@ export function TripCard({ trip }: { trip: TripSummary }) {
 
   return (
     <Card className="transition-colors hover:border-foreground/25">
-      <Link to={`/trips/${trip.id}`} className="block rounded-lg p-5">
+      <Link href={`/trips/${trip.id}`} className="block rounded-lg p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 space-y-1">
             <h3 className="truncate font-semibold">{trip.title}</h3>

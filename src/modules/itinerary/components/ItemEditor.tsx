@@ -2,6 +2,8 @@
  * Create or edit one item. Title is the only required field — an idea with
  * nothing but a name is a legitimate, complete thing to save.
  */
+'use client'
+
 import { useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'

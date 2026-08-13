@@ -1,7 +1,7 @@
 # Free-tier Supabase projects auto-pause after ~7 days of inactivity, which
-# would take the app down silently between trips. Ping the health() RPC every
+# would take the app down silently between trips. Ping the health route every
 # two days so the project stays warm. Spec 0.10.
-name: Supabase keep-alive
+name: Keep-alive
 
 on:
   schedule:
@@ -14,21 +14,15 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping health endpoint
+      - name: Ping the health route
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          APP_URL: ${{ secrets.APP_URL }}
         run: |
-          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
-            echo "::error::Set the SUPABASE_URL and SUPABASE_ANON_KEY repository secrets."
+          if [ -z "$APP_URL" ]; then
+            echo "::error::Set the APP_URL repository secret to the deployed origin."
             exit 1
           fi
-          status=$(curl -sS -o /tmp/body.json -w '%{http_code}' \
-            -X POST "$SUPABASE_URL/rest/v1/rpc/health" \
-            -H "apikey: $SUPABASE_ANON_KEY" \
-            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
-            -H 'Content-Type: application/json' \
-            -d '{}')
+          status=$(curl -sS -o /tmp/body.json -w '%{http_code}' "$APP_URL/api/health")
           echo "HTTP $status"
           cat /tmp/body.json
           test "$status" = "200"

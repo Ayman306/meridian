@@ -2,8 +2,10 @@
  * Create or join a couple. This screen is where a solo user lives — possibly
  * for days — so it has to be a pleasant place to wait, not a blocker.
  */
-import { useState } from 'react'
-import { Navigate } from 'react-router-dom'
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Check, Copy, RefreshCw } from 'lucide-react'
 import { useCouple } from '@/providers/CoupleProvider'
 import { useAuth } from '@/providers/AuthProvider'
@@ -23,6 +25,13 @@ import { userMessage } from '@/lib/errors'
 export function PairPage() {
   const { couple, isLoading, isSolo } = useCouple()
   const { signOut } = useAuth()
+  const router = useRouter()
+
+  // Both members present and the code spent — this page has nothing left to do.
+  const paired = Boolean(couple) && !isSolo && !couple?.invite_code
+  useEffect(() => {
+    if (paired) router.replace('/')
+  }, [paired, router])
 
   if (isLoading) {
     return (
@@ -31,9 +40,6 @@ export function PairPage() {
       </main>
     )
   }
-
-  // Already paired with both members present — nothing to do here.
-  if (couple && !isSolo && !couple.invite_code) return <Navigate to="/" replace />
 
   return (
     <main className="mx-auto max-w-lg space-y-6 px-6 py-12">

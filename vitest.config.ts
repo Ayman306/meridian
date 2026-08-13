@@ -2,14 +2,15 @@ import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
 
+/**
+ * Vitest keeps its own Vite config now that the app builds with Next. It only
+ * ever loads pure logic and components, never the Next runtime.
+ */
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-    },
+    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
-  server: { port: 5173 },
   test: {
     environment: 'jsdom',
     globals: true,

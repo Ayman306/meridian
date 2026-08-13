@@ -4,8 +4,10 @@
  * Short trips get a day list; stays over five nights get a month grid, where
  * blank days are the desired state and are rendered as such.
  */
+'use client'
+
 import { useMemo, useState } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useParams } from 'next/navigation'
 import {
   DndContext,
   DragOverlay,
@@ -24,7 +26,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState, ErrorState, SkeletonList } from '@/components/common/states'
 import { formatInZone, parseDateOnly, type DateOnly } from '@/lib/dates'
 import { pluralise } from '@/lib/utils'
-import { isLongStay, nights, useSetDayType, type DayType, type TripDetail } from '@/modules/trips'
+import { isLongStay, nights, useSetDayType, useTrip, type DayType } from '@/modules/trips'
 import {
   useCategories,
   useItems,
@@ -39,13 +41,12 @@ import { ItemEditor } from '../components/ItemEditor'
 import { ItemCard } from '../components/ItemCard'
 import type { ItineraryItem } from '../types'
 
-interface TripContext {
-  trip: TripDetail
-}
-
 export function PlanPage() {
-  const { trip } = useOutletContext<TripContext>()
-  const tripId = trip.id
+  // The trip is already in the cache — the layout above fetched it — so this
+  // is a cache read, not a second round trip.
+  const params = useParams<{ id: string }>()
+  const tripId = params.id
+  const { data: trip } = useTrip(tripId)
 
   const items = useItems(tripId)
   const categories = useCategories()
@@ -64,21 +65,21 @@ export function PlanPage() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
-  const plan = useMemo(
-    () => buildPlan(items.data ?? [], trip.start_date, trip.end_date),
-    [items.data, trip.start_date, trip.end_date],
-  )
-  const days = useMemo(() => planDays(trip.start_date, trip.end_date), [trip.start_date, trip.end_date])
+  const start = trip?.start_date ?? null
+  const end = trip?.end_date ?? null
+
+  const plan = useMemo(() => buildPlan(items.data ?? [], start, end), [items.data, start, end])
+  const days = useMemo(() => planDays(start, end), [start, end])
   const dayTypes = useMemo(
-    () => Object.fromEntries(trip.days.map((d) => [d.date, d.day_type])),
-    [trip.days],
+    () => Object.fromEntries((trip?.days ?? []).map((d) => [d.date, d.day_type])),
+    [trip?.days],
   )
 
-  const tripNights = nights(trip)
-  const longStay = isLongStay(trip)
+  const tripNights = trip ? nights(trip) : null
+  const longStay = trip ? isLongStay(trip) : false
   const treatment = emptyDayTreatment(tripNights)
 
-  if (items.isLoading || categories.isLoading) return <SkeletonList rows={4} />
+  if (!trip || items.isLoading || categories.isLoading) return <SkeletonList rows={4} />
   if (items.error) return <ErrorState error={items.error} onRetry={() => void items.refetch()} />
 
   const cats = categories.data ?? []

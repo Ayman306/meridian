@@ -2,6 +2,8 @@
  * Whose pick. Appears on itinerary items, wishlist entries, documents and
  * anywhere else the answer to "who wanted this?" matters.
  */
+'use client'
+
 import { ACCENT_COLORS, type AccentColor } from '@/lib/constants'
 import type { PersonRef } from '@/types/domain'
 import { cn, initials } from '@/lib/utils'

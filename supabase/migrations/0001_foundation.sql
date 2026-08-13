@@ -29,6 +29,7 @@ create table if not exists public.couples (
   updated_at        timestamptz not null default now()
 );
 
+drop trigger if exists couples_updated_at on public.couples;
 create trigger couples_updated_at
   before update on public.couples
   for each row execute function public.set_updated_at();
@@ -53,6 +54,7 @@ create table if not exists public.profiles (
   updated_at         timestamptz not null default now()
 );
 
+drop trigger if exists profiles_updated_at on public.profiles;
 create trigger profiles_updated_at
   before update on public.profiles
   for each row execute function public.set_updated_at();
@@ -82,6 +84,7 @@ begin
   return new;
 end $$;
 
+drop trigger if exists couple_size_check on public.couple_members;
 create trigger couple_size_check
   before insert on public.couple_members
   for each row execute function public.enforce_couple_size();
@@ -147,42 +150,39 @@ alter table public.couples        enable row level security;
 alter table public.couple_members enable row level security;
 
 -- profiles: yourself, and your partner. Nobody else, ever.
-drop policy if exists "profiles read self"    on public.profiles;
-drop policy if exists "profiles read partner" on public.profiles;
-drop policy if exists "profiles update self"  on public.profiles;
-
+drop policy if exists "profiles read self" on public.profiles;
 create policy "profiles read self" on public.profiles
   for select using (id = auth.uid());
 
+drop policy if exists "profiles read partner" on public.profiles;
 create policy "profiles read partner" on public.profiles
   for select using (id = public.partner_id());
 
+drop policy if exists "profiles update self" on public.profiles;
 create policy "profiles update self" on public.profiles
   for update using (id = auth.uid()) with check (id = auth.uid());
 
 -- couples: members read and update. Creation goes through create_couple().
-drop policy if exists "couples read"   on public.couples;
-drop policy if exists "couples update" on public.couples;
-drop policy if exists "couples insert" on public.couples;
-
+drop policy if exists "couples read" on public.couples;
 create policy "couples read" on public.couples
   for select using (public.is_couple_member(id));
 
+drop policy if exists "couples update" on public.couples;
 create policy "couples update" on public.couples
   for update using (public.is_couple_member(id))
           with check (public.is_couple_member(id));
 
+drop policy if exists "couples insert" on public.couples;
 create policy "couples insert" on public.couples
   for insert with check (created_by = auth.uid());
 
 -- couple_members: you may read rows of your own couple, and delete your own
 -- membership ("leave couple"). Joining goes through join_couple().
-drop policy if exists "couple_members read"  on public.couple_members;
-drop policy if exists "couple_members leave" on public.couple_members;
-
+drop policy if exists "couple_members read" on public.couple_members;
 create policy "couple_members read" on public.couple_members
   for select using (public.is_couple_member(couple_id));
 
+drop policy if exists "couple_members leave" on public.couple_members;
 create policy "couple_members leave" on public.couple_members
   for delete using (user_id = auth.uid());
 

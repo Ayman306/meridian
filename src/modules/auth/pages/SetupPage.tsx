@@ -3,8 +3,10 @@
  * on it), timezone (auto-detected, editable), nationality (drives visa rules)
  * and accent colour (so whose-pick markers are legible).
  */
+'use client'
+
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useCouple } from '@/providers/CoupleProvider'
@@ -38,7 +40,7 @@ const COMMON_ZONES = [
 ]
 
 export function SetupPage() {
-  const navigate = useNavigate()
+  const router = useRouter()
   const { self, partner, isLoading } = useCouple()
   const update = useUpdateProfile()
   const detected = detectTimezone()
@@ -103,7 +105,7 @@ export function SetupPage() {
       accent_color: values.accent_color,
       onboarded_at: new Date().toISOString(),
     })
-    navigate('/', { replace: true })
+    router.replace('/')
   })
 
   const zones = Array.from(new Set([detected, ...COMMON_ZONES])).sort()
@@ -230,11 +232,13 @@ function CitySearchField({
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
 
+  // Whether to show anything is derived, not stored — clearing results from
+  // inside the effect would set state synchronously and cascade a render.
+  const active = query.trim().length >= 3
+  const visible = active ? results : []
+
   useEffect(() => {
-    if (query.trim().length < 3) {
-      setResults([])
-      return
-    }
+    if (!active) return
     const controller = new AbortController()
     const timer = setTimeout(async () => {
       setSearching(true)
@@ -250,7 +254,7 @@ function CitySearchField({
       controller.abort()
       clearTimeout(timer)
     }
-  }, [query])
+  }, [query, active])
 
   return (
     <Field
@@ -269,9 +273,9 @@ function CitySearchField({
         }}
         placeholder="Toronto"
       />
-      {results.length > 0 && (
+      {visible.length > 0 && (
         <ul className="mt-1 divide-y divide-border overflow-hidden rounded-md border border-border">
-          {results.map((r) => (
+          {visible.map((r) => (
             <li key={`${r.lat},${r.lng}`}>
               <button
                 type="button"

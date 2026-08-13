@@ -5,6 +5,8 @@
  * Solo mode (signed in, not yet paired) is a first-class state, not an error:
  * a partner may join days later. See spec 1.4.
  */
+'use client'
+
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import { qk } from '@/lib/queryClient'

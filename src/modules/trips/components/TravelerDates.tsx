@@ -2,6 +2,8 @@
  * Each partner sets their own arrival and departure. The overlap between them
  * is the number that actually matters, so it's stated plainly.
  */
+'use client'
+
 import { useState } from 'react'
 import { PersonBadge } from '@/components/PersonBadge'
 import { Button } from '@/components/ui/button'
