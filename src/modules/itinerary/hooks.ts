@@ -1,7 +1,9 @@
+'use client'
+
 import { useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { qk } from '@/lib/queryClient'
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase/client'
 import { useCouple } from '@/providers/CoupleProvider'
 import type { DateOnly } from '@/lib/dates'
 import * as api from './api'

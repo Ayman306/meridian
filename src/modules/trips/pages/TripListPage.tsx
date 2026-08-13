@@ -1,5 +1,7 @@
+'use client'
+
 import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import Link from 'next/link'
 import { Plus } from 'lucide-react'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { buttonVariants } from '@/components/ui/button'
@@ -25,7 +27,7 @@ export function TripListPage() {
       <PageHeader
         title="Trips"
         actions={
-          <Link to="/trips/new" className={buttonVariants()}>
+          <Link href="/trips/new" className={buttonVariants()}>
             <Plus aria-hidden="true" />
             New trip
           </Link>
@@ -41,7 +43,7 @@ export function TripListPage() {
           title="No trips yet"
           description="A trip needs nothing but a name. Add one and fill in the rest whenever you know it."
           action={
-            <Link to="/trips/new" className={buttonVariants()}>
+            <Link href="/trips/new" className={buttonVariants()}>
               Start a trip
             </Link>
           }

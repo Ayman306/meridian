@@ -1,5 +1,8 @@
+'use client'
+
 import { useState } from 'react'
-import { NavLink, Outlet, useNavigate, useParams } from 'react-router-dom'
+import Link from 'next/link'
+import { useParams, usePathname, useRouter } from 'next/navigation'
 import { Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/card'
@@ -9,32 +12,29 @@ import { EmptyState, ErrorState, PageLoading } from '@/components/common/states'
 import { useCouple } from '@/providers/CoupleProvider'
 import { cn, pluralise } from '@/lib/utils'
 import { todayIn } from '@/lib/dates'
-import {
-  useDeleteTrip,
-  useTrip,
-  useTripRealtime,
-  useTripStatuses,
-  useUpdateTrip,
-} from '../hooks'
+import { useDeleteTrip, useTrip, useTripRealtime, useTripStatuses, useUpdateTrip } from '../hooks'
 import { countdownDays, formatTripDates, isLongStay, isStalePlanning, nights } from '../logic'
 import { TripDatesEditor } from '../components/TripDatesEditor'
 import { TravelerDates } from '../components/TravelerDates'
 
 const TABS = [
-  { to: 'plan', label: 'Plan' },
-  { to: 'map', label: 'Map' },
-  { to: 'docs', label: 'Docs' },
-  { to: 'money', label: 'Money' },
-  { to: 'photos', label: 'Photos' },
-]
+  { segment: 'plan', label: 'Plan' },
+  { segment: 'map', label: 'Map' },
+  { segment: 'docs', label: 'Docs' },
+  { segment: 'money', label: 'Money' },
+  { segment: 'photos', label: 'Photos' },
+] as const
 
-export function TripDetailPage() {
-  const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
+export function TripDetailPage({ children }: { children: React.ReactNode }) {
+  const params = useParams<{ id: string }>()
+  const id = params.id
+  const router = useRouter()
+  const pathname = usePathname()
   const { tzSelf } = useCouple()
+
   const { data: trip, isLoading, error, refetch } = useTrip(id)
   const statuses = useTripStatuses()
-  const update = useUpdateTrip(id ?? '')
+  const update = useUpdateTrip(id)
   const remove = useDeleteTrip()
 
   const [editingTitle, setEditingTitle] = useState(false)
@@ -50,7 +50,7 @@ export function TripDetailPage() {
       <EmptyState
         title="That trip isn't here"
         description="It may have been deleted. Deleted trips are restorable for 30 days."
-        action={<Button onClick={() => navigate('/trips')}>Back to trips</Button>}
+        action={<Button onClick={() => router.push('/trips')}>Back to trips</Button>}
       />
     )
   }
@@ -151,25 +151,28 @@ export function TripDetailPage() {
       <TravelerDates trip={trip} />
 
       <nav className="flex gap-1 border-b border-border" aria-label="Trip sections">
-        {TABS.map((tab) => (
-          <NavLink
-            key={tab.to}
-            to={tab.to}
-            className={({ isActive }) =>
-              cn(
+        {TABS.map((tab) => {
+          const href = `/trips/${id}/${tab.segment}`
+          const active = pathname === href
+          return (
+            <Link
+              key={tab.segment}
+              href={href}
+              aria-current={active ? 'page' : undefined}
+              className={cn(
                 '-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors',
-                isActive
+                active
                   ? 'border-foreground text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground',
-              )
-            }
-          >
-            {tab.label}
-          </NavLink>
-        ))}
+              )}
+            >
+              {tab.label}
+            </Link>
+          )
+        })}
       </nav>
 
-      <Outlet context={{ trip }} />
+      {children}
 
       <ConfirmDialog
         open={confirmDelete}
@@ -180,7 +183,7 @@ export function TripDetailPage() {
         onConfirm={async () => {
           await remove.mutateAsync(trip.id)
           setConfirmDelete(false)
-          navigate('/trips')
+          router.push('/trips')
         }}
         onCancel={() => setConfirmDelete(false)}
       />

@@ -1,5 +1,8 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+'use client'
+
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'react'
 import { ACCENT_COLORS, DEFAULT_ACCENT, type AccentColor } from '@/lib/constants'
+import { useStoredPreference } from '@/lib/useStoredPreference'
 
 type Theme = 'light' | 'dark' | 'system'
 
@@ -15,12 +18,8 @@ const STORAGE_KEY = 'meridian.theme'
 const ACCENT_KEY = 'meridian.accent'
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(
-    () => (localStorage.getItem(STORAGE_KEY) as Theme | null) ?? 'system',
-  )
-  const [accent, setAccentState] = useState<AccentColor>(
-    () => (localStorage.getItem(ACCENT_KEY) as AccentColor | null) ?? DEFAULT_ACCENT,
-  )
+  const [theme, setTheme] = useStoredPreference<Theme>(STORAGE_KEY, 'system')
+  const [accent, setAccent] = useStoredPreference<AccentColor>(ACCENT_KEY, DEFAULT_ACCENT)
 
   useEffect(() => {
     const root = document.documentElement
@@ -43,19 +42,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [accent])
 
   const value = useMemo<ThemeContextValue>(
-    () => ({
-      theme,
-      accent,
-      setTheme: (t) => {
-        localStorage.setItem(STORAGE_KEY, t)
-        setThemeState(t)
-      },
-      setAccent: (a) => {
-        localStorage.setItem(ACCENT_KEY, a)
-        setAccentState(a)
-      },
-    }),
-    [theme, accent],
+    () => ({ theme, accent, setTheme, setAccent }),
+    [theme, accent, setTheme, setAccent],
   )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>

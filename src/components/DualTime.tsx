@@ -4,6 +4,8 @@
  * When both people are in the same zone it collapses to a single reading; a
  * couple standing in the same room should not be shown two identical clocks.
  */
+'use client'
+
 import { useEffect, useState } from 'react'
 import { dualTime, formatInZone } from '@/lib/dates'
 import { cn } from '@/lib/utils'

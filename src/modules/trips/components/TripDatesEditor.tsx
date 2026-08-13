@@ -3,6 +3,8 @@
  * direction: days can carry itinerary items, and the spec is explicit that we
  * prompt rather than silently delete.
  */
+'use client'
+
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Field, Input, Select } from '@/components/ui/input'

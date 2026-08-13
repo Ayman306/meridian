@@ -42,3 +42,8 @@ next-env.d.ts
 # supabase
 /supabase/.branches
 /supabase/.temp
+
+# next
+/.next
+/out
+next-env.d.ts

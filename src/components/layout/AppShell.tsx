@@ -1,4 +1,7 @@
-import { NavLink, Outlet } from 'react-router-dom'
+'use client'
+
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { CalendarRange, FileText, Home, Settings as SettingsIcon } from 'lucide-react'
 import { useCouple } from '@/providers/CoupleProvider'
 import { DualTime } from '@/components/DualTime'
@@ -7,14 +10,18 @@ import { APP_NAME } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
 const NAV = [
-  { to: '/', label: 'Home', icon: Home, end: true },
-  { to: '/trips', label: 'Trips', icon: CalendarRange, end: false },
-  { to: '/documents', label: 'Docs', icon: FileText, end: false },
-  { to: '/settings', label: 'Settings', icon: SettingsIcon, end: false },
-]
+  { href: '/', label: 'Home', icon: Home, exact: true },
+  { href: '/trips', label: 'Trips', icon: CalendarRange, exact: false },
+  { href: '/documents', label: 'Docs', icon: FileText, exact: false },
+  { href: '/settings', label: 'Settings', icon: SettingsIcon, exact: false },
+] as const
 
-export function AppShell() {
+export function AppShell({ children }: { children: React.ReactNode }) {
   const { selfRef, partnerRef, tzSelf, tzPartner } = useCouple()
+  const pathname = usePathname()
+
+  const isActive = (href: string, exact: boolean) =>
+    exact ? pathname === href : pathname.startsWith(href)
 
   return (
     <div className="min-h-dvh pb-16 md:pb-0">
@@ -23,22 +30,20 @@ export function AppShell() {
           <div className="flex items-center gap-6">
             <span className="text-lg font-semibold tracking-tight">{APP_NAME}</span>
             <nav className="hidden items-center gap-1 md:flex" aria-label="Main">
-              {NAV.map(({ to, label, end }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  end={end}
-                  className={({ isActive }) =>
-                    cn(
-                      'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-                      isActive
-                        ? 'bg-secondary text-secondary-foreground'
-                        : 'text-muted-foreground hover:text-foreground',
-                    )
-                  }
+              {NAV.map(({ href, label, exact }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  aria-current={isActive(href, exact) ? 'page' : undefined}
+                  className={cn(
+                    'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                    isActive(href, exact)
+                      ? 'bg-secondary text-secondary-foreground'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
                 >
                   {label}
-                </NavLink>
+                </Link>
               ))}
             </nav>
           </div>
@@ -47,7 +52,6 @@ export function AppShell() {
             <DualTime
               tzSelf={tzSelf}
               tzPartner={tzPartner}
-              labelSelf={selfRef?.isSelf ? 'You' : 'You'}
               labelPartner={partnerRef?.displayName ?? 'Them'}
               className="hidden scale-90 sm:flex"
             />
@@ -59,30 +63,26 @@ export function AppShell() {
         </div>
       </header>
 
-      <main className="container py-6">
-        <Outlet />
-      </main>
+      <main className="container py-6">{children}</main>
 
       <nav
         className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 backdrop-blur md:hidden"
         aria-label="Main"
       >
         <div className="grid grid-cols-4">
-          {NAV.map(({ to, label, icon: Icon, end }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                cn(
-                  'flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium',
-                  isActive ? 'text-foreground' : 'text-muted-foreground',
-                )
-              }
+          {NAV.map(({ href, label, icon: Icon, exact }) => (
+            <Link
+              key={href}
+              href={href}
+              aria-current={isActive(href, exact) ? 'page' : undefined}
+              className={cn(
+                'flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium',
+                isActive(href, exact) ? 'text-foreground' : 'text-muted-foreground',
+              )}
             >
               <Icon className="size-5" aria-hidden="true" />
               {label}
-            </NavLink>
+            </Link>
           ))}
         </div>
       </nav>

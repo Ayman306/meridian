@@ -1,17 +1,17 @@
+'use client'
+
 import { useState } from 'react'
-import { Navigate } from 'react-router-dom'
 import { useAuth } from '@/providers/AuthProvider'
 import { Button } from '@/components/ui/button'
 import { ErrorState } from '@/components/common/states'
 import { APP_NAME } from '@/lib/constants'
 
 export function LoginPage() {
-  const { session, isLoading, signIn } = useAuth()
+  // Sign-in state is settled on the server before this renders, so there is
+  // no redirect to do here.
+  const { signIn } = useAuth()
   const [error, setError] = useState<unknown>(null)
   const [pending, setPending] = useState(false)
-
-  if (isLoading) return null
-  if (session) return <Navigate to="/" replace />
 
   const onSignIn = async () => {
     setPending(true)

@@ -9,6 +9,8 @@
  * The last two are genuinely different things. An open day on a long stay is
  * not a gap to be filled; it is the point of the trip. See Module 5.
  */
+'use client'
+
 import type { ReactNode } from 'react'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'

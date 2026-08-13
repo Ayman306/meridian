@@ -1,5 +1,7 @@
 /** Module 5 — Itinerary. Supabase access only. */
-import { supabase } from '@/lib/supabase'
+'use client'
+
+import { supabase } from '@/lib/supabase/client'
 import { toAppError, unwrap, unwrapList } from '@/lib/errors'
 import { keyBetween } from '@/lib/fractional'
 import type { DateOnly } from '@/lib/dates'

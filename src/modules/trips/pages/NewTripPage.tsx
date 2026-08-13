@@ -3,7 +3,9 @@
  * prominent but skippable, and the precision selector exists so "sometime next
  * spring" is a first-class answer rather than a blank.
  */
-import { useNavigate } from 'react-router-dom'
+'use client'
+
+import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -25,7 +27,7 @@ const PRECISIONS: { value: DatePrecision; label: string; hint: string }[] = [
 ]
 
 export function NewTripPage() {
-  const navigate = useNavigate()
+  const router = useRouter()
   const create = useCreateTrip()
   const statuses = useTripStatuses()
 
@@ -62,7 +64,7 @@ export function NewTripPage() {
       status_id: values.status_id ?? idea?.id ?? null,
       notes: values.notes ?? null,
     })
-    navigate(`/trips/${trip.id}`, { replace: true })
+    router.replace(`/trips/${trip.id}`)
   })
 
   return (
@@ -124,7 +126,7 @@ export function NewTripPage() {
               <Button type="submit" disabled={create.isPending}>
                 {create.isPending ? 'Creating…' : 'Create trip'}
               </Button>
-              <Button type="button" variant="ghost" onClick={() => navigate(-1)}>
+              <Button type="button" variant="ghost" onClick={() => router.back()}>
                 Cancel
               </Button>
             </div>

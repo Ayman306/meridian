@@ -2,6 +2,8 @@
  * The long-stay view. A month at a glance, where most cells are meant to be
  * blank — so a blank cell is styled as calm, never as a gap to be filled.
  */
+'use client'
+
 import { useMemo } from 'react'
 import { parseDateOnly, type DateOnly } from '@/lib/dates'
 import { cn } from '@/lib/utils'

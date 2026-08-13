@@ -1,5 +1,7 @@
 /** Module 1 — Auth & Couple. Supabase access only; no React in here. */
-import { supabase } from '@/lib/supabase'
+'use client'
+
+import { supabase } from '@/lib/supabase/client'
 import { toAppError, unwrap, unwrapMaybe, AppError } from '@/lib/errors'
 import { DEFAULT_ACCENT, type AccentColor } from '@/lib/constants'
 import type { Couple, Profile } from '@/types/domain'

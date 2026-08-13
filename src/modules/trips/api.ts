@@ -1,5 +1,7 @@
 /** Module 3 — Trips. Supabase access only. */
-import { supabase } from '@/lib/supabase'
+'use client'
+
+import { supabase } from '@/lib/supabase/client'
 import { toAppError, unwrap, unwrapList, unwrapMaybe } from '@/lib/errors'
 import type { DateOnly } from '@/lib/dates'
 import type { DatePrecision, DayType, Trip, TripDay, TripDetail, TripStatus, TripSummary, TripTraveler } from './types'

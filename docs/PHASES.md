@@ -7,6 +7,7 @@ records what changed.
 | Phase | Module | Status | Why here |
 | --- | --- | --- | --- |
 | 0 | Foundations | ✅ done | Scaffold, lib, providers, shell, RLS primitives |
+| — | *Next.js migration* | ✅ done | Owner's decision after phase 3. See D19–D23 in `MEMORY.md`. |
 | 1 | 1 — Auth & Couple | ✅ done | Everything depends on `couple_id` |
 | 2 | 3 — Trips | ✅ done | The container most other data attaches to |
 | 3 | 5 — Itinerary | ✅ done | The main planning surface |
@@ -101,6 +102,21 @@ Spec: Module 5.
 - [ ] Work-hours overlay — needs the Settings fields (Phase 13)
 - [ ] Suggestion tray UI — nothing generates suggestions until Wishlist &
       Blend (Phase 6), so the tray reads empty by construction
+
+## Next.js migration
+
+Not a spec phase — an owner's decision taken after phase 3 (memory D19).
+
+- [x] Next 16 App Router + React 19; Vite and React Router removed
+- [x] Cookie-based auth via `@supabase/ssr`, browser and server clients split
+- [x] `src/proxy.ts` refreshes the session on every request
+- [x] `/auth/callback` route exchanges the OAuth code for a session
+- [x] Auth gate on the server, pairing and setup gates on the client
+- [x] Supabase Edge Functions replaced by Route Handlers under `src/app/api`,
+      with `/api/health` live and a documented route table for the rest
+- [x] `assertCronRequest()` guarding the service-role handlers still to come
+- [x] Keep-alive workflow repointed at `/api/health`
+- [x] All 110 tests still pass, untouched
 
 ## Phase 4 — Documents (next)
 
