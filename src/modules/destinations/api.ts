@@ -167,3 +167,23 @@ export async function wishlistCountsByCity(coupleId: string): Promise<Record<str
   }
   return counts
 }
+
+/**
+ * The country of a trip's chosen destination, or null.
+ *
+ * Chosen, not candidate: a shortlist of four cities has no one country, and
+ * answering with the first would be a guess presented as a fact. Small and
+ * indexed, so callers that need it on a hot screen can just ask.
+ */
+export async function getChosenCountry(tripId: string): Promise<string | null> {
+  const rows = unwrapList(
+    await supabase
+      .from('trip_destinations')
+      .select('country_code')
+      .eq('trip_id', tripId)
+      .eq('state', 'chosen')
+      .is('deleted_at', null)
+      .limit(1),
+  )
+  return rows[0]?.country_code ?? null
+}

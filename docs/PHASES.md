@@ -163,7 +163,8 @@ Spec: Module 2.
 - [x] Alert strip, sorted by the spec's priority order, capped at three
 - [x] Everything timezone-dependent resolved against the *viewer's* midnight
 - [ ] Active flight card — waits on Phase 10
-- [ ] Stay-allowance alerts — priority 3 is reserved; `checkPlannedStay` can
+- [x] Stay-allowance alerts on the dashboard — priority 3 filled
+- [ ] ~~reserved~~ — `checkPlannedStay` can
       fill it once the dashboard RPC returns destination countries
 
 ## Phase 6 — Wishlist & Blend
@@ -267,7 +268,8 @@ Spec: Module 10.
       missing rule reads "not tracked", never "no limit"
 - [ ] Editing a rule from the UI — `useUpsertRule` exists, the form does not.
       The seeded defaults cover the common cases; overrides land with Settings
-- [ ] Allowance alerts on the dashboard — priority 3 is reserved for them and
+- [x] Allowance alerts on the dashboard (0015 phase) — priority 3 filled
+- [ ] ~~reserved~~ —
       the check is now available to fill it
 
 ## Phase 10 — Flights
@@ -310,7 +312,8 @@ Spec: Module 9, the largest in the document.
       `push_subscriptions` from Module 14 (Phase 13)
 - [ ] Screenshot/PDF parsing — needs the AI module, and the spec marks it
       optional
-- [ ] `pg_cron` schedule for the sweep — the route and its secret exist; the
+- [x] `pg_cron` schedule for the sweep (0015)
+- [ ] ~~schedule~~ — the route and its secret exist; the
       schedule is one statement to run once the app is deployed
 
 ## Phase 11 — Gallery
@@ -347,7 +350,7 @@ Spec: Module 11.
 - [ ] The daily-exchange strip UI — the table, the logic and the hooks exist;
       the surface at the top of the gallery does not
 - [ ] Bulk download and the recap screen — `buildRecap` is written and tested
-- [ ] `pg_cron` schedule for the media sweep, same as the flight one
+- [x] `pg_cron` schedule for the media sweep (0015)
 
 ---
 
@@ -392,8 +395,7 @@ Spec: Module 13.
       trip-period budgets are settable
 - [ ] Splits with an itemised third party, and any split that is not
       two-person — out of scope by the couple model
-- [ ] `pg_cron` schedule for the FX backfill, alongside the flight and media
-      sweeps
+- [x] `pg_cron` schedule for the FX backfill (0015)
 
 ---
 

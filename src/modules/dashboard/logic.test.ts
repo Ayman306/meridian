@@ -1,5 +1,7 @@
+import type { AllowanceCheck } from '@/modules/allowance'
 import { describe, expect, it } from 'vitest'
 import {
+  allowanceAlert,
   buildAlerts,
   countdown,
   isDaylight,
@@ -301,5 +303,61 @@ describe('daylight', () => {
 
   it('says nothing rather than guessing without coordinates', () => {
     expect(isDaylight(new Date(), null, null)).toBeNull()
+  })
+})
+
+describe('stay-allowance alerts', () => {
+  const person = { id: 'u1', displayName: 'Ada', isSelf: false }
+  const check = (over: Partial<AllowanceCheck> = {}): AllowanceCheck =>
+    ({
+      verdict: 'ok',
+      rule: null,
+      breachDate: null,
+      peak: 40,
+      peakDate: '2026-06-20',
+      headroom: 50,
+      limit: 90,
+      ...over,
+    }) as AllowanceCheck
+
+  it('says nothing when there is nothing to say', () => {
+    expect(allowanceAlert(check(), person, 'Lisbon')).toBeNull()
+  })
+
+  it('stays silent when the country is not tracked', () => {
+    // Deliberate. There is no rule for that country, and inventing
+    // reassurance from an absence is what this module refuses to do.
+    expect(allowanceAlert(check({ verdict: 'untracked' }), person, 'Lisbon')).toBeNull()
+  })
+
+  it('blocks on a breach and names the day', () => {
+    const alert = allowanceAlert(
+      check({ verdict: 'breach', breachDate: '2026-06-18', peak: 91, limit: 90 }),
+      person,
+      'Lisbon',
+    )
+    expect(alert?.severity).toBe('blocking')
+    expect(alert?.priority).toBe(3)
+    expect(alert?.title).toContain('over the limit')
+    expect(alert?.detail).toContain('2026-06-18')
+  })
+
+  it('warns without blocking when it is merely tight', () => {
+    const alert = allowanceAlert(check({ verdict: 'tight', headroom: 3 }), person, 'Lisbon')
+    expect(alert?.severity).toBe('warning')
+    expect(alert?.detail).toContain('3 days to spare')
+  })
+
+  it('gets the person right from either side', () => {
+    expect(
+      allowanceAlert(check({ verdict: 'breach' }), { ...person, isSelf: true }, 'Lisbon')?.title,
+    ).toMatch(/^You would/)
+    expect(allowanceAlert(check({ verdict: 'breach' }), person, 'Lisbon')?.title).toMatch(/^Ada/)
+  })
+
+  it('sorts above a stale trip and below an expiring document', () => {
+    const alert = allowanceAlert(check({ verdict: 'breach' }), person, 'Lisbon')!
+    expect(alert.priority).toBeGreaterThan(1)
+    expect(alert.priority).toBeLessThan(5)
   })
 })

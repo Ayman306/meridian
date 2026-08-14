@@ -8,6 +8,7 @@
  * midnight is being used visible at every call site.
  */
 import { daysBetween, maxDate, minDate, type DateOnly } from '@/lib/dates'
+import type { AllowanceCheck } from '@/modules/allowance'
 import type {
   Alert,
   Countdown,
@@ -212,10 +213,53 @@ export function buildAlerts(payload: DashboardPayload, today: DateOnly): Alert[]
     alerts.push(staleTripAlert(trip))
   }
 
-  // Stay-allowance and flight-delay alerts slot in at priorities 3 and 4 when
-  // those modules land (phases 9 and 10).
+  // Flight-delay alerts slot in at priority 4 when there is a channel to
+  // deliver them through. Stay-allowance sits at 3 and is built by
+  // `allowanceAlert`, called separately: it needs the allowance rules and the
+  // entry log, which are two more queries and do not belong in a payload this
+  // screen fetches on every load.
 
   return sortAlerts(alerts)
+}
+
+/**
+ * The stay-allowance alert, priority 3.
+ *
+ * Reserved in phase 5 and empty until now, which meant the app could compute —
+ * correctly, and with tests — that a planned trip would put somebody over a
+ * Schengen limit, and never mention it on the screen they open most. Knowing
+ * something with real-world consequences and not saying it is worse than not
+ * having computed it.
+ *
+ * Returns null for `ok` and for `untracked`. "Not tracked" is a deliberate
+ * silence: there is no rule for that country, and inventing reassurance from
+ * an absence is exactly what the allowance module refuses to do everywhere
+ * else.
+ */
+export function allowanceAlert(
+  check: AllowanceCheck,
+  person: { id: string; displayName: string; isSelf: boolean },
+  tripTitle: string,
+): Alert | null {
+  if (check.verdict === 'ok' || check.verdict === 'untracked') return null
+
+  const who = person.isSelf ? 'You' : person.displayName
+  const breach = check.verdict === 'breach'
+
+  return {
+    kind: 'stay_allowance',
+    priority: PRIORITY.stay_allowance,
+    // A breach is a refused entry, which is as blocking as anything gets.
+    severity: breach ? 'blocking' : 'warning',
+    title: breach
+      ? `${who} would be over the limit on “${tripTitle}”`
+      : `${who} would be close to the limit on “${tripTitle}”`,
+    detail: breach
+      ? `${check.peak} of ${check.limit} days counted by ${check.breachDate ?? check.peakDate}`
+      : `${check.headroom} ${check.headroom === 1 ? 'day' : 'days'} to spare at the worst point`,
+    href: '/allowance',
+    ownerId: person.id,
+  }
 }
 
 function documentAlert(doc: ExpiringDocumentRow, today: DateOnly): Alert {

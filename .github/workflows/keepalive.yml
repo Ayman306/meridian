@@ -17,12 +17,26 @@ jobs:
       - name: Ping the health route
         env:
           APP_URL: ${{ secrets.APP_URL }}
+          # Optional. Vercel Deployment Protection answers 401 to anything
+          # without a browser session, which includes this ping — and a ping
+          # that 401s does not keep the database awake. Where protection is
+          # left on, "Protection Bypass for Automation" issues a token; set it
+          # as VERCEL_BYPASS_TOKEN and this sends it. Unset, nothing changes.
+          BYPASS: ${{ secrets.VERCEL_BYPASS_TOKEN }}
         run: |
           if [ -z "$APP_URL" ]; then
             echo "::error::Set the APP_URL repository secret to the deployed origin."
             exit 1
           fi
-          status=$(curl -sS -o /tmp/body.json -w '%{http_code}' "$APP_URL/api/health")
+          if [ -n "$BYPASS" ]; then
+            set -- -H "x-vercel-protection-bypass: $BYPASS"
+          else
+            set --
+          fi
+          status=$(curl -sS "$@" -o /tmp/body.json -w '%{http_code}' "$APP_URL/api/health")
           echo "HTTP $status"
           cat /tmp/body.json
+          if [ "$status" = "401" ]; then
+            echo "::error::401 from the health route. Vercel Deployment Protection is on for this deployment — either turn it off for production, or set the VERCEL_BYPASS_TOKEN secret."
+          fi
           test "$status" = "200"

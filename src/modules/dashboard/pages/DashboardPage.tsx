@@ -8,7 +8,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { ErrorState, Skeleton, SkeletonList } from '@/components/common/states'
 import { useCouple } from '@/providers/CoupleProvider'
 import { pluralise } from '@/lib/utils'
-import { useDashboard, useToday } from '../hooks'
+import { useAllowanceAlerts, useDashboard, useToday } from '../hooks'
 import { buildAlerts, countdown, nightsTogether } from '../logic'
 import { CountdownBlock } from '../components/CountdownBlock'
 import { ClocksCard } from '../components/ClocksCard'
@@ -17,6 +17,8 @@ import { AlertStrip } from '../components/AlertStrip'
 export function DashboardPage() {
   const { self, partner, selfRef, partnerRef, tzSelf } = useCouple()
   const { data, isLoading, error, refetch } = useDashboard()
+  // Resolves a moment after the payload and slots in at priority 3.
+  const allowanceAlerts = useAllowanceAlerts()
 
   // Rolls over at the viewer's midnight, not the server's (spec 2.6).
   const today = useToday(tzSelf)
@@ -25,10 +27,12 @@ export function DashboardPage() {
     if (!data) return null
     return {
       countdown: countdown(data, today),
-      alerts: buildAlerts(data, today),
+      alerts: [...buildAlerts(data, today), ...allowanceAlerts].sort(
+        (a, b) => a.priority - b.priority,
+      ),
       nights: nightsTogether(data.together_windows ?? [], today),
     }
-  }, [data, today])
+  }, [data, today, allowanceAlerts])
 
   if (isLoading) {
     return (
