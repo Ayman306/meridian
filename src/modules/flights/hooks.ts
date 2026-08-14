@@ -417,3 +417,12 @@ export function useDeleteJourney() {
     },
   })
 }
+
+/** What AeroDataBox says is left. Advisory — the guard uses it server-side. */
+export function useProviderBalance() {
+  return useQuery({
+    queryKey: ['provider-balance'] as const,
+    queryFn: api.getProviderBalance,
+    staleTime: 10 * 60_000,
+  })
+}

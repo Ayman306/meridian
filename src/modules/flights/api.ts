@@ -393,3 +393,27 @@ export async function saveJourney(coupleId: string, input: JourneyInput): Promis
   await write('outbound', input.outbound)
   if (input.return && input.return.length > 0) await write('return', input.return)
 }
+
+/**
+ * What the provider says is left, as last read by the server.
+ *
+ * Read-only here: the row is written by the Route Handlers under the service
+ * role. A null `remaining` means it has never been established, which the UI
+ * says rather than showing a zero.
+ */
+export async function getProviderBalance(): Promise<{
+  remaining: number | null
+  total: number | null
+  checkedAt: string | null
+} | null> {
+  const row = unwrapMaybe(
+    await supabase
+      .from('provider_quota')
+      .select('remaining, total, checked_at')
+      .eq('provider', 'aerodatabox')
+      .maybeSingle(),
+  )
+  return row
+    ? { remaining: row.remaining, total: row.total, checkedAt: row.checked_at }
+    : null
+}

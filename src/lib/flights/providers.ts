@@ -15,13 +15,51 @@ import type { Database } from '@/types/database'
 export type Provider = 'aerodatabox' | 'opensky'
 
 /** Monthly for AeroDataBox, daily for OpenSky, per spec 9.1. */
+/**
+ * What each plan actually allows. The billed figure, for display.
+ *
+ * `HARD_CAPS` below is what this app permits itself, which is deliberately
+ * lower — the difference is the headroom that absorbs calls that reached the
+ * provider and failed before we recorded them.
+ */
 export const LIMITS: Record<Provider, number> = {
   aerodatabox: 600,
   opensky: 4000,
 }
 
-/** Above this share of the allowance, serve cache and say so (spec 9.4). */
-export const QUOTA_CEILING = 0.9
+/**
+ * The hard ceiling, in requests, per window.
+ *
+ * An explicit number rather than a share of the allowance, because "550 of the
+ * 600 I am billed for" is the thing actually being promised, and a ratio makes
+ * that a calculation somebody has to redo whenever either figure moves. The
+ * fifty left over is deliberate headroom: a call can reach the provider and
+ * fail on our side before it is recorded, so our count runs slightly under the
+ * truth and the gap has to be somewhere.
+ */
+export const HARD_CAPS: Record<Provider, number> = {
+  aerodatabox: 550,
+  opensky: 3600,
+}
+
+/**
+ * Above this share of the *hard cap*, start checking the provider's own
+ * balance rather than trusting our counter alone. Below it, our counter is
+ * comfortably conservative and the extra call is not worth making.
+ */
+export const RECONCILE_ABOVE = 0.7
+
+/**
+ * How long the provider's balance is trusted before asking again.
+ *
+ * The balance endpoint may itself count against the subscription, so this is
+ * long. Six hours bounds it to four calls a day, and only in the stretch where
+ * the allowance is nearly gone.
+ */
+const BALANCE_TTL_MS = 6 * 60 * 60 * 1000
+
+/** Refuse once the provider says this few are left, whatever our count says. */
+const RESERVE = 50
 
 export interface ProviderResult<T> {
   ok: boolean
@@ -31,6 +69,11 @@ export interface ProviderResult<T> {
   /** Whether the failure was a quota refusal rather than an upstream problem. */
   quota: boolean
 }
+
+const exhausted = (provider: Provider) =>
+  provider === 'aerodatabox'
+    ? 'Live updates paused — the monthly data allowance is used up. Flights still show what you entered.'
+    : 'Live positions paused — the daily allowance is used up.'
 
 const skipped = <T>(reason: string, quota = false): ProviderResult<T> => ({
   ok: false,
@@ -64,13 +107,20 @@ export async function withQuota<T>(
     return skipped(`Could not check the ${provider} allowance.`, true)
   }
 
-  if ((used ?? 0) >= LIMITS[provider] * QUOTA_CEILING) {
-    return skipped(
-      provider === 'aerodatabox'
-        ? 'Live updates paused — the monthly data allowance is nearly used up.'
-        : 'Live positions paused — the daily allowance is nearly used up.',
-      true,
-    )
+  const spent = used ?? 0
+  const cap = HARD_CAPS[provider]
+
+  if (spent >= cap) {
+    return skipped(exhausted(provider), true)
+  }
+
+  // Near the ceiling, stop trusting our own arithmetic and ask the provider
+  // what is actually left. Our counter can only ever undercount.
+  if (spent >= cap * RECONCILE_ABOVE) {
+    const remaining = await realRemaining(admin, provider)
+    if (remaining !== null && remaining <= RESERVE) {
+      return skipped(exhausted(provider), true)
+    }
   }
 
   try {
@@ -344,4 +394,105 @@ export async function fetchPosition(
 
 function num(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+// ---------------------------------------------------------------------------
+// The provider's own count
+// ---------------------------------------------------------------------------
+
+/**
+ * What AeroDataBox says is left, cached.
+ *
+ * Returns null when it cannot be established — never a guess. A null means
+ * "fall back to our own counter", which is already conservative, rather than
+ * "assume plenty".
+ */
+async function realRemaining(admin: Client, provider: Provider): Promise<number | null> {
+  if (provider !== 'aerodatabox') return null
+
+  const { data: row } = await admin
+    .from('provider_quota')
+    .select('remaining, checked_at')
+    .eq('provider', provider)
+    .maybeSingle()
+
+  const age = row?.checked_at ? Date.now() - new Date(row.checked_at).getTime() : Infinity
+  if (row?.remaining !== null && row?.remaining !== undefined && age < BALANCE_TTL_MS) {
+    return row.remaining
+  }
+
+  const fresh = await fetchBalance()
+  await admin.from('provider_quota').upsert(
+    {
+      provider,
+      remaining: fresh.remaining,
+      total: fresh.total,
+      checked_at: new Date().toISOString(),
+      last_error: fresh.error,
+    },
+    { onConflict: 'provider' },
+  )
+  return fresh.remaining
+}
+
+export interface BalanceReading {
+  remaining: number | null
+  total: number | null
+  error: string | null
+}
+
+/**
+ * Read the subscription balance.
+ *
+ * RapidAPI reports the plan's remaining calls in response headers on every
+ * request, and AeroDataBox also exposes `/subscriptions/balance`. The headers
+ * are preferred where present because they cost nothing extra; the endpoint is
+ * the fallback.
+ */
+export async function fetchBalance(): Promise<BalanceReading> {
+  const key = process.env.AERODATABOX_API_KEY
+  if (!key) return { remaining: null, total: null, error: 'No API key configured.' }
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 8000)
+  try {
+    const response = await fetch('https://aerodatabox.p.rapidapi.com/subscriptions/balance', {
+      headers: {
+        'x-rapidapi-host': 'aerodatabox.p.rapidapi.com',
+        'x-rapidapi-key': key,
+      },
+      signal: controller.signal,
+    })
+
+    // RapidAPI puts the plan's remaining quota on the response itself.
+    const headerRemaining = Number(response.headers.get('x-ratelimit-requests-remaining'))
+    const headerTotal = Number(response.headers.get('x-ratelimit-requests-limit'))
+
+    if (!response.ok) {
+      return {
+        remaining: Number.isFinite(headerRemaining) ? headerRemaining : null,
+        total: Number.isFinite(headerTotal) ? headerTotal : null,
+        error: `Balance check returned ${response.status}.`,
+      }
+    }
+
+    const body = (await response.json().catch(() => null)) as
+      | { remaining?: number; total?: number }
+      | null
+
+    return {
+      remaining:
+        body?.remaining ?? (Number.isFinite(headerRemaining) ? headerRemaining : null),
+      total: body?.total ?? (Number.isFinite(headerTotal) ? headerTotal : null),
+      error: null,
+    }
+  } catch (e) {
+    return {
+      remaining: null,
+      total: null,
+      error: e instanceof Error ? e.message : 'Balance check failed.',
+    }
+  } finally {
+    clearTimeout(timer)
+  }
 }
