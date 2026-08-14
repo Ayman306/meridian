@@ -20,8 +20,8 @@ records what changed.
 | 9 | 10 — Stay Allowance | ✅ done | Depends on Destinations, Trips |
 | 10 | 9 — Flights | ✅ done | First external API; polling discipline matters |
 | 11 | 11 — Gallery | ✅ done | Largest module; free-tier storage drives its design |
-| 12 | 13 — Budget | ⬜ next | Self-contained |
-| 13 | 14 — Settings | ⬜ | Grows throughout; formalised here |
+| 12 | 13 — Budget | ✅ done | Self-contained |
+| 13 | 14 — Settings | ⬜ next | Grows throughout; formalised here |
 | 14 | 12 — Health | ⬜ | Last. Consent-first. Design it together. |
 
 Later parts of the spec (16 — Going Public, 17 — Licensing & Payments) are out of
@@ -345,3 +345,49 @@ Spec: Module 11.
       the surface at the top of the gallery does not
 - [ ] Bulk download and the recap screen — `buildRecap` is written and tested
 - [ ] `pg_cron` schedule for the media sweep, same as the flight one
+
+---
+
+## Phase 12 — Budget
+
+Spec: Module 13.
+
+- [x] `expense_categories`, `expenses`, `settlements`, `budgets`, `fx_rates` +
+      RLS, and `couples.base_currency`
+- [x] Categories seeded by trigger on couple creation, and backfilled for
+      couples that predate the migration
+- [x] **Money is integer cents throughout `logic.ts`** — floats drift, and the
+      drift lands in the one number a person acts on
+- [x] All four split types, with `shares()` summing to the total *exactly* and
+      the odd cent going to the payer
+- [x] Exact and percent splits rejected when they do not add up, with a message
+      that names the shortfall rather than saying "invalid"
+- [x] Balance signed toward the viewer, zeroed by settlements, never "-€0.00"
+- [x] FX fixed at save time and never recomputed; the rate and its date are
+      stored beside the converted amount so the row is auditable
+- [x] Rate provider is keyless (Frankfurter/ECB), cached forever, weekend dates
+      keyed under both the ECB's date and the one asked for
+- [x] A failed rate lookup still saves the expense; `amount_base is null` is
+      the retry flag and the whole working set for the nightly sweep
+- [x] `fx_rates` readable by anyone signed in and writable by nobody through
+      the API — a poisoned rate is a wrong number in a balance
+- [x] Trip summary: totals, by category, by person, per-day average over
+      *elapsed* days, and the per-week view for stays of a fortnight or more
+- [x] Budget vs actual per category, shown only where a budget is set, and the
+      bar keeps going past 100% rather than clipping
+- [x] Three charts in hand-written SVG rather than Recharts (D66)
+- [x] CSV export with both amounts, the rate, and a BOM so Excel reads UTF-8
+- [x] Realtime on `expenses` and `settlements` — two people entering expenses
+      on the same evening is exactly when a stale balance misleads
+- [x] Deleting an expense or undoing a settlement warns with the number
+- [x] 47 unit tests, 17 new RLS assertions
+- [ ] Receipt photos — `receipt_media_id` exists and the gallery can store
+      them; the picker in the expense form does not
+- [ ] Linking an expense to an itinerary item — column and index are there,
+      no UI
+- [ ] Per-week *budgets* — `period = 'week'` is modelled and indexed; only
+      trip-period budgets are settable
+- [ ] Splits with an itemised third party, and any split that is not
+      two-person — out of scope by the couple model
+- [ ] `pg_cron` schedule for the FX backfill, alongside the flight and media
+      sweeps

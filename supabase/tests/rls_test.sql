@@ -1133,6 +1133,156 @@ select assert_raises(
 
 -- ---------------------------------------------------------------------------
 \echo ''
+\echo '== budget =='
+set request.jwt.claim.sub = :'ada_ada';
+
+-- Categories are seeded by trigger, so a new couple never opens the module to
+-- an empty dropdown.
+select assert(
+  (select count(*) from public.expense_categories where couple_id = :'ada_couple') = 7,
+  'creating a couple seeded its expense categories'
+);
+select id as cat from public.expense_categories
+  where couple_id = :'ada_couple' and name = 'Food' \gset ada_
+
+insert into public.expenses (
+  couple_id, trip_id, description, amount, currency,
+  amount_base, fx_rate, fx_date, paid_by, category_id, spent_on, created_by
+)
+values (
+  :'ada_couple', :'ada_trip', 'Dinner in Alfama', 60.00, 'EUR',
+  65.40, 0.91743119, '2026-06-01', :'ada_ada', :'ada_cat', '2026-06-01', :'ada_ada'
+)
+returning id as expense \gset ada_
+
+-- The constraints that stop money becoming unexplainable.
+select assert_raises(
+  format(
+    'insert into public.expenses (couple_id, description, amount, currency, paid_by, amount_base)
+       values (%L, %L, 10.00, %L, %L, 11.00)',
+    :'ada_couple', 'Half-converted', 'EUR', :'ada_ada'
+  ),
+  'fx_all_or_nothing',
+  'an amount_base without the rate that produced it is refused'
+);
+select assert_raises(
+  format(
+    'insert into public.expenses (couple_id, description, amount, currency, paid_by)
+       values (%L, %L, 10.00, %L, %L)',
+    :'ada_couple', 'Bad currency', 'euro', :'ada_ada'
+  ),
+  'currency_is_code',
+  'a currency is an ISO code, not free text'
+);
+select assert_raises(
+  format(
+    'insert into public.expenses (couple_id, description, amount, currency, paid_by, split_type)
+       values (%L, %L, 10.00, %L, %L, %L)',
+    :'ada_couple', 'No detail', 'EUR', :'ada_ada', 'exact'
+  ),
+  'split_detail_present',
+  'an exact split without the numbers is refused'
+);
+select assert_raises(
+  format(
+    'insert into public.expenses (couple_id, description, amount, currency, paid_by)
+       values (%L, %L, -5.00, %L, %L)',
+    :'ada_couple', 'Negative', 'EUR', :'ada_ada'
+  ),
+  'expenses_amount_check',
+  'an expense is a positive number'
+);
+
+-- Shared money is shared: the partner reads and edits it, whoever entered it.
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.expenses where id = :'ada_expense') = 1,
+  'the partner sees an expense the other one entered'
+);
+update public.expenses set description = 'Dinner in Alfama (split)' where id = :'ada_expense';
+select assert(
+  (select description from public.expenses where id = :'ada_expense') = 'Dinner in Alfama (split)',
+  'and can correct it — a shared ledger is shared'
+);
+
+insert into public.settlements (couple_id, trip_id, from_user, to_user, amount, currency, created_by)
+values (:'ada_couple', :'ada_trip', :'bo_bo', :'ada_ada', 32.70, 'USD', :'bo_bo')
+returning id as settlement \gset bo_
+select assert_raises(
+  format(
+    'insert into public.settlements (couple_id, from_user, to_user, amount, currency)
+       values (%L, %L, %L, 10.00, %L)',
+    :'ada_couple', :'bo_bo', :'bo_bo', 'USD'
+  ),
+  'settlement_has_two_sides',
+  'a settlement cannot be paid to oneself'
+);
+
+insert into public.budgets (couple_id, trip_id, category_id, amount, currency, created_by)
+values (:'ada_couple', :'ada_trip', :'ada_cat', 400.00, 'USD', :'bo_bo');
+select assert_raises(
+  format(
+    'insert into public.budgets (couple_id, trip_id, category_id, amount, currency)
+       values (%L, %L, %L, 500.00, %L)',
+    :'ada_couple', :'ada_trip', :'ada_cat', 'USD'
+  ),
+  'budgets_category_idx',
+  'one budget per category per period, not two'
+);
+-- The spec's unique constraint would not have caught this one: in Postgres
+-- every null is distinct, so the overall budget needs its own partial index.
+insert into public.budgets (couple_id, trip_id, amount, currency, created_by)
+values (:'ada_couple', :'ada_trip', 2000.00, 'USD', :'bo_bo');
+select assert_raises(
+  format(
+    'insert into public.budgets (couple_id, trip_id, amount, currency)
+       values (%L, %L, 3000.00, %L)',
+    :'ada_couple', :'ada_trip', 'USD'
+  ),
+  'budgets_overall_idx',
+  'and one overall budget per trip, which a null category_id would otherwise allow'
+);
+
+-- A stranger sees no part of any of it.
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.expenses) = 0,
+  'a stranger reads zero expenses'
+);
+select assert(
+  (select count(*) from public.settlements) = 0,
+  'a stranger reads zero settlements'
+);
+select assert(
+  (select count(*) from public.budgets) = 0,
+  'a stranger reads zero budgets'
+);
+select assert(
+  (select count(*) from public.expense_categories) = 0,
+  'and cannot even see what the categories are called'
+);
+update public.expenses set amount = 1.00 where id = :'ada_expense';
+select assert(
+  (select amount from public.expenses where id = :'ada_expense') is null,
+  'a stranger''s update matched nothing (the row is not even visible to them)'
+);
+
+-- FX rates are reference data: readable by anyone signed in, writable by
+-- nobody through the API. A poisoned rate is a wrong number in a balance.
+set request.jwt.claim.sub = :'ada_ada';
+select assert(
+  (select count(*) from public.fx_rates) = 0,
+  'the rate cache starts empty'
+);
+select assert_raises(
+  'insert into public.fx_rates (base, quote, rate, rate_date)
+     values (''USD'', ''EUR'', 0.91, ''2026-06-01'')',
+  'row-level security',
+  'a signed-in user cannot write a rate — only the service role does'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
 \echo '== leaving =='
 set request.jwt.claim.sub = :'bo_bo';
 select public.leave_couple();

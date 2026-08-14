@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
@@ -12,6 +13,7 @@ import {
   Plane,
   Settings as SettingsIcon,
   Timer,
+  Wallet,
 } from 'lucide-react'
 import { useCouple } from '@/providers/CoupleProvider'
 import { DualTime } from '@/components/DualTime'
@@ -20,8 +22,14 @@ import { APP_NAME } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
 /**
- * `short` is what the bottom bar uses: nine columns on a 360px screen leaves
- * forty pixels each, which is an icon and four characters and no more.
+ * `short` is what the bottom bar uses.
+ *
+ * At nine entries a 360px screen gave each one forty pixels — an icon and four
+ * characters, and no more. The tenth would have taken that to thirty-six,
+ * which is below what stays legible, so the bar scrolls instead of shrinking
+ * and each item keeps a fixed width. The active one is scrolled into view on
+ * navigation, since a nav bar that hides items off-screen with no hint is
+ * worse than a cramped one.
  */
 const NAV = [
   { href: '/', label: 'Home', short: 'Home', icon: Home, exact: true },
@@ -32,15 +40,24 @@ const NAV = [
   { href: '/gallery', label: 'Photos', short: 'Pics', icon: Images, exact: false },
   { href: '/documents', label: 'Docs', short: 'Docs', icon: FileText, exact: false },
   { href: '/allowance', label: 'Allowance', short: 'Stay', icon: Timer, exact: false },
+  { href: '/money', label: 'Money', short: 'Cash', icon: Wallet, exact: false },
   { href: '/settings', label: 'Settings', short: 'You', icon: SettingsIcon, exact: false },
 ] as const
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { selfRef, partnerRef, tzSelf, tzPartner } = useCouple()
   const pathname = usePathname()
+  const activeRef = useRef<HTMLAnchorElement>(null)
 
   const isActive = (href: string, exact: boolean) =>
     exact ? pathname === href : pathname.startsWith(href)
+
+  // Keep the current section visible in the scrolling bar. Reading the ref in
+  // an effect rather than during render is what the compiler requires, and it
+  // is also the only point at which the DOM node exists.
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: 'nearest', inline: 'center' })
+  }, [pathname])
 
   return (
     <div className="min-h-dvh pb-16 md:pb-0">
@@ -88,14 +105,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 backdrop-blur md:hidden"
         aria-label="Main"
       >
-        <div className="grid grid-cols-9">
+        <div className="flex snap-x overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {NAV.map(({ href, label, short, icon: Icon, exact }) => (
             <Link
               key={href}
               href={href}
+              ref={isActive(href, exact) ? activeRef : undefined}
               aria-current={isActive(href, exact) ? 'page' : undefined}
               className={cn(
-                'flex flex-col items-center gap-1 py-2.5 text-[10px] font-medium',
+                'flex w-16 shrink-0 snap-center flex-col items-center gap-1 py-2.5 text-[10px] font-medium',
                 isActive(href, exact) ? 'text-foreground' : 'text-muted-foreground',
               )}
             >

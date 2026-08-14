@@ -66,6 +66,11 @@ export const qk = {
   mapPins: (scope: string) => ['map-pins', scope] as const,
   geocode: (query: string) => ['geocode', query] as const,
 
+  expenses: (scope: string) => ['expenses', scope] as const,
+  settlements: (scope: string) => ['settlements', scope] as const,
+  budgets: (tripId: string) => ['budgets', tripId] as const,
+  expenseCategories: ['expense-categories'] as const,
+
   documents: (filter?: string) => ['documents', filter ?? 'all'] as const,
   signedUrl: (path: string) => ['signed-url', path] as const,
   document: (id: string) => ['document', id] as const,
