@@ -15,6 +15,8 @@ non-negotiable #2 amounts to under Next.
 | `POST /api/flights/lookup` | On save | Resolve airline, route, times and callsign (1 AeroDataBox unit, once per flight ever) | done |
 | `POST /api/flights/status` | Client, every 60s while the module is open | Batched refresh; decides per flight per source whether a call is allowed | done |
 | `POST /api/cron/flight-sweep` | pg_cron, every 30 min | Hard-stops finished flights, then refreshes the ones in play so the watcher learns without the app open | done |
+| `GET /api/share/[token]` | A public share link, no session | Validates the token and mints short-lived signed URLs — never a storage path | done |
+| `POST /api/cron/media-sweep` | pg_cron, daily | Hard-deletes trashed photos: **storage objects first, then rows** | done |
 | `POST /api/cron/expiry-sweep` | pg_cron, daily 08:00 | Document expiry + stay-allowance warnings | 4 |
 | `POST /api/ai/suggest` | On demand, optional | The only feature that may be disabled entirely | later |
 
@@ -29,6 +31,12 @@ means `/api/extract`: the URL is hostile until proven otherwise. Scheme
 allowlist, private and link-local ranges refused, redirects followed by hand
 rather than by `fetch`, a timeout, and a cap on how much of the body is read.
 See D40 in `docs/MEMORY.md` for what each of those is defending against.
+
+**Public.** `/api/share/[token]` answers with no session at all, which makes it
+the only handler where the checks *are* the authorisation: the token exists, it
+is not revoked, it has not expired, the passcode matches. It uses the service
+role because there is no caller to authorise, and it returns parsed data plus
+signed URLs rather than anything the client could reuse.
 
 **Cron-initiated.** No user is present, so there is nothing for RLS to key off.
 These verify the `x-cron-secret` header with `assertCronRequest()` and only then
@@ -58,3 +66,11 @@ Concretely, in `lib/flights/`:
 
 Manual refresh goes through the same max-age check as the automatic tick, so
 spamming the button cannot turn into spend.
+
+## Order of operations in the media sweep
+
+`/api/cron/media-sweep` deletes storage objects **before** the rows that point
+at them, and only purges a row once its objects are gone. The reverse order
+loses the only record of which files existed, leaving them in a bucket with a
+one-gigabyte quota and nothing in the app able to find them. A partial failure
+in this order is safe: the row survives and the next sweep tries again.

@@ -49,6 +49,13 @@ export const qk = {
   destinationWeights: ['destination-weights'] as const,
   wishlistCities: ['wishlist-cities'] as const,
 
+  media: (coupleId: string, filters: string) => ['media', coupleId, filters] as const,
+  mediaItem: (id: string) => ['media-item', id] as const,
+  mediaTrash: (coupleId: string) => ['media-trash', coupleId] as const,
+  mediaUsage: ['media-usage'] as const,
+  albums: (coupleId: string) => ['albums', coupleId] as const,
+  shareLinks: (coupleId: string) => ['share-links', coupleId] as const,
+
   flights: (coupleId: string) => ['flights', coupleId] as const,
   flight: (id: string) => ['flight', id] as const,
   flightTrack: (id: string) => ['flight-track', id] as const,

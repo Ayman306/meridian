@@ -12,12 +12,12 @@ work up next — including a future session with no memory of this one.
 
 | | |
 | --- | --- |
-| Phase | 10 complete — Flights, the largest module in the spec |
-| Next | Phase 11 — Gallery (spec Module 11) |
+| Phase | 11 complete — the gallery |
+| Next | Phase 12 — Budget (spec Module 13) |
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0010, live |
+| Migrations applied | 0001–0011, live |
 | Deployed | no |
 
 ### What runs today
@@ -53,7 +53,12 @@ building — be told when to leave to meet someone, with the breakdown that make
 the number trustworthy. It works with no API keys at all: manual entry is the
 baseline, and "scheduled times only" is a normal state rather than a failure.
 
-Typecheck, lint, 412 unit tests, 113 database assertions and a production build
+And Phase 11, the shared photo library. Drop photos in and they are resized on
+the device, land in the grid grouped by the day they were taken, and can be
+captioned, favourited, commented on, put in albums, and shared by a link that
+expires and can be revoked. Deleting is reversible for thirty days.
+
+Typecheck, lint, 466 unit tests, 136 database assertions and a production build
 pass.
 
 Sign-in is now settled on the server: `src/app/(app)/layout.tsx` redirects an
@@ -62,8 +67,8 @@ setup stay client-side gates, because they depend on the couple query.
 
 ### What is stubbed
 
-- The remaining routes under `AppShell` (`money`, `photos`) render
-  `Placeholder` until their phase lands.
+- Two `Placeholder` routes remain: `/trips/:id/money` (Phase 12) and
+  `/settings` (Phase 13).
 - The blend narrows to a city by matching the trip title against the cities in
   the wishlist. It could read the chosen destination now that Module 4 exists;
   it does not yet.
@@ -82,6 +87,11 @@ setup stay client-side gates, because they depend on the couple query.
 - No flight API keys are configured, so every flight is manual and the live
   view sits at degradation level 6. That is a supported state, not a broken
   one — `AERODATABOX_API_KEY` and the OpenSky pair in `.env.example` turn it on.
+- The gallery grid paginates rather than virtualising. `@tanstack/react-virtual`
+  is installed for when a library is big enough to need it.
+- Videos are refused by the uploader. The schema, the size cap and a
+  poster-frame helper exist; the pipeline does not.
+- The daily-exchange strip has its table, logic and hooks but no surface yet.
 
 ---
 
@@ -583,6 +593,92 @@ the handoff needs it and spec 9.9 reads it without the schema declaring it.
 `flights.trip_id` exists because `/trips/:id/flights` is a route in 9.12 and
 the journey table alone cannot answer it for a single-leg flight.
 
+### D58 — No original ever reaches storage
+
+The single decision this whole module is built on. Two derivatives per photo —
+1600px display at q75 and a 400px thumb at q70 — is about 340 KB, so a
+gigabyte holds roughly 2,900 photos. With originals it holds 250.
+
+That is the difference between a library that lasts between trips and one that
+fills up on the first one, so `path_original` exists in the schema, stays null,
+and the uploader says so in plain words. People assume a photo app keeps the
+full-resolution file, and here that assumption is wrong in a way worth stating
+rather than hiding.
+
+Processing runs in the browser because it has to: a serverless function has
+neither the memory nor the time to decode a 48-megapixel HEIC, and the phone
+already has the file open.
+
+### D59 — Egress is a budget too, and the grid is where it is spent
+
+The grid loads thumbs. The lightbox loads one display and preloads at most one
+neighbour each way. Nothing in the app asks for both variants of the same
+photo. Sixty thumbs at ~40 KB is the spec's three-megabyte page, and the
+thumbhash — twenty-five bytes, rendered before any request finishes — is what
+makes that page feel instant rather than empty.
+
+Variant paths are content-addressed by media id and therefore never change, so
+they are uploaded with a one-year immutable cache header.
+
+### D60 — The upload queue is a pure reducer plus IndexedDB
+
+The acceptance test is fifty photos with a page refresh halfway through, which
+rules out holding progress in component state and rules out a promise chain
+with retries inside it. So the state machine is a reducer, tested on its own,
+and every transition writes to IndexedDB.
+
+What is *not* persisted is the `File` objects — they cannot be serialised, and
+a half-uploaded byte stream cannot be resumed after a reload anyway. Anything
+in flight comes back as pending and the UI asks for those files again, which is
+the honest version of "your queue survived".
+
+One upload at a time. Concurrency would finish a batch marginally sooner and
+would also run a phone out of memory decoding two large photos at once.
+
+### D61 — Duplicates prompt, never reject
+
+An 8×8 average hash, and a Hamming distance under 6 means "probably the same
+photo". Crude next to a DCT hash and entirely adequate for the only question it
+is asked: *did you already upload this one?*
+
+It never decides. Two photos of the same view seconds apart are not the same
+photo, and the person who took them is the only one who knows that — so the
+queue parks the item and offers "upload anyway" alongside "skip".
+
+### D62 — A share is resolved server-side, so revoking actually revokes
+
+`/api/share/[token]` is the only endpoint in the app that answers without a
+session. It checks four things in order — exists, not revoked, not expired,
+passcode matches — and only then mints signed URLs valid for fifteen minutes.
+
+It never returns a storage path. That is the whole point: a leaked path keeps
+working until someone moves the file, whereas a revoked token stops working on
+the next request. The token itself is 32 bytes from `crypto.getRandomValues`,
+and every failure returns the same message so guessing gets no feedback.
+
+The database tests found a stronger property than expected here: an anonymous
+caller does not read zero rows from `media`, it cannot evaluate the policy at
+all, because `is_couple_member` had EXECUTE revoked from `anon` back in 0004.
+
+### D63 — Objects before rows, always
+
+`/api/cron/media-sweep` deletes storage objects first and only then purges the
+rows. The spec says so and the reason is worth restating: the row is the only
+record of which files exist. Delete it first and the files sit in a bucket with
+a one-gigabyte quota, invisible to the app forever.
+
+`expired_media()` therefore returns paths rather than deleting anything, and a
+row whose objects could not be removed is deliberately left alone for the next
+sweep. Both functions have EXECUTE revoked from `authenticated` — they belong
+to cron.
+
+### D64 — A caption's search index is a trigger, not the client's job
+
+`search_tsv` is maintained by a `before insert or update of caption` trigger.
+A caption edited from the lightbox, a future bulk tool, or a migration is
+searchable without anyone remembering to update a second column — which is the
+kind of thing that is remembered for a year and then is not.
+
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 
 Supabase's linter, run against the live project, showed every helper and
@@ -696,6 +792,13 @@ tab is picked up for free.
 | 9.8 notifications | Events recorded, nothing sent | No push channel until `push_subscriptions` (Module 14) |
 | 9.8 screenshot/PDF parsing | Not built | Needs the AI module; the spec marks it optional |
 | 9.9 `estimateDrive` | Great circle × 1.4 ÷ 45 km/h, labelled an estimate | Exactly what the spec prescribes without a routing key; one function to swap if one appears |
+| 11.1 `media` | Adds `updated_at` | Part 0.3 |
+| 11.1 `albums`, `media_comments`, `share_links` | Add `updated_at` | Same |
+| 11.3 virtualised grid | Paginated instead | 60 a page already keeps the payload inside the spec's own budget; `@tanstack/react-virtual` is installed for when a library outgrows it |
+| 11.3 video support | Refused by the uploader | Schema, cap and a poster-frame helper exist; the pipeline does not, and a broken video is worse than an unsupported one |
+| 11.3 daily-exchange strip | Table, logic and hooks only | The surface is a small piece of UI and was left for the same pass as the recap screen |
+| 11.4 phash | 8×8 average hash, not DCT | D61 — enough for a prompt, and it never rejects anything on its own |
+| 11.5 `uploadMedia` returns an observable queue | A reducer plus a hook | D60 |
 
 Nothing else diverges. Where the spec gave SQL verbatim, the migration uses it
 verbatim.
@@ -780,7 +883,14 @@ Ordered by how much they block.
     AeroDataBox or OpenSky response. The field mapping in
     `lib/flights/providers.ts` is written from their documented shapes and
     should be treated as unverified until a real flight goes through it.
-19. **Allowance alerts are not on the dashboard yet.** Priority 3 in the alert
+19. **No photo has been uploaded.** The pipeline is exercised by unit tests
+    over the pure parts — dedupe, grouping, bucketing, the queue — but Canvas,
+    EXIF and HEIC conversion have never run against a real file in a real
+    browser. Expect the first fifty-photo batch to surface something.
+20. **The share route has never been hit by a browser other than this app.**
+    The checks are unit-reasoned and the RLS around them is proven, but the
+    end-to-end "open the link on a phone with no session" path is untested.
+21. **Allowance alerts are not on the dashboard yet.** Priority 3 in the alert
     strip has been reserved for them since Phase 5, and `checkPlannedStay` can
     now fill it. It needs the dashboard RPC to return upcoming trips with their
     destination country, which it does not.
