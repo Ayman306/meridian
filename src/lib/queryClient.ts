@@ -70,6 +70,7 @@ export const qk = {
   settlements: (scope: string) => ['settlements', scope] as const,
   budgets: (tripId: string) => ['budgets', tripId] as const,
   expenseCategories: ['expense-categories'] as const,
+  destinationCurrency: (tripId: string) => ['destination-currency', tripId] as const,
 
   documents: (filter?: string) => ['documents', filter ?? 'all'] as const,
   signedUrl: (path: string) => ['signed-url', path] as const,

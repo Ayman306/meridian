@@ -52,6 +52,25 @@ export async function listSettlements(tripId?: string | null): Promise<Settlemen
   return unwrapList(await query)
 }
 
+/**
+ * The country of the trip's chosen destination.
+ *
+ * Chosen, not candidate: a shortlist of four cities has no one currency, and
+ * showing the first one's would be a guess presented as a fact.
+ */
+export async function getDestinationCountry(tripId: string): Promise<string | null> {
+  const rows = unwrapList(
+    await supabase
+      .from('trip_destinations')
+      .select('country_code')
+      .eq('trip_id', tripId)
+      .eq('state', 'chosen')
+      .is('deleted_at', null)
+      .limit(1),
+  )
+  return rows[0]?.country_code ?? null
+}
+
 export async function listBudgets(tripId: string): Promise<Budget[]> {
   return unwrapList(await supabase.from('budgets').select('*').eq('trip_id', tripId))
 }

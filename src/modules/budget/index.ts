@@ -1,9 +1,12 @@
 /** Public surface of the budget module. Other modules import only from here. */
 export { TripMoneyPage } from './pages/TripMoneyPage'
 export { MoneyPage } from './pages/MoneyPage'
+export { RateCalculator } from './components/RateCalculator'
+export { CurrencyPicker } from './components/CurrencyPicker'
 export {
   useBalance,
   useBaseCurrency,
+  useDestinationCurrency,
   useExpenses,
   useSetBaseCurrency,
   useTripSummary,

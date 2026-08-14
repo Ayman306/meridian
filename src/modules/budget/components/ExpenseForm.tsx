@@ -16,15 +16,15 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ErrorState } from '@/components/common/states'
 import { todayIn } from '@/lib/dates'
+import { currencyInfo } from '@/lib/currencies'
 import { cn } from '@/lib/utils'
 import { useCouple } from '@/providers/CoupleProvider'
 import { useAuth } from '@/providers/AuthProvider'
 import { expenseSchema, type ExpenseFormValues } from '../schemas'
 import { formatMoney, validateSplit } from '../logic'
 import { useBaseCurrency, useExpenseCategories } from '../hooks'
+import { CurrencyPicker } from './CurrencyPicker'
 import type { Expense, SplitType } from '../types'
-
-const COMMON_CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'INR', 'JPY', 'AUD', 'CHF']
 
 const SPLIT_LABELS: Record<SplitType, string> = {
   equal: 'Split evenly',
@@ -36,6 +36,7 @@ const SPLIT_LABELS: Record<SplitType, string> = {
 export function ExpenseForm({
   tripId,
   existing,
+  destinationCurrency,
   onSubmit,
   onCancel,
   pending,
@@ -43,6 +44,8 @@ export function ExpenseForm({
 }: {
   tripId?: string | null
   existing?: Expense
+  /** Where the trip is going, so the picker offers it first. */
+  destinationCurrency?: string | null
   onSubmit: (values: ExpenseFormValues) => void
   onCancel: () => void
   pending?: boolean
@@ -58,7 +61,9 @@ export function ExpenseForm({
     defaultValues: {
       description: existing?.description ?? '',
       amount: existing ? Number(existing.amount) : undefined,
-      currency: existing?.currency ?? baseCurrency,
+      // Where you are is what you are most likely spending, so a trip with a
+      // chosen destination defaults to its currency rather than to the base.
+      currency: existing?.currency ?? destinationCurrency ?? baseCurrency,
       spent_on: existing?.spent_on ?? todayIn(tzSelf),
       paid_by: existing?.paid_by ?? user?.id ?? '',
       split_type: (existing?.split_type as SplitType) ?? 'equal',
@@ -128,28 +133,19 @@ export function ExpenseForm({
           <Input id="amount" inputMode="decimal" placeholder="0.00" {...form.register('amount')} />
           <FieldError message={form.formState.errors.amount?.message} />
         </div>
-        <div className="space-y-1">
-          <label htmlFor="currency" className="text-sm font-medium">
-            Currency
-          </label>
-          <select
-            id="currency"
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-            {...form.register('currency')}
-          >
-            {[...new Set([baseCurrency, ...COMMON_CURRENCIES])].map((code) => (
-              <option key={code} value={code}>
-                {code}
-              </option>
-            ))}
-          </select>
-        </div>
+        <CurrencyPicker
+          id="currency"
+          value={currency}
+          onChange={(code) => form.setValue('currency', code, { shouldValidate: true })}
+          suggested={[destinationCurrency, baseCurrency]}
+        />
       </div>
 
       {currency !== baseCurrency && (
         <p className="rounded-md bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">
-          Converted to {baseCurrency} at the rate for the day it was spent, and fixed there. If the
-          rate cannot be reached, it saves anyway and converts overnight.
+          {currencyInfo(currency)?.name ?? currency} → converted to {baseCurrency} at the rate for
+          the day it was spent, and fixed there. If the rate cannot be reached, it saves anyway and
+          converts overnight.
         </p>
       )}
 

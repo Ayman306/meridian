@@ -133,6 +133,33 @@ describe('splits', () => {
   })
 })
 
+describe('currencies without cents', () => {
+  it('splits yen into whole yen, odd one to the payer', () => {
+    // ¥500.50 each is not an amount anyone can hand over.
+    const result = shares(expense({ amount: 1001, currency: 'JPY' }), PAIR)
+    expect(result[ADA]).toBe(501)
+    expect(result[BO]).toBe(500)
+    expect(result[ADA]! + result[BO]!).toBe(1001)
+  })
+
+  it('still splits a two-decimal currency to the cent', () => {
+    const result = shares(expense({ amount: 10.01, currency: 'EUR' }), PAIR)
+    expect(result[ADA]).toBe(5.01)
+  })
+
+  it('handles a three-decimal currency', () => {
+    // Dinars have three. 10.001 halves to 5.001 / 5.000.
+    const result = shares(expense({ amount: 10.001, currency: 'KWD' }), PAIR)
+    expect(result[ADA]).toBe(5.001)
+    expect(result[BO]).toBe(5)
+  })
+
+  it('assumes two decimals for a code it does not know', () => {
+    const result = shares(expense({ amount: 10.01, currency: 'ZZZ' }), PAIR)
+    expect(result[ADA]).toBe(5.01)
+  })
+})
+
 describe('split validation', () => {
   it('passes the two types that carry no numbers', () => {
     expect(validateSplit('equal', 10, null)).toBeNull()

@@ -5,21 +5,26 @@
 'use client'
 
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { EmptyState } from '@/components/common/states'
 import { useCouple } from '@/providers/CoupleProvider'
+import { todayIn } from '@/lib/dates'
 import { formatMoney, worthShowingWeeks } from '../logic'
+import { getFxRate } from '../api'
 import { BudgetBar, DonutChart, LineChart, StackedBar } from './charts'
 import type { Summary } from '../types'
 
 export function SummaryPanel({
   summary,
+  destinationCurrency,
   onSetBudget,
   savingBudget,
 }: {
   summary: Summary
+  destinationCurrency?: string | null
   onSetBudget?: (categoryId: string | null, amount: number | null) => void
   savingBudget?: boolean
 }) {
@@ -73,6 +78,14 @@ export function SummaryPanel({
             </div>
           )}
         </div>
+
+        {destinationCurrency && destinationCurrency !== summary.currency && (
+          <InDestinationCurrency
+            total={summary.total}
+            base={summary.currency}
+            destination={destinationCurrency}
+          />
+        )}
 
         {summary.unconverted > 0 && (
           <p className="mt-3 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-500">
@@ -213,5 +226,45 @@ export function SummaryPanel({
         </Card>
       )}
     </div>
+  )
+}
+
+/**
+ * The trip total in the currency of the place you are going.
+ *
+ * At *today's* rate, and said so — unlike a saved expense, this figure is not
+ * fixed and should not look like it is. It answers "roughly how much local
+ * money is this?", which is the question worth asking before a trip and not
+ * after it, so precision matters less than not implying it.
+ */
+function InDestinationCurrency({
+  total,
+  base,
+  destination,
+}: {
+  total: number
+  base: string
+  destination: string
+}) {
+  const { tzSelf } = useCouple()
+  const today = todayIn(tzSelf)
+
+  const rate = useQuery({
+    queryKey: ['fx-calc', base, destination, today] as const,
+    queryFn: () => getFxRate(base, destination, today),
+    staleTime: 60 * 60_000,
+  })
+
+  if (!rate.data) return null
+
+  return (
+    <p className="mt-2 text-sm text-muted-foreground">
+      About{' '}
+      <span className="tabular-nums">
+        {/* The rate is destination-per-base, so going the other way multiplies. */}
+        {formatMoney(total * rate.data.rate, destination)}
+      </span>{' '}
+      in {destination}, at today&rsquo;s rate — indicative, not what each expense was fixed at.
+    </p>
   )
 }

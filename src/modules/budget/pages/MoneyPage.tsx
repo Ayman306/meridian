@@ -19,6 +19,7 @@ import { useCouple } from '@/providers/CoupleProvider'
 import { BalanceCard } from '../components/BalanceCard'
 import { ExpenseForm } from '../components/ExpenseForm'
 import { ExpenseList } from '../components/ExpenseList'
+import { RateCalculator } from '../components/RateCalculator'
 import {
   useAddExpense,
   useAddSettlement,
@@ -87,6 +88,8 @@ export function MoneyPage() {
           />
         </div>
       )}
+
+      <RateCalculator baseCurrency={baseCurrency} />
 
       <section className="space-y-3">
         <h2 className="text-sm font-medium">Settlements</h2>

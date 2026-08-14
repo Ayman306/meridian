@@ -6,6 +6,7 @@ import { qk } from '@/lib/queryClient'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/providers/AuthProvider'
 import { useCouple } from '@/providers/CoupleProvider'
+import { currencyForCountry } from '@/lib/currencies'
 import type { UpdateDto } from '@/types/database'
 import * as api from './api'
 import { balance, describeBalance, summarise } from './logic'
@@ -63,6 +64,22 @@ export function useSettlements(tripId?: string | null) {
     queryFn: () => api.listSettlements(tripId),
     enabled: Boolean(coupleId),
   })
+}
+
+/**
+ * The currency of the trip's chosen destination, or null when no city has been
+ * chosen yet. Null is a real answer and the UI shows nothing rather than
+ * guessing at the first candidate's.
+ */
+export function useDestinationCurrency(tripId: string | null): string | null {
+  const country = useQuery({
+    queryKey: qk.destinationCurrency(tripId ?? 'none'),
+    queryFn: () => api.getDestinationCountry(tripId!),
+    enabled: Boolean(tripId),
+    // Changes only when somebody chooses a different city.
+    staleTime: 5 * 60_000,
+  })
+  return useMemo(() => currencyForCountry(country.data), [country.data])
 }
 
 export function useBudgets(tripId: string | null) {
