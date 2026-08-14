@@ -17,6 +17,7 @@ import { ExpenseForm } from '../components/ExpenseForm'
 import { ExpenseList } from '../components/ExpenseList'
 import { BalanceCard } from '../components/BalanceCard'
 import { SummaryPanel } from '../components/SummaryPanel'
+import { RateCalculator } from '../components/RateCalculator'
 import {
   useAddExpense,
   useAddSettlement,
@@ -24,6 +25,7 @@ import {
   useBaseCurrency,
   useBudgetRealtime,
   useDeleteExpense,
+  useDestinationCurrency,
   useExpenseCategories,
   useExpenses,
   useSetBudget,
@@ -33,7 +35,7 @@ import {
 import { formatMoney, toCsv } from '../logic'
 import type { Expense } from '../types'
 
-type Tab = 'expenses' | 'summary'
+type Tab = 'expenses' | 'summary' | 'convert'
 
 export function TripMoneyPage({
   tripId,
@@ -46,6 +48,7 @@ export function TripMoneyPage({
 }) {
   const { selfRef, partnerRef } = useCouple()
   const baseCurrency = useBaseCurrency()
+  const destinationCurrency = useDestinationCurrency(tripId)
   const categories = useExpenseCategories()
   const expenses = useExpenses({ tripId })
   const { balance, line, isLoading: balanceLoading } = useBalance(tripId)
@@ -86,7 +89,11 @@ export function TripMoneyPage({
     <div className="space-y-4">
       <PageHeader
         title="Money"
-        description={tripTitle ? `What this trip is costing, in ${baseCurrency}` : undefined}
+        description={
+          destinationCurrency && destinationCurrency !== baseCurrency
+            ? `Spend in ${destinationCurrency}, totalled in ${baseCurrency}`
+            : `What this trip is costing, in ${baseCurrency}`
+        }
         actions={
           <>
             <Button
@@ -127,6 +134,7 @@ export function TripMoneyPage({
           <ExpenseForm
             tripId={tripId}
             existing={editing ?? undefined}
+            destinationCurrency={destinationCurrency}
             pending={addExpense.isPending || updateExpense.isPending}
             error={addExpense.error ?? updateExpense.error}
             onCancel={() => {
@@ -152,7 +160,7 @@ export function TripMoneyPage({
       )}
 
       <div className="flex gap-1 border-b border-border" role="tablist">
-        {(['expenses', 'summary'] as Tab[]).map((name) => (
+        {(['expenses', 'summary', 'convert'] as Tab[]).map((name) => (
           <button
             key={name}
             role="tab"
@@ -170,7 +178,9 @@ export function TripMoneyPage({
         ))}
       </div>
 
-      {tab === 'expenses' ? (
+      {tab === 'convert' ? (
+        <RateCalculator baseCurrency={baseCurrency} destinationCurrency={destinationCurrency} />
+      ) : tab === 'expenses' ? (
         <ExpenseList
           expenses={expenses.data ?? []}
           categories={categories.data ?? []}
@@ -187,6 +197,7 @@ export function TripMoneyPage({
       ) : (
         <SummaryPanel
           summary={summary}
+          destinationCurrency={destinationCurrency}
           savingBudget={setBudget.isPending}
           onSetBudget={(categoryId, amount) =>
             setBudget.mutate({ categoryId, amount, currency: baseCurrency })

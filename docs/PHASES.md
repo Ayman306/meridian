@@ -21,11 +21,14 @@ records what changed.
 | 10 | 9 — Flights | ✅ done | First external API; polling discipline matters |
 | 11 | 11 — Gallery | ✅ done | Largest module; free-tier storage drives its design |
 | 12 | 13 — Budget | ✅ done | Self-contained |
-| 13 | 14 — Settings | ⬜ next | Grows throughout; formalised here |
-| 14 | 12 — Health | ⬜ | Last. Consent-first. Design it together. |
+| 13 | 14 — Settings | ✅ done | Grows throughout; formalised here |
+| 14 | 12 — Health | ✅ done | Last. Consent-first. Design it together. |
 
-Later parts of the spec (16 — Going Public, 17 — Licensing & Payments) are out of
-scope until the app is in real use.
+**All fourteen phases are done.** Later parts of the spec (16 — Going Public,
+17 — Licensing & Payments) remain out of scope until the app is in real use.
+What is left is the deferred list at the end of each phase below — none of it
+blocks using the app, and most of it is a screen for something whose schema,
+logic and policies already exist and are tested.
 
 ---
 
@@ -391,3 +394,91 @@ Spec: Module 13.
       two-person — out of scope by the couple model
 - [ ] `pg_cron` schedule for the FX backfill, alongside the flight and media
       sweeps
+
+---
+
+## Phase 13 — Settings, invites and access
+
+Spec: Module 14, plus two things the spec does not cover.
+
+- [x] `couple_settings`, `user_settings`, `push_subscriptions` + RLS, seeded by
+      trigger so no screen ever meets a missing row
+- [x] **Invites are bound to an email address.** The code was a bearer token:
+      anyone holding eight characters could join. `join_couple` now compares
+      the address on the account signing in against the one the invite was
+      issued to, and refuses anyone else with `EMAIL_MISMATCH`
+- [x] One live invite per address per space, superseded on re-invite, so
+      revoking one code cannot leave another working
+- [x] Roles on `couple_members`: owner, partner, friend, guest
+- [x] **Module grants, enforced in RLS** — not by hiding nav items. A guest
+      without `money` gets zero rows from the database, however they ask
+- [x] Documents, stay allowance and health are never grantable outside the
+      couple, refused by the database at both invite and membership
+- [x] `couples.kind` and a partner-only size cap, so the same model extends to
+      multi-person trip groups without a second policy rewrite
+- [x] `AccessProvider` filters the nav from `my_modules()`, so a hidden link
+      and an unreadable table always agree
+- [x] Settings screen: shared preferences, personal preferences, work hours,
+      notification toggles, vault lock, leave couple
+- [x] Base currency moved to `couple_settings`, mirrored from `couples` by
+      trigger so an older client cannot disagree with it
+- [x] 21 unit tests, including one that reads the migration and fails if the
+      TypeScript module lists drift from the SQL
+- [x] 26 new RLS assertions, including a friend reading zero expenses, zero
+      documents and zero of anyone's immigration history
+- [ ] Push subscriptions — the table and the toggles exist; there is no
+      service worker and nothing is sent
+- [ ] Export everything / delete account (spec 14.2 "Data")
+- [ ] Category management — renaming and recolouring itinerary categories,
+      expense categories, document types and trip statuses
+- [ ] The trip bin, and restoring a deleted trip
+- [ ] Work-hours overlay on the itinerary — the fields are here now, the
+      overlay is not
+- [ ] Vault idle re-auth — `vault_lock_minutes` is stored; the gate is not built
+- [ ] Group spaces have schema support but no UI: no way to create one, and no
+      switcher
+
+---
+
+## Phase 14 — Health
+
+Spec: Module 12. Built last, as the spec instructs.
+
+- [x] `health_consents`, `cycle_logs`, `health_records`,
+      `medication_restrictions` + RLS
+- [x] **Owner-scoped, not couple-scoped** — the only module in the app where
+      being in the couple grants nothing. No policy here keys on
+      `is_couple_member`
+- [x] Consent enforced in the database per scope, checked by one
+      SECURITY DEFINER predicate
+- [x] **Revocation is instant** — `revoked_at` is read in the policy itself, so
+      the partner's next query returns nothing. No cache, no sweep
+- [x] A viewer has no write policy at all: read-only by construction, not by
+      convention
+- [x] Per-kind scopes: sharing vaccinations does not share medications
+- [x] **Hard delete**, in one RPC transaction. No `deleted_at` anywhere in this
+      module — the one place the soft-delete house rule is deliberately
+      reversed
+- [x] Prediction is a union whose "no" case carries a reason, so a confident
+      date cannot be rendered from thin data. Under 3 cycles: no prediction.
+      Over sd 7: a range, never a day. `isEstimate` has no false branch
+- [x] Medication supply check, which refuses to guess when the numbers are
+      absent
+- [x] Border restrictions that **link and never assert** — a match produces the
+      spec's exact sentence plus the official URL, and no data reads "not
+      checked", never "safe"
+- [x] Partner view is visibly limited: it lists what is *not* shared rather
+      than quietly rendering a shorter page, and never says whether an empty
+      section means "not shared" or "nothing logged"
+- [x] JSON export, and delete-everything behind a type-to-confirm
+- [x] No analytics or error-reporting SDK on any route — there is none in the
+      project at all
+- [x] 29 unit tests, 18 new RLS assertions covering every acceptance criterion
+      in spec 12.8
+- [ ] Cycle calendar view — the history list and `cycleDays()` exist; the month
+      grid does not
+- [ ] Predicted dates on the trip calendar, behind `cycle_predictions` consent
+- [ ] Linking a vaccination or prescription to a document — `document_id` is on
+      the row, no picker
+- [ ] The restriction seed is eleven rows across six countries. It is a
+      starting point with sources attached, not a dataset

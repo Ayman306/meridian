@@ -4,7 +4,7 @@
  *   npm run db:types
  *   # supabase gen types typescript --project-id <ref> > src/types/database.ts
  *
- * Generated from the live project after migrations 0001-0012. The aliases at
+ * Generated from the live project after migrations 0001-0014. The aliases at
  * the bottom are the only hand-written part: they are what the modules import,
  * and they are re-added after each regeneration.
  */
@@ -425,17 +425,26 @@ export type Database = {
       couple_members: {
         Row: {
           couple_id: string
+          invited_by: string | null
           joined_at: string
+          module_grants: string[] | null
+          role: string
           user_id: string
         }
         Insert: {
           couple_id: string
+          invited_by?: string | null
           joined_at?: string
+          module_grants?: string[] | null
+          role?: string
           user_id: string
         }
         Update: {
           couple_id?: string
+          invited_by?: string | null
           joined_at?: string
+          module_grants?: string[] | null
+          role?: string
           user_id?: string
         }
         Relationships: [
@@ -447,10 +456,67 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "couple_members_invited_by_fkey"
+            columns: ["invited_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "couple_members_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      couple_settings: {
+        Row: {
+          ai_enabled: boolean
+          base_currency: string
+          couple_id: string
+          created_at: string
+          date_format: string
+          distance_unit: string
+          long_stay_threshold: number
+          require_insurance: boolean
+          show_departure_countdown: boolean
+          updated_at: string
+          week_starts_on: number
+        }
+        Insert: {
+          ai_enabled?: boolean
+          base_currency?: string
+          couple_id: string
+          created_at?: string
+          date_format?: string
+          distance_unit?: string
+          long_stay_threshold?: number
+          require_insurance?: boolean
+          show_departure_countdown?: boolean
+          updated_at?: string
+          week_starts_on?: number
+        }
+        Update: {
+          ai_enabled?: boolean
+          base_currency?: string
+          couple_id?: string
+          created_at?: string
+          date_format?: string
+          distance_unit?: string
+          long_stay_threshold?: number
+          require_insurance?: boolean
+          show_departure_countdown?: boolean
+          updated_at?: string
+          week_starts_on?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "couple_settings_couple_id_fkey"
+            columns: ["couple_id"]
+            isOneToOne: true
+            referencedRelation: "couples"
             referencedColumns: ["id"]
           },
         ]
@@ -464,6 +530,7 @@ export type Database = {
           id: string
           invite_code: string | null
           invite_expires_at: string | null
+          kind: string
           name: string | null
           updated_at: string
         }
@@ -475,6 +542,7 @@ export type Database = {
           id?: string
           invite_code?: string | null
           invite_expires_at?: string | null
+          kind?: string
           name?: string | null
           updated_at?: string
         }
@@ -486,10 +554,55 @@ export type Database = {
           id?: string
           invite_code?: string | null
           invite_expires_at?: string | null
+          kind?: string
           name?: string | null
           updated_at?: string
         }
         Relationships: []
+      }
+      cycle_logs: {
+        Row: {
+          created_at: string
+          ended_on: string | null
+          flow: string | null
+          id: string
+          notes: string | null
+          owner_id: string
+          started_on: string
+          symptoms: string[] | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          ended_on?: string | null
+          flow?: string | null
+          id?: string
+          notes?: string | null
+          owner_id: string
+          started_on: string
+          symptoms?: string[] | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          ended_on?: string | null
+          flow?: string | null
+          id?: string
+          notes?: string | null
+          owner_id?: string
+          started_on?: string
+          symptoms?: string[] | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cycle_logs_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       daily_exchange: {
         Row: {
@@ -1264,6 +1377,190 @@ export type Database = {
         }
         Relationships: []
       }
+      health_consents: {
+        Row: {
+          created_at: string
+          granted_at: string
+          id: string
+          owner_id: string
+          revoked_at: string | null
+          scope: string
+          updated_at: string
+          viewer_id: string
+        }
+        Insert: {
+          created_at?: string
+          granted_at?: string
+          id?: string
+          owner_id: string
+          revoked_at?: string | null
+          scope: string
+          updated_at?: string
+          viewer_id: string
+        }
+        Update: {
+          created_at?: string
+          granted_at?: string
+          id?: string
+          owner_id?: string
+          revoked_at?: string | null
+          scope?: string
+          updated_at?: string
+          viewer_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "health_consents_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "health_consents_viewer_id_fkey"
+            columns: ["viewer_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      health_records: {
+        Row: {
+          created_at: string
+          detail: Json
+          document_id: string | null
+          dosage: string | null
+          doses_per_day: number | null
+          frequency: string | null
+          id: string
+          kind: string
+          label: string
+          owner_id: string
+          quantity_remaining: number | null
+          started_on: string | null
+          updated_at: string
+          valid_until: string | null
+        }
+        Insert: {
+          created_at?: string
+          detail?: Json
+          document_id?: string | null
+          dosage?: string | null
+          doses_per_day?: number | null
+          frequency?: string | null
+          id?: string
+          kind: string
+          label: string
+          owner_id: string
+          quantity_remaining?: number | null
+          started_on?: string | null
+          updated_at?: string
+          valid_until?: string | null
+        }
+        Update: {
+          created_at?: string
+          detail?: Json
+          document_id?: string | null
+          dosage?: string | null
+          doses_per_day?: number | null
+          frequency?: string | null
+          id?: string
+          kind?: string
+          label?: string
+          owner_id?: string
+          quantity_remaining?: number | null
+          started_on?: string | null
+          updated_at?: string
+          valid_until?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "health_records_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "health_records_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invites: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          code: string
+          couple_id: string
+          created_at: string
+          created_by: string | null
+          expires_at: string
+          id: string
+          invited_email: string
+          module_grants: string[] | null
+          revoked_at: string | null
+          role: string
+          updated_at: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          code: string
+          couple_id: string
+          created_at?: string
+          created_by?: string | null
+          expires_at: string
+          id?: string
+          invited_email: string
+          module_grants?: string[] | null
+          revoked_at?: string | null
+          role?: string
+          updated_at?: string
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          code?: string
+          couple_id?: string
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string
+          id?: string
+          invited_email?: string
+          module_grants?: string[] | null
+          revoked_at?: string | null
+          role?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invites_accepted_by_fkey"
+            columns: ["accepted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invites_couple_id_fkey"
+            columns: ["couple_id"]
+            isOneToOne: false
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invites_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       itinerary_items: {
         Row: {
           address: string | null
@@ -1590,6 +1887,36 @@ export type Database = {
           },
         ]
       }
+      medication_restrictions: {
+        Row: {
+          country_code: string
+          created_at: string
+          id: string
+          restriction: string | null
+          source_url: string
+          substance: string
+          verified_on: string | null
+        }
+        Insert: {
+          country_code: string
+          created_at?: string
+          id?: string
+          restriction?: string | null
+          source_url: string
+          substance: string
+          verified_on?: string | null
+        }
+        Update: {
+          country_code?: string
+          created_at?: string
+          id?: string
+          restriction?: string | null
+          source_url?: string
+          substance?: string
+          verified_on?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           accent_color: string
@@ -1640,6 +1967,41 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      push_subscriptions: {
+        Row: {
+          created_at: string
+          endpoint: string
+          id: string
+          keys: Json
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          endpoint: string
+          id?: string
+          keys: Json
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          endpoint?: string
+          id?: string
+          keys?: Json
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "push_subscriptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       settlements: {
         Row: {
@@ -2198,6 +2560,71 @@ export type Database = {
           },
         ]
       }
+      user_settings: {
+        Row: {
+          created_at: string
+          notify_allowance: boolean
+          notify_daily_exchange: boolean
+          notify_documents: boolean
+          notify_flights: boolean
+          notify_partner_activity: boolean
+          quiet_hours_end: string | null
+          quiet_hours_start: string | null
+          theme: string
+          updated_at: string
+          user_id: string
+          vault_lock_minutes: number
+          work_days: number[] | null
+          work_hours_end: string | null
+          work_hours_start: string | null
+          work_timezone: string | null
+        }
+        Insert: {
+          created_at?: string
+          notify_allowance?: boolean
+          notify_daily_exchange?: boolean
+          notify_documents?: boolean
+          notify_flights?: boolean
+          notify_partner_activity?: boolean
+          quiet_hours_end?: string | null
+          quiet_hours_start?: string | null
+          theme?: string
+          updated_at?: string
+          user_id: string
+          vault_lock_minutes?: number
+          work_days?: number[] | null
+          work_hours_end?: string | null
+          work_hours_start?: string | null
+          work_timezone?: string | null
+        }
+        Update: {
+          created_at?: string
+          notify_allowance?: boolean
+          notify_daily_exchange?: boolean
+          notify_documents?: boolean
+          notify_flights?: boolean
+          notify_partner_activity?: boolean
+          quiet_hours_end?: string | null
+          quiet_hours_start?: string | null
+          theme?: string
+          updated_at?: string
+          user_id?: string
+          vault_lock_minutes?: number
+          work_days?: number[] | null
+          work_hours_end?: string | null
+          work_hours_start?: string | null
+          work_timezone?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_settings_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       visa_rules: {
         Row: {
           destination_country: string
@@ -2363,10 +2790,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      all_modules: { Args: never; Returns: string[] }
       api_usage_in_window: {
         Args: { target_provider: string }
         Returns: number
       }
+      assert_grants_allowed: {
+        Args: { grants: string[]; member_role: string }
+        Returns: undefined
+      }
+      can_see: { Args: { module: string; target: string }; Returns: boolean }
       choose_destination: {
         Args: { destination_id: string }
         Returns: undefined
@@ -2381,6 +2814,7 @@ export type Database = {
           id: string
           invite_code: string | null
           invite_expires_at: string | null
+          kind: string
           name: string | null
           updated_at: string
         }
@@ -2391,8 +2825,38 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      create_invite: {
+        Args: {
+          email: string
+          grants?: string[]
+          member_role?: string
+          valid_days?: number
+        }
+        Returns: {
+          accepted_at: string | null
+          accepted_by: string | null
+          code: string
+          couple_id: string
+          created_at: string
+          created_by: string | null
+          expires_at: string
+          id: string
+          invited_email: string
+          module_grants: string[] | null
+          revoked_at: string | null
+          role: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "invites"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       dashboard: { Args: never; Returns: Json }
       deactivate_finished_flights: { Args: never; Returns: number }
+      delete_all_health_data: { Args: never; Returns: undefined }
       ensure_trip_album: { Args: { target_trip: string }; Returns: string }
       expired_media: {
         Args: { grace_days?: number }
@@ -2404,6 +2868,10 @@ export type Database = {
         }[]
       }
       generate_invite_code: { Args: never; Returns: string }
+      has_health_consent: {
+        Args: { owner: string; scope_name: string }
+        Returns: boolean
+      }
       health: { Args: never; Returns: Json }
       is_couple_member: { Args: { target: string }; Returns: boolean }
       join_couple: { Args: { code: string }; Returns: string }
@@ -2417,6 +2885,9 @@ export type Database = {
         }[]
       }
       my_couple_id: { Args: never; Returns: string }
+      my_email: { Args: never; Returns: string }
+      my_modules: { Args: never; Returns: string[] }
+      my_role: { Args: never; Returns: string }
       partner_id: { Args: never; Returns: string }
       purge_media: { Args: { ids: string[] }; Returns: number }
       push_wishlist_to_itinerary: {
@@ -2431,6 +2902,7 @@ export type Database = {
       seed_categories: { Args: { target: string }; Returns: undefined }
       seed_document_types: { Args: { target: string }; Returns: undefined }
       seed_trip_statuses: { Args: { target: string }; Returns: undefined }
+      sensitive_modules: { Args: never; Returns: string[] }
       sync_trip_days: { Args: { target: string }; Returns: number }
       trip_item_counts_by_day: {
         Args: { target: string }

@@ -13,10 +13,10 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input, Field } from '@/components/ui/input'
 import { ErrorState, PageLoading } from '@/components/common/states'
-import { useCreateCouple, useJoinCouple, useRegenerateInviteCode } from '@/modules/auth/hooks'
+import { useCreateCouple, useJoinCouple } from '@/modules/auth/hooks'
+import { useCreateInvite, useInvites } from '@/modules/settings'
 import {
   describeInviteExpiry,
-  isInviteExpired,
   isPlausibleInviteCode,
   normaliseInviteCode,
 } from '@/modules/auth/logic'
@@ -51,7 +51,7 @@ export function PairPage() {
         </p>
       </header>
 
-      {couple ? <InviteCard couple={couple} /> : <CreateCard />}
+      {couple ? <InviteCard /> : <CreateCard />}
 
       <JoinCard disabled={Boolean(couple)} />
 
@@ -97,19 +97,26 @@ function CreateCard() {
   )
 }
 
-function InviteCard({
-  couple,
-}: {
-  couple: { id: string; invite_code: string | null; invite_expires_at: string | null }
-}) {
-  const regenerate = useRegenerateInviteCode()
+/**
+ * Issue an invite.
+ *
+ * The code on its own no longer admits anybody — `join_couple` compares the
+ * address on the account signing in against the one this was issued to. That
+ * is the whole reason this asks for an email before it will mint anything, and
+ * the copy says so, because a code that looks like a password but is not would
+ * be worse than either.
+ */
+function InviteCard() {
+  const createInvite = useCreateInvite()
+  const invites = useInvites()
+  const [email, setEmail] = useState('')
   const [copied, setCopied] = useState(false)
-  const expired = isInviteExpired(couple.invite_expires_at)
-  const code = couple.invite_code
+
+  const live = invites.data?.[0] ?? null
 
   const copy = async () => {
-    if (!code) return
-    await navigator.clipboard.writeText(code)
+    if (!live) return
+    await navigator.clipboard.writeText(live.code)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -117,48 +124,75 @@ function InviteCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Your invite code</CardTitle>
+        <CardTitle>Invite your partner</CardTitle>
         <CardDescription>
-          {code && !expired
-            ? describeInviteExpiry(couple.invite_expires_at)
-            : 'This code is no longer usable.'}
+          {live
+            ? `Sent to ${live.invited_email}. ${describeInviteExpiry(live.expires_at)}`
+            : 'It goes to one email address, and only that address can use it.'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {code && !expired ? (
-          <div className="flex items-center gap-2">
-            <output className="tabular flex-1 rounded-md border border-border bg-secondary px-4 py-3 text-center text-2xl font-semibold tracking-[0.3em]">
-              {code}
-            </output>
-            <Button variant="outline" size="icon" onClick={() => void copy()} aria-label="Copy code">
-              {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-            </Button>
-          </div>
+        {live ? (
+          <>
+            <div className="flex items-center gap-2">
+              <output className="tabular flex-1 rounded-md border border-border bg-secondary px-4 py-3 text-center text-2xl font-semibold tracking-[0.3em]">
+                {live.code}
+              </output>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => void copy()}
+                aria-label="Copy code"
+              >
+                {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Send them this code however you like. It only works for{' '}
+              <strong>{live.invited_email}</strong>, so it is safe to read out.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Waiting for them to join. This page updates once they do — you can close it.
+            </p>
+          </>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            {expired ? 'It expired.' : 'It has already been used.'} Generate a new one to invite
-            someone.
-          </p>
+          <>
+            <div className="space-y-1">
+              <label htmlFor="invite-to" className="text-sm font-medium">
+                Their email address
+              </label>
+              <Input
+                id="invite-to"
+                type="email"
+                placeholder="them@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                It has to be the address they sign in to Google with.
+              </p>
+            </div>
+            <Button
+              className="w-full"
+              disabled={!email.trim() || createInvite.isPending}
+              onClick={() =>
+                createInvite.mutate(
+                  { email: email.trim(), role: 'partner', grants: null },
+                  { onSuccess: () => setEmail('') },
+                )
+              }
+            >
+              <RefreshCw aria-hidden="true" />
+              {createInvite.isPending ? 'Creating…' : 'Create invite'}
+            </Button>
+          </>
         )}
 
-        <Button
-          variant="outline"
-          className="w-full"
-          disabled={regenerate.isPending}
-          onClick={() => regenerate.mutate()}
-        >
-          <RefreshCw aria-hidden="true" />
-          {regenerate.isPending ? 'Generating…' : 'New code'}
-        </Button>
-        {regenerate.error ? (
+        {createInvite.error ? (
           <p className="text-sm text-destructive" role="alert">
-            {userMessage(regenerate.error)}
+            {userMessage(createInvite.error)}
           </p>
         ) : null}
-
-        <p className="text-xs text-muted-foreground">
-          Waiting for them to join. This page updates once they do — you can close it.
-        </p>
       </CardContent>
     </Card>
   )

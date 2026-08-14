@@ -17,6 +17,7 @@
  * with the parts.
  */
 import { addDaysTo, dateRange, daysBetween, type DateOnly } from '@/lib/dates'
+import { minorUnitsOf } from '@/lib/currencies'
 import type {
   Balance,
   BalanceLine,
@@ -39,14 +40,22 @@ import type {
 // Cents
 // ---------------------------------------------------------------------------
 
-/** A currency amount as an integer number of cents. */
-export function toCents(amount: number): number {
+/**
+ * A currency amount as an integer number of its smallest unit.
+ *
+ * `minorUnits` defaults to 2 because that is what almost every currency uses
+ * and what the `numeric(12,2)` column stores. Pass the real figure when
+ * splitting: yen has none, and halving ¥1,001 into ¥500.50 produces an amount
+ * nobody can hand over.
+ */
+export function toCents(amount: number, minorUnits = 2): number {
+  const factor = 10 ** minorUnits
   // Math.round rather than truncation: 10.07 * 100 is 1006.9999999999999.
-  return Math.round(amount * 100)
+  return Math.round(amount * factor)
 }
 
-export function fromCents(cents: number): number {
-  return cents / 100
+export function fromCents(cents: number, minorUnits = 2): number {
+  return cents / 10 ** minorUnits
 }
 
 /** Round a currency amount to 2dp without the usual float surprises. */
@@ -67,7 +76,13 @@ export function round2(amount: number): number {
  * owing a cent they did not agree to.
  */
 export function shares(expense: Expense, pair: Pair): Shares {
-  const total = toCents(Number(expense.amount))
+  // The currency the money was actually spent in decides the precision. An
+  // odd yen goes to the payer whole, exactly as an odd cent does.
+  const units = minorUnitsOf(expense.currency)
+  const toUnits = (n: number) => toCents(n, units)
+  const fromUnits = (n: number) => fromCents(n, units)
+
+  const total = toUnits(Number(expense.amount))
   const payer = expense.paid_by
   const other = payer === pair.a ? pair.b : pair.a
   const detail = (expense.split_detail ?? {}) as Record<string, number>
@@ -76,7 +91,7 @@ export function shares(expense: Expense, pair: Pair): Shares {
     case 'full':
       // The payer covers it entirely. No debt is created, which is the whole
       // point of the option — it still counts toward trip totals.
-      return { [payer]: fromCents(total) }
+      return { [payer]: fromUnits(total) }
 
     case 'exact': {
       // Trusted only after `validateSplit`. Whatever is unaccounted for goes
@@ -85,11 +100,11 @@ export function shares(expense: Expense, pair: Pair): Shares {
       let assigned = 0
       for (const [userId, value] of Object.entries(detail)) {
         if (userId === payer) continue
-        const cents = toCents(Number(value))
-        out[userId] = fromCents(cents)
-        assigned += cents
+        const units_ = toUnits(Number(value))
+        out[userId] = fromUnits(units_)
+        assigned += units_
       }
-      out[payer] = fromCents(total - assigned)
+      out[payer] = fromUnits(total - assigned)
       return out
     }
 
@@ -98,20 +113,21 @@ export function shares(expense: Expense, pair: Pair): Shares {
       let assigned = 0
       for (const [userId, value] of Object.entries(detail)) {
         if (userId === payer) continue
-        const cents = Math.round((total * Number(value)) / 100)
-        out[userId] = fromCents(cents)
-        assigned += cents
+        const units_ = Math.round((total * Number(value)) / 100)
+        out[userId] = fromUnits(units_)
+        assigned += units_
       }
-      out[payer] = fromCents(total - assigned)
+      out[payer] = fromUnits(total - assigned)
       return out
     }
 
     case 'equal':
     default: {
       const half = Math.floor(total / 2)
-      // The odd cent to the payer. €10.01 becomes 5.01 / 5.00, and the two
-      // still add to 10.01 — the acceptance criterion in spec 13.7.
-      return { [other]: fromCents(half), [payer]: fromCents(total - half) }
+      // The odd unit to the payer. €10.01 becomes 5.01 / 5.00, ¥1,001 becomes
+      // ¥500 / ¥501, and each pair still adds to the total — the acceptance
+      // criterion in spec 13.7.
+      return { [other]: fromUnits(half), [payer]: fromUnits(total - half) }
     }
   }
 }

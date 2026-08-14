@@ -66,14 +66,42 @@ set request.jwt.claim.sub = :'ada_ada';
 select id as couple from public.create_couple('Ada & Bo') \gset ada_
 select assert(:'ada_couple' is not null, 'create_couple returned a couple');
 
-select invite_code as code from public.couples where id = :'ada_couple' \gset ada_
-select assert(length(:'ada_code') = 8, 'the invite code is 8 characters');
-select assert(:'ada_code' !~ '[ILO01]', 'the invite code avoids I, L, O, 0 and 1');
-
 select assert_raises(
   format('select public.create_couple(%L)', 'second one'),
   'ALREADY_PAIRED',
   'a second create_couple is refused'
+);
+
+-- An invite is issued to an address, not to whoever holds the code.
+select code from public.create_invite('bo@example.com') \gset ada_
+select assert(length(:'ada_code') = 8, 'the invite code is 8 characters');
+select assert(:'ada_code' !~ '[ILO01]', 'the invite code avoids I, L, O, 0 and 1');
+
+select assert_raises(
+  'select public.create_invite(''not-an-address'')',
+  'INVALID_EMAIL',
+  'an invite needs a real address'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== the code alone is not enough =='
+--
+-- The property this whole design exists for: a live, valid, unexpired code
+-- presented by the wrong account is refused. A code read aloud on a call or
+-- left in a screenshot is no longer a way in.
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert_raises(
+  format('select public.join_couple(%L)', :'ada_code'),
+  'EMAIL_MISMATCH',
+  'a valid code redeemed by the wrong person is refused'
+);
+-- Checked as Ada: from Cyd's side the couple is not visible at all, so a
+-- count there would be zero for the wrong reason.
+set request.jwt.claim.sub = :'ada_ada';
+select assert(
+  (select count(*) from public.couple_members where couple_id = :'ada_couple') = 1,
+  'and the attempt added nobody'
 );
 
 -- ---------------------------------------------------------------------------
@@ -87,11 +115,12 @@ select assert(
   (select count(*) from public.couple_members where couple_id = :'ada_couple') = 2,
   'the couple now has exactly two members'
 );
-select assert(
-  (select invite_code from public.couples where id = :'ada_couple') is null,
-  'the code was spent on use'
-);
 select assert(public.partner_id() = :'ada_ada', 'partner_id() resolves to Ada');
+select assert(public.my_role() = 'partner', 'and joined as a partner');
+select assert(
+  public.my_modules() = public.all_modules(),
+  'a partner sees every module'
+);
 
 -- ---------------------------------------------------------------------------
 \echo ''
@@ -104,13 +133,21 @@ select assert_raises(
   'the spent code is refused'
 );
 
--- Give Cyd a live code to attack, by having Ada mint one... except the couple
--- is full, so even that is refused. Prove it.
 set request.jwt.claim.sub = :'ada_ada';
 select assert_raises(
   'select public.regenerate_invite_code()',
+  'INVITE_NEEDS_EMAIL',
+  'the old bearer-code call is gone and says so'
+);
+select assert_raises(
+  'select public.create_invite(''cyd@example.com'')',
   'COUPLE_FULL',
-  'a full couple cannot mint a new code'
+  'a full couple cannot invite a second partner'
+);
+select assert_raises(
+  'select public.create_invite(''bo@example.com'')',
+  'ALREADY_MEMBER',
+  'and cannot re-invite somebody already in it'
 );
 
 -- ---------------------------------------------------------------------------
@@ -1279,6 +1316,276 @@ select assert_raises(
      values (''USD'', ''EUR'', 0.91, ''2026-06-01'')',
   'row-level security',
   'a signed-in user cannot write a rate — only the service role does'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== module visibility =='
+--
+-- The property: a grant is enforced by the database, not by hiding nav items.
+-- A screen you cannot reach is not the same as data you cannot read, and only
+-- the second one is a guarantee — so every assertion here reads a table
+-- directly rather than asking what the UI would render.
+set request.jwt.claim.sub = :'ada_ada';
+
+select assert_raises(
+  'select public.create_invite(''dee@example.com'', ''friend'', array[''documents''])',
+  'SENSITIVE_MODULE_NOT_SHAREABLE',
+  'the vault cannot be granted to a friend, whatever the UI offers'
+);
+select assert_raises(
+  'select public.create_invite(''dee@example.com'', ''friend'', array[''nonsense''])',
+  'UNKNOWN_MODULE',
+  'and a grant naming a module that does not exist is refused'
+);
+
+-- Dee joins as a friend who may see the trip and the photos, and nothing else.
+select code from public.create_invite(
+  'dee@example.com', 'friend', array['trips', 'photos']
+) \gset dee_
+
+set request.jwt.claim.sub = :'dee_dee';
+select public.join_couple(:'dee_code') as joined \gset dee_
+select assert(:'dee_joined' = :'ada_couple', 'the friend joined the same space');
+select assert(public.my_role() = 'friend', 'as a friend, not a partner');
+select assert(
+  public.my_modules() = array['trips', 'photos'],
+  'holding exactly the two modules they were granted'
+);
+
+select assert(
+  (select count(*) from public.trips where id = :'ada_trip') = 1,
+  'the friend reads the trip they were invited to'
+);
+select assert(
+  (select count(*) from public.media) >= 1,
+  'and the photos'
+);
+
+-- The three that carry the whole point of the feature.
+select assert(
+  (select count(*) from public.expenses) = 0,
+  'the friend reads zero expenses — not a hidden screen, no rows'
+);
+select assert(
+  (select count(*) from public.documents) = 0,
+  'zero documents — the vault is not theirs to see'
+);
+select assert(
+  (select count(*) from public.entry_exit_log) = 0,
+  'and zero of anyone''s immigration history'
+);
+select assert(
+  (select count(*) from public.wishlist_items) = 0,
+  'nor the wishlist, which was simply not granted'
+);
+
+-- Writes are refused on the same footing as reads.
+insert into public.expenses (couple_id, description, amount, currency, paid_by, created_by)
+select :'ada_couple', 'Snuck in', 5.00, 'EUR', :'dee_dee', :'dee_dee'
+where false;
+select assert_raises(
+  format(
+    'insert into public.expenses (couple_id, description, amount, currency, paid_by)
+       values (%L, %L, 5.00, %L, %L)',
+    :'ada_couple', 'Snuck in', 'EUR', :'dee_dee'
+  ),
+  'row-level security',
+  'and cannot write an expense either'
+);
+
+-- A friend cannot widen their own access by inviting somebody.
+select assert_raises(
+  'select public.create_invite(''nobody@example.com'', ''friend'', array[''trips''])',
+  'NOT_ALLOWED',
+  'a friend cannot issue invites — that would route around their own grants'
+);
+
+-- Nor by editing the grant row itself.
+update public.couple_members set module_grants = public.all_modules()
+ where user_id = :'dee_dee';
+select assert(
+  (select count(*) from public.expenses) = 0,
+  'and cannot grant themselves the rest by writing to couple_members'
+);
+
+-- The partner is unaffected by any of it.
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.expenses where id = :'ada_expense') = 1,
+  'the partner still sees everything'
+);
+select assert(
+  public.my_modules() = public.all_modules(),
+  'and still holds every module'
+);
+
+-- Shared preferences belong to the people the space is for.
+set request.jwt.claim.sub = :'dee_dee';
+update public.couple_settings set base_currency = 'XXX' where couple_id = :'ada_couple';
+select assert(
+  (select count(*) from public.couple_settings where base_currency = 'XXX') = 0,
+  'a friend cannot change everyone''s base currency'
+);
+
+set request.jwt.claim.sub = :'ada_ada';
+select assert(
+  (select base_currency from public.couple_settings where couple_id = :'ada_couple') = 'USD',
+  'which is still what the partner set'
+);
+select assert(
+  (select count(*) from public.user_settings where user_id = :'ada_ada') = 1,
+  'every profile got a settings row from the signup trigger'
+);
+select assert(
+  (select count(*) from public.user_settings) = 1,
+  'and one person cannot read another''s'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== health: consent is the gate, not the UI =='
+--
+-- Spec 12.8's acceptance criteria, verbatim: "Partner cannot read cycle_logs
+-- without consent (verify by direct query with partner JWT)" and "Revoking
+-- consent blocks reads immediately, no cache staleness". Both are checked by
+-- reading the table as the other person, which is the only check that means
+-- anything here.
+set request.jwt.claim.sub = :'ada_ada';
+
+insert into public.cycle_logs (owner_id, started_on, ended_on, flow)
+values (:'ada_ada', '2026-05-01', '2026-05-05', 'medium')
+returning id as cycle \gset ada_
+
+insert into public.health_records (owner_id, kind, label, dosage, doses_per_day, quantity_remaining)
+values (:'ada_ada', 'medication', 'Sertraline', '50mg', 1, 40)
+returning id as med \gset ada_
+
+insert into public.health_records (owner_id, kind, label)
+values (:'ada_ada', 'vaccination', 'Hepatitis A')
+returning id as vax \gset ada_
+
+select assert(
+  (select count(*) from public.cycle_logs) = 1,
+  'the owner reads their own cycle log'
+);
+
+-- Being in the couple grants nothing here. This is the whole module.
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.cycle_logs) = 0,
+  'the partner reads zero cycle logs without consent — couple membership is not access'
+);
+select assert(
+  (select count(*) from public.health_records) = 0,
+  'and zero health records'
+);
+select assert(
+  (select count(*) from public.health_consents) = 0,
+  'and cannot even enumerate what they have been granted'
+);
+
+-- The partner cannot grant themselves anything.
+select assert_raises(
+  format(
+    'insert into public.health_consents (owner_id, viewer_id, scope)
+       values (%L, %L, %L)',
+    :'ada_ada', :'bo_bo', 'cycle'
+  ),
+  'row-level security',
+  'nor grant themselves consent'
+);
+
+-- Ada shares the cycle, and only the cycle.
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.health_consents (owner_id, viewer_id, scope)
+values (:'ada_ada', :'bo_bo', 'cycle')
+returning id as consent \gset ada_
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.cycle_logs where id = :'ada_cycle') = 1,
+  'with consent, the partner reads the cycle log'
+);
+select assert(
+  (select count(*) from public.health_records) = 0,
+  'and still reads no medications — the scopes are separate because the decisions are'
+);
+
+-- Read-only by construction: there is no write policy for a viewer at all.
+update public.cycle_logs set flow = 'heavy' where id = :'ada_cycle';
+select assert(
+  (select count(*) from public.cycle_logs where id = :'ada_cycle' and flow = 'heavy') = 0,
+  'a viewer cannot edit what they were shown'
+);
+select assert_raises(
+  format(
+    'insert into public.cycle_logs (owner_id, started_on) values (%L, %L)',
+    :'ada_ada', '2026-07-01'
+  ),
+  'row-level security',
+  'nor add to it'
+);
+
+-- Per-kind scopes on health_records.
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.health_consents (owner_id, viewer_id, scope)
+values (:'ada_ada', :'bo_bo', 'vaccinations');
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.health_records where id = :'ada_vax') = 1,
+  'sharing vaccinations shows the vaccination'
+);
+select assert(
+  (select count(*) from public.health_records where id = :'ada_med') = 0,
+  'and does not show the medication'
+);
+
+-- Revocation is instant: checked in the policy, so the next query sees it.
+set request.jwt.claim.sub = :'ada_ada';
+update public.health_consents set revoked_at = now() where id = :'ada_consent';
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.cycle_logs) = 0,
+  'revoking blocks the read on the very next query — no cache, no sweep'
+);
+select assert(
+  (select count(*) from public.health_records where id = :'ada_vax') = 1,
+  'and revoking one scope leaves the others alone'
+);
+
+-- Hard delete, in one transaction. Spec 12.2 allows no soft-delete grace.
+set request.jwt.claim.sub = :'ada_ada';
+select public.delete_all_health_data();
+select assert(
+  (select count(*) from public.cycle_logs) = 0
+    and (select count(*) from public.health_records) = 0
+    and (select count(*) from public.health_consents) = 0,
+  'deleting removes every row, with no soft-delete residue'
+);
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.health_records) = 0,
+  'and the partner''s view empties with it'
+);
+
+-- Restrictions are reference data, and never assert a rule on their own.
+select assert(
+  (select count(*) from public.medication_restrictions where country_code = 'JP') >= 1,
+  'the restriction seed is readable by anyone signed in'
+);
+select assert(
+  (select count(*) from public.medication_restrictions where source_url is null) = 0,
+  'and every row carries the official source it points at'
+);
+select assert_raises(
+  'insert into public.medication_restrictions (country_code, substance, source_url)
+     values (''JP'', ''something'', ''https://example.com'')',
+  'row-level security',
+  'nobody adds a restriction through the API — these change by migration'
 );
 
 -- ---------------------------------------------------------------------------

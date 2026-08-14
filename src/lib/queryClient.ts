@@ -70,6 +70,18 @@ export const qk = {
   settlements: (scope: string) => ['settlements', scope] as const,
   budgets: (tripId: string) => ['budgets', tripId] as const,
   expenseCategories: ['expense-categories'] as const,
+  destinationCurrency: (tripId: string) => ['destination-currency', tripId] as const,
+
+  coupleSettings: (coupleId: string) => ['couple-settings', coupleId] as const,
+  userSettings: (userId: string) => ['user-settings', userId] as const,
+  members: (coupleId: string) => ['members', coupleId] as const,
+  invites: (coupleId: string) => ['invites', coupleId] as const,
+  myModules: ['my-modules'] as const,
+
+  healthConsents: ['health-consents'] as const,
+  cycles: (ownerId: string) => ['cycles', ownerId] as const,
+  healthRecords: (ownerId: string, kind: string) => ['health-records', ownerId, kind] as const,
+  restrictions: (countryCode: string) => ['restrictions', countryCode] as const,
 
   documents: (filter?: string) => ['documents', filter ?? 'all'] as const,
   signedUrl: (path: string) => ['signed-url', path] as const,
