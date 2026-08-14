@@ -49,6 +49,10 @@ export const qk = {
   destinationWeights: ['destination-weights'] as const,
   wishlistCities: ['wishlist-cities'] as const,
 
+  flights: (coupleId: string) => ['flights', coupleId] as const,
+  flight: (id: string) => ['flight', id] as const,
+  flightTrack: (id: string) => ['flight-track', id] as const,
+
   allowanceRules: (userId: string) => ['allowance-rules', userId] as const,
   entryLog: (coupleId: string) => ['entry-log', coupleId] as const,
 

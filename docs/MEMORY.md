@@ -12,12 +12,12 @@ work up next — including a future session with no memory of this one.
 
 | | |
 | --- | --- |
-| Phase | 9 complete — Destinations and Stay Allowance |
-| Next | Phase 10 — Flights (spec Module 9) |
+| Phase | 10 complete — Flights, the largest module in the spec |
+| Next | Phase 11 — Gallery (spec Module 11) |
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0009, live |
+| Migrations applied | 0001–0010, live |
 | Deployed | no |
 
 ### What runs today
@@ -47,7 +47,13 @@ one sets the trip's timezone. The allowance module counts days properly: the
 rolling window is evaluated on every day of a planned stay, not just arrival,
 and days in any Schengen member count against the same total.
 
-Typecheck, lint, 303 unit tests, 98 database assertions and a production build
+And Phase 10, the flight engine. Add a flight with a number and a date; watch
+it on a map that draws the great circle it actually flies; and — the part worth
+building — be told when to leave to meet someone, with the breakdown that makes
+the number trustworthy. It works with no API keys at all: manual entry is the
+baseline, and "scheduled times only" is a normal state rather than a failure.
+
+Typecheck, lint, 412 unit tests, 113 database assertions and a production build
 pass.
 
 Sign-in is now settled on the server: `src/app/(app)/layout.tsx` redirects an
@@ -70,6 +76,12 @@ setup stay client-side gates, because they depend on the couple query.
 - The allowance override form is not built. `useUpsertRule` works and the
   policies are proven; the seeded defaults cover the common cases until the
   Settings surface arrives.
+- Flight notifications have nowhere to go. `flight_events` records every phase
+  change and the sweep that would send them runs, but push needs
+  `push_subscriptions` from Module 14.
+- No flight API keys are configured, so every flight is manual and the live
+  view sits at degradation level 6. That is a supported state, not a broken
+  one — `AERODATABOX_API_KEY` and the OpenSky pair in `.env.example` turn it on.
 
 ---
 
@@ -483,6 +495,94 @@ country shows nothing rather than a temperate guess.
 a cost row; a band reconciles them. "Portugal is cheaper than Switzerland" is
 stable and useful. "€95 a day" would be wrong the moment it was written.
 
+### D50 — The budget lives in the database, not the client
+
+Every decision about whether an API call may happen is made server-side in
+`lib/flights/orchestrator.ts`, and the spend it checks against comes from the
+`api_usage` table.
+
+Two failure modes make this the only workable place for it. A counter in the
+process resets on every cold start, so a serverless function cannot be trusted
+to know what the month has cost. And both partners watch the same flight: if
+the client decided, two browsers would double every call. Putting the rule
+behind one shared row means whoever refreshes first pays and the other one
+reads the result.
+
+The manual refresh button goes through exactly the same max-age check as the
+automatic tick. Spec 9.14 asks that spamming it twenty times produce at most
+one call, and a client-side cooldown alone cannot promise that.
+
+### D51 — Isolation is the robustness property, not retries
+
+`refreshFlight` settles the two providers separately and neither can reject.
+OpenSky being down degrades the position and leaves the gate alone; AeroDataBox
+being down leaves the aircraft on the map. A shared try/catch would have made
+either failure blank both.
+
+This is also why the status route answers 200 with empty arrays when everything
+fails: the live view has no error state by design (spec 9.5), and the client
+keeps rendering what it already has.
+
+### D52 — Positions are insertable only by the service role
+
+`flight_positions` has a read policy and no write policy at all. Everything
+else in this app lets the couple write their own rows; an aircraft location is
+different, because a fabricated one is indistinguishable from a real one on the
+map and someone is about to drive to an airport on it.
+
+### D53 — An estimated position never looks like a real one
+
+Solid and rotated for a live fix, half-opacity for a stale one, and **hollow
+with a dashed outline** for an estimate. Spec 9.7 calls this the single most
+important rule in the map layer and it is right: the difference between
+informing someone and lying to them while they drive to an airport.
+
+Dead reckoning between fixes is honest for the minute between polls, so the
+marker walks its own heading at its own speed rather than teleporting. It stops
+after ninety seconds. Extrapolating for an hour would produce a confident
+marker in the middle of an ocean, which is what the hollow style exists to
+prevent.
+
+### D54 — Great circles by hand, no turf
+
+Spec 9.7 names `@turf/great-circle`. `lib/geo.ts` is forty lines of
+trigonometry instead: turf pulls two more packages to produce a GeoJSON feature
+we would immediately unwrap, and the antimeridian split — the part that
+actually matters — reads better written out than configured.
+
+The split is not cosmetic. Leaflet joins consecutive coordinates by longitude,
+so a Tokyo → Los Angeles route drawn naively goes back across Asia and Europe,
+the long way round the world. There is a test for that exact route.
+
+### D55 — The hard stop is a cron function, not app logic
+
+`deactivate_finished_flights()` switches tracking off for anything landed,
+cancelled, or six hours past its scheduled arrival. The orchestrator applies
+the same rule the moment it becomes true, but the database function exists
+because the dangerous case is precisely the one the app never sees: a landing
+nobody noticed, on a flight nobody opened, polling every sweep until the
+month's allowance is gone.
+
+### D56 — The confirmation parser refuses ambiguity
+
+`11/12/2026` is 11 December to half the world and 12 November to the other
+half, so `findDate` does not parse bare numeric dates at all. ISO and named
+months only. Guessing the convention would put someone at an airport on the
+wrong day, and the cost of not guessing is that they type the date.
+
+The flight-number regex has the opposite problem: "at 21:40" matches it
+perfectly. A stop-list of two-letter English words handles it, at the cost of
+missing Alaska (AS) and Aeroméxico (AM). Worth it — the parse pre-fills a form
+the user confirms, so a missed flight costs one line of typing and a phantom
+one costs a puzzled correction.
+
+### D57 — `window_start`, `has_checked_bags`, and other columns the spec omitted
+
+Two small additions of the same kind as D46. `has_checked_bags` exists because
+the handoff needs it and spec 9.9 reads it without the schema declaring it.
+`flights.trip_id` exists because `/trips/:id/flights` is a route in 9.12 and
+the journey table alone cannot answer it for a single-leg flight.
+
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 
 Supabase's linter, run against the live project, showed every helper and
@@ -590,6 +690,12 @@ tab is picked up for free.
 | 10.1 `entry_exit_log` | Adds `updated_at` | Part 0.3 |
 | 10.2 rule setup UI | Not built | The policies and mutation exist and are tested; the form waits for Settings (Phase 13) |
 | 10.4 `getAllowanceStatus` as a service | `statusFor()` over data already fetched | The check has to render inline on the board, once per candidate. A round trip each would make that screen crawl |
+| 9.3 `flights` | Adds `trip_id`, `created_by`, `deleted_at` | D57. `/trips/:id/flights` needs a direct link for single-leg flights |
+| 9.7 `@turf/great-circle` | Hand-written in `lib/geo.ts` | D54 |
+| 9.4 one Edge Function | Route Handler plus a shared orchestrator in `lib/flights/` | D19, and so the on-demand path and the cron sweep cannot drift apart on the budget rules |
+| 9.8 notifications | Events recorded, nothing sent | No push channel until `push_subscriptions` (Module 14) |
+| 9.8 screenshot/PDF parsing | Not built | Needs the AI module; the spec marks it optional |
+| 9.9 `estimateDrive` | Great circle × 1.4 ÷ 45 km/h, labelled an estimate | Exactly what the spec prescribes without a routing key; one function to swap if one appears |
 
 Nothing else diverges. Where the spec gave SQL verbatim, the migration uses it
 verbatim.
@@ -665,7 +771,16 @@ Ordered by how much they block.
 16. **The blend still guesses a city from the trip title.** Now that a trip can
     have a chosen destination, it should read that instead. One-line change,
     left alone in this pass to keep Phase 8 reviewable on its own.
-17. **Allowance alerts are not on the dashboard yet.** Priority 3 in the alert
+17. **The `pg_cron` schedule for the flight sweep is not created.** The route,
+    its secret and the hard-stop function all exist and are tested; scheduling
+    it is one `cron.schedule` statement, and it wants a deployed URL to point
+    at. Until then the sweep only runs if something calls it.
+18. **Nothing has flown yet.** Every flight path is exercised by unit tests
+    against fixtures, and the provider adapters have never spoken to a real
+    AeroDataBox or OpenSky response. The field mapping in
+    `lib/flights/providers.ts` is written from their documented shapes and
+    should be treated as unverified until a real flight goes through it.
+19. **Allowance alerts are not on the dashboard yet.** Priority 3 in the alert
     strip has been reserved for them since Phase 5, and `checkPlannedStay` can
     now fill it. It needs the dashboard RPC to return upcoming trips with their
     destination country, which it does not.

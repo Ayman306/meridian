@@ -24,6 +24,7 @@ const TABS = [
   { segment: 'plan', label: 'Plan' },
   { segment: 'blend', label: 'Blend' },
   { segment: 'map', label: 'Map' },
+  { segment: 'flights', label: 'Flights' },
   { segment: 'docs', label: 'Docs' },
   { segment: 'money', label: 'Money' },
   { segment: 'photos', label: 'Photos' },

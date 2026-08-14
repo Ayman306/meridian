@@ -5,6 +5,8 @@ export { PlaceSearch } from './components/PlaceSearch'
 export { useMapData, usePlaceSearch, usePinPeople, useDebounced } from './hooks'
 export {
   CLUSTER_MAX_ZOOM,
+  MAX_ZOOM,
+  MIN_ZOOM,
   DEFAULT_FILTERS,
   applyFilters,
   boundsOf,
