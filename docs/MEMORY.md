@@ -12,12 +12,12 @@ work up next — including a future session with no memory of this one.
 
 | | |
 | --- | --- |
-| Phase | 7 complete — Wishlist & Blend, then the Map |
-| Next | Phase 8 — Destinations (spec Module 4) |
+| Phase | 9 complete — Destinations and Stay Allowance |
+| Next | Phase 10 — Flights (spec Module 9) |
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0007, live |
+| Migrations applied | 0001–0009, live |
 | Deployed | no |
 
 ### What runs today
@@ -38,7 +38,16 @@ model — that waits in the tray until somebody keeps it. And a map: every place
 with coordinates, filterable by day, person, category and state, with the
 selected day's route drawn between its stops.
 
-Typecheck, lint, 222 unit tests, 72 database assertions and a production build
+And Phases 8 and 9, which answer the two questions that come before planning
+anything: *where* and *for how long*. The destination board puts candidate
+cities side by side — flight hours each, who travels further, what the visa
+looks like on each passport, the season, the rough cost, how many saved places
+are already there, and how much stay allowance each of you has left. Choosing
+one sets the trip's timezone. The allowance module counts days properly: the
+rolling window is evaluated on every day of a planned stay, not just arrival,
+and days in any Schengen member count against the same total.
+
+Typecheck, lint, 303 unit tests, 98 database assertions and a production build
 pass.
 
 Sign-in is now settled on the server: `src/app/(app)/layout.tsx` redirects an
@@ -47,16 +56,20 @@ setup stay client-side gates, because they depend on the couple query.
 
 ### What is stubbed
 
-- The remaining routes under `AppShell` (`where`, `money`, `photos`) render
+- The remaining routes under `AppShell` (`money`, `photos`) render
   `Placeholder` until their phase lands.
 - The blend narrows to a city by matching the trip title against the cities in
-  the wishlist. Trips get a real destination in Module 4 (Phase 8); until then
-  no match simply means no narrowing.
-- The map opens over the world when there is nothing to fit to. Spec 6.6 wants
-  the destination — also Module 4.
-- `coarseTimezoneFromLongitude` in `lib/geocode.ts` is a placeholder for the
-  `tz-lookup` package, which arrives with Destinations (Module 4) — that is the
-  first module that genuinely needs coordinate→zone precision.
+  the wishlist. It could read the chosen destination now that Module 4 exists;
+  it does not yet.
+- `airport_routes` is empty, so every flight duration on the board is a
+  great-circle estimate. They are marked "est", which is the honest state until
+  there is a dataset to seed from.
+- `coarseTimezoneFromLongitude` in `lib/geocode.ts` is still a placeholder for
+  `tz-lookup`. Choosing a destination sets the trip's timezone only when the
+  candidate carries one, and the city search does not return zones.
+- The allowance override form is not built. `useUpsertRule` works and the
+  policies are proven; the seeded defaults cover the common cases until the
+  Settings surface arrives.
 
 ---
 
@@ -366,6 +379,110 @@ A hostname that resolves to a private address still gets through, which is why
 the handler returns four parsed tags and never the status or body. Failure is
 answered with empties, not an error: the user can type the title.
 
+### D41 — Advisory reference data is read-only through the API
+
+`visa_rules` and `airport_routes` have a select policy and no write policy at
+all. New rows arrive by migration.
+
+The alternative — letting users edit them — sounds friendly and is not. A
+user-editable visa table is a user-editable source of immigration advice, and
+the two partners would be reading each other's guesses with a "verified on"
+date attached. Personal exceptions have a home already: an `allowance_rules`
+override, which is scoped to one person and says so.
+
+### D42 — A missing rule is expensive, never free
+
+Three places make the same choice. `combinedFriction` charges an unknown visa
+rule the same as an embassy appointment. The board renders it as "Unknown —
+check officially" in warning colour. `checkPlannedStay` returns `untracked`
+rather than `ok`, and the UI prints "not tracked", never "no limit".
+
+The failure mode this avoids is specific: someone glances at a green row, books
+a flight, and finds out at a border that we had no data. Silence has to look
+like silence.
+
+### D43 — `allowance_rules` carries both defaults and overrides
+
+The spec's schema has no owner columns, but 10.2 requires rules to be per
+person and editable, because "the user's actual visa may differ from the
+generic rule" — which is the case that matters most. So one table holds both:
+`couple_id is null` marks a seeded default that everyone reads, and a row with
+`couple_id` and `user_id` is that person's override. Two partial unique indexes
+keep each side honest, and one select policy covers both.
+
+An override wins over a default. A residence permit is a fact about the person,
+and the generic rule for their passport is simply wrong for them.
+
+### D44 — The rolling window is evaluated on every day of a stay
+
+The spec calls this "the part people get wrong", and the wrong version is the
+natural one to write: check the total on arrival and call it legal.
+
+A trip can be legal on the day you land and illegal on the day you leave,
+because the window slides with you. `checkPlannedStay` walks every day of the
+planned stay and returns the first that fails. There is a test for exactly
+this — 85 days used, a 10-day trip that is fine on arrival and breaches five
+days in — and it is the test that would catch a "simplification" of this
+function.
+
+Three conventions decide most of the arithmetic and each is easy to get
+backwards: entry and exit days both count, a same-day in-and-out is one day,
+and the window includes the day being evaluated.
+
+### D45 — Overlapping log rows are merged before counting
+
+Two rows covering one day is usually a typo, but not always: a same-day hop
+between two Schengen countries produces two honest entries. Counting that day
+twice would overstate the total against the traveller, so `usedOnFor` merges
+first. The overlap is still surfaced on the page as something worth fixing.
+
+Merging also closes a loophole in `per_entry` rules: adjacent stays count as
+continuous, so stepping across a border and back does not reset the clock.
+
+### D46 — `window_start` on `allowance_rules`
+
+Added to the spec's schema. The `per_visa` rule type means "days since the visa
+was issued", and the spec gives no column for the issue date — the rule cannot
+be evaluated without one. Null for every other type, and a `per_visa` rule
+without it counts zero rather than inventing a start date.
+
+### D47 — Zone membership lives in `lib/zones.ts` and in the database
+
+`allowance_rules.region_members` is what the seeded Schengen rule counts
+against; `SCHENGEN_MEMBERS` in `lib/zones.ts` is what the client uses to pick a
+rule before it has fetched one, and what the visa lookup falls back to when
+there is no country-specific row.
+
+Two copies of the same list is a smell, and the alternative was worse: fetching
+the zone table before rendering a board that mostly needs it to decide which
+row to read. Both copies are literal, sorted, and named the same thing, so a
+change to one is an obvious change to the other.
+
+### D48 — Scoring normalises across the candidates on screen
+
+A score of 0.72 says "compared to these five", not "out of ten in the world".
+That is the only honest reading available without a global dataset, and it
+means a single candidate scores the same on every axis — correct, because there
+is nothing to compare it with.
+
+Two consequences worth knowing. An unknown value scores 0.5, the middle, so it
+neither rewards nor punishes a candidate. And the total is divided by the
+weights in play, so the number reads 0..1 whether one slider is up or all six.
+
+Spec 4.3 forbids a bare number and it is right: the breakdown ships with the
+total and the UI makes it one tap away.
+
+### D49 — A static climate table, and a cost band that is not a price
+
+Spec 4.3 asks for a season band from a static table, which is free, offline and
+never stale. `climate.ts` holds twelve bands per country for the countries
+someone might plausibly compare, and returns null for the rest — an unlisted
+country shows nothing rather than a temperate guess.
+
+`cost.ts` does the same for daily cost. Spec 4.1 says no pricing and 4.2 wants
+a cost row; a band reconciles them. "Portugal is cheaper than Switzerland" is
+stable and useful. "€95 a day" would be wrong the moment it was written.
+
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 
 Supabase's linter, run against the live project, showed every helper and
@@ -463,6 +580,16 @@ tab is picked up for free.
 | 6.2 accommodation and photo layers | Not built | Those modules do not exist yet |
 | 6.2 numbered pins "in itinerary order" | Numbered in the order the day's items are returned, which is `sort_key` order | Same thing today; worth revisiting if the map ever sorts by time instead |
 | 6.4 `reverseGeocode(lat, lng)` | Not built | Nothing asks for it. Long-press stores raw coordinates and lets the user name the place |
+| 4.1 `trip_destinations` | Adds `updated_at`, `created_by`, `deleted_at`, and a unique index enforcing one chosen destination per trip | Part 0.3 requires the columns; the index makes the RPC's invariant true even for a direct write |
+| 4.1 `visa_rules` / `airport_routes` "public read, no RLS write" | Select policy for signed-in users only, no write policy | D41. Anonymous read would expose the whole advisory table to the internet for nothing |
+| 4.2 scoring weights "persisted per couple" | Own table, `destination_weights` | `couple_settings` belongs to Module 14; inventing half of it here would make that migration a merge |
+| 4.2 timezone from `tz-lookup` | Not built | The city search returns a country, not a zone. Choosing a destination sets the trip's timezone only when the candidate carries one |
+| 4.2 rough daily cost band | Static table, four bands, no currency | Spec 4.1 forbids pricing and 4.2 wants the row. See D49 |
+| 4.3 `airport_routes` cache | Table exists, empty | Nothing to seed it from yet, so every duration is an estimate and marked as one |
+| 10.1 `allowance_rules` | Adds `couple_id`, `user_id`, `label`, `notes`, `window_start`; adds a `'none'` rule type | D43 and D46. Spec 10.2 requires per-person editable rules and 10.6 requires a resident/PR case, neither of which the schema block supports |
+| 10.1 `entry_exit_log` | Adds `updated_at` | Part 0.3 |
+| 10.2 rule setup UI | Not built | The policies and mutation exist and are tested; the form waits for Settings (Phase 13) |
+| 10.4 `getAllowanceStatus` as a service | `statusFor()` over data already fetched | The check has to render inline on the board, once per candidate. A round trip each would make that screen crawl |
 
 Nothing else diverges. Where the spec gave SQL verbatim, the migration uses it
 verbatim.
@@ -525,3 +652,20 @@ Ordered by how much they block.
     number and it is untuned against real data — a food hall or a large park
     could merge two genuinely different saves. The blend shows how each pair
     was matched so the mistake is at least legible.
+14. **The seeded visa and allowance rules need a human to verify them.** They
+    are a small, deliberately conservative starting set, each with a source
+    link and a checked-on date, and every surface that renders one carries the
+    advisory line. That is the right structure — but structure is not accuracy.
+    Before either of you relies on a row, open its source. Rules change with no
+    notice, and the app has no way to learn that they have.
+15. **Nothing re-checks `verified_on`.** A rule checked two years ago looks
+    exactly like one checked yesterday apart from the date. A staleness badge
+    past, say, six months would be a few lines and is worth adding once these
+    have been in use long enough to go stale.
+16. **The blend still guesses a city from the trip title.** Now that a trip can
+    have a chosen destination, it should read that instead. One-line change,
+    left alone in this pass to keep Phase 8 reviewable on its own.
+17. **Allowance alerts are not on the dashboard yet.** Priority 3 in the alert
+    strip has been reserved for them since Phase 5, and `checkPlannedStay` can
+    now fill it. It needs the dashboard RPC to return upcoming trips with their
+    destination country, which it does not.

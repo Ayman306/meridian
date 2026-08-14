@@ -4,7 +4,7 @@
  *   npm run db:types
  *   # supabase gen types typescript --project-id <ref> > src/types/database.ts
  *
- * Generated from the live project after migrations 0001-0007. The aliases at
+ * Generated from the live project after migrations 0001-0009. The aliases at
  * the bottom are the only hand-written part: they are what the modules import,
  * and they are re-added after each regeneration.
  */
@@ -59,6 +59,99 @@ export type Database = {
             columns: ['couple_id']
             isOneToOne: false
             referencedRelation: 'couples'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      airport_routes: {
+        Row: {
+          dest_iata: string
+          duration_minutes: number
+          is_direct: boolean
+          origin_iata: string
+        }
+        Insert: {
+          dest_iata: string
+          duration_minutes: number
+          is_direct?: boolean
+          origin_iata: string
+        }
+        Update: {
+          dest_iata?: string
+          duration_minutes?: number
+          is_direct?: boolean
+          origin_iata?: string
+        }
+        Relationships: []
+      }
+      allowance_rules: {
+        Row: {
+          couple_id: string | null
+          created_at: string
+          destination_country: string
+          id: string
+          label: string | null
+          max_days: number
+          notes: string | null
+          passport_country: string
+          region_members: string[] | null
+          rule_type: string
+          source_url: string | null
+          updated_at: string
+          user_id: string | null
+          verified_on: string | null
+          window_days: number | null
+          window_start: string | null
+        }
+        Insert: {
+          couple_id?: string | null
+          created_at?: string
+          destination_country: string
+          id?: string
+          label?: string | null
+          max_days: number
+          notes?: string | null
+          passport_country: string
+          region_members?: string[] | null
+          rule_type: string
+          source_url?: string | null
+          updated_at?: string
+          user_id?: string | null
+          verified_on?: string | null
+          window_days?: number | null
+          window_start?: string | null
+        }
+        Update: {
+          couple_id?: string | null
+          created_at?: string
+          destination_country?: string
+          id?: string
+          label?: string | null
+          max_days?: number
+          notes?: string | null
+          passport_country?: string
+          region_members?: string[] | null
+          rule_type?: string
+          source_url?: string | null
+          updated_at?: string
+          user_id?: string | null
+          verified_on?: string | null
+          window_days?: number | null
+          window_start?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'allowance_rules_couple_id_fkey'
+            columns: ['couple_id']
+            isOneToOne: false
+            referencedRelation: 'couples'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'allowance_rules_user_id_fkey'
+            columns: ['user_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
             referencedColumns: ['id']
           },
         ]
@@ -128,6 +221,99 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      destination_weights: {
+        Row: {
+          couple_id: string
+          created_at: string
+          updated_at: string
+          weights: Json
+        }
+        Insert: {
+          couple_id: string
+          created_at?: string
+          updated_at?: string
+          weights?: Json
+        }
+        Update: {
+          couple_id?: string
+          created_at?: string
+          updated_at?: string
+          weights?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'destination_weights_couple_id_fkey'
+            columns: ['couple_id']
+            isOneToOne: true
+            referencedRelation: 'couples'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      entry_exit_log: {
+        Row: {
+          country_code: string
+          couple_id: string
+          created_at: string
+          entered_on: string
+          exited_on: string | null
+          id: string
+          is_estimated: boolean
+          notes: string | null
+          trip_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          country_code: string
+          couple_id: string
+          created_at?: string
+          entered_on: string
+          exited_on?: string | null
+          id?: string
+          is_estimated?: boolean
+          notes?: string | null
+          trip_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          country_code?: string
+          couple_id?: string
+          created_at?: string
+          entered_on?: string
+          exited_on?: string | null
+          id?: string
+          is_estimated?: boolean
+          notes?: string | null
+          trip_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'entry_exit_log_couple_id_fkey'
+            columns: ['couple_id']
+            isOneToOne: false
+            referencedRelation: 'couples'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'entry_exit_log_trip_id_fkey'
+            columns: ['trip_id']
+            isOneToOne: false
+            referencedRelation: 'trips'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'entry_exit_log_user_id_fkey'
+            columns: ['user_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+        ]
       }
       geocode_cache: {
         Row: {
@@ -573,6 +759,91 @@ export type Database = {
           },
         ]
       }
+      trip_destinations: {
+        Row: {
+          arrive_on: string | null
+          board: Json
+          city: string
+          country_code: string | null
+          couple_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          depart_on: string | null
+          id: string
+          lat: number | null
+          lng: number | null
+          notes: string | null
+          sort_key: string
+          state: string
+          timezone: string | null
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          arrive_on?: string | null
+          board?: Json
+          city: string
+          country_code?: string | null
+          couple_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          depart_on?: string | null
+          id?: string
+          lat?: number | null
+          lng?: number | null
+          notes?: string | null
+          sort_key: string
+          state?: string
+          timezone?: string | null
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          arrive_on?: string | null
+          board?: Json
+          city?: string
+          country_code?: string | null
+          couple_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          depart_on?: string | null
+          id?: string
+          lat?: number | null
+          lng?: number | null
+          notes?: string | null
+          sort_key?: string
+          state?: string
+          timezone?: string | null
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'trip_destinations_couple_id_fkey'
+            columns: ['couple_id']
+            isOneToOne: false
+            referencedRelation: 'couples'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'trip_destinations_created_by_fkey'
+            columns: ['created_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'trip_destinations_trip_id_fkey'
+            columns: ['trip_id']
+            isOneToOne: false
+            referencedRelation: 'trips'
+            referencedColumns: ['id']
+          },
+        ]
+      }
       trip_document_requirements: {
         Row: {
           created_at: string
@@ -758,6 +1029,39 @@ export type Database = {
           },
         ]
       }
+      visa_rules: {
+        Row: {
+          destination_country: string
+          id: string
+          label: string | null
+          max_days: number | null
+          passport_country: string
+          source_url: string | null
+          tier: number
+          verified_on: string | null
+        }
+        Insert: {
+          destination_country: string
+          id?: string
+          label?: string | null
+          max_days?: number | null
+          passport_country: string
+          source_url?: string | null
+          tier: number
+          verified_on?: string | null
+        }
+        Update: {
+          destination_country?: string
+          id?: string
+          label?: string | null
+          max_days?: number | null
+          passport_country?: string
+          source_url?: string | null
+          tier?: number
+          verified_on?: string | null
+        }
+        Relationships: []
+      }
       wishlist_items: {
         Row: {
           address: string | null
@@ -909,6 +1213,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      choose_destination: { Args: { destination_id: string }; Returns: undefined }
       dashboard: { Args: never; Returns: Json }
       generate_invite_code: { Args: never; Returns: string }
       health: { Args: never; Returns: Json }
@@ -930,6 +1235,7 @@ export type Database = {
       seed_document_types: { Args: { target: string }; Returns: undefined }
       seed_trip_statuses: { Args: { target: string }; Returns: undefined }
       sync_trip_days: { Args: { target: string }; Returns: number }
+      unchoose_destination: { Args: { destination_id: string }; Returns: undefined }
       trip_readiness: {
         Args: { target: string }
         Returns: {

@@ -44,6 +44,14 @@ export const qk = {
 
   wishlist: (coupleId: string) => ['wishlist', coupleId] as const,
 
+  destinations: (tripId: string) => ['destinations', tripId] as const,
+  visaRules: (key: string) => ['visa-rules', key] as const,
+  destinationWeights: ['destination-weights'] as const,
+  wishlistCities: ['wishlist-cities'] as const,
+
+  allowanceRules: (userId: string) => ['allowance-rules', userId] as const,
+  entryLog: (coupleId: string) => ['entry-log', coupleId] as const,
+
   mapPins: (scope: string) => ['map-pins', scope] as const,
   geocode: (query: string) => ['geocode', query] as const,
 

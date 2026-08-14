@@ -599,6 +599,210 @@ select assert(
 
 -- ---------------------------------------------------------------------------
 \echo ''
+\echo '== destinations: choosing is one transaction =='
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.trip_destinations (couple_id, trip_id, city, country_code, timezone, sort_key)
+values (:'ada_couple', :'ada_trip', 'Lisbon', 'PT', 'Europe/Lisbon', 'a0')
+returning id as lisbon \gset ada_
+insert into public.trip_destinations (couple_id, trip_id, city, country_code, timezone, sort_key)
+values (:'ada_couple', :'ada_trip', 'Porto', 'PT', 'Europe/Lisbon', 'a1')
+returning id as porto \gset ada_
+
+select public.choose_destination(:'ada_lisbon');
+
+select assert(
+  (select state from public.trip_destinations where id = :'ada_lisbon') = 'chosen',
+  'the chosen candidate is marked chosen'
+);
+select assert(
+  (select state from public.trip_destinations where id = :'ada_porto') = 'rejected',
+  'and its rivals are rejected rather than deleted — the reasoning is kept'
+);
+select assert(
+  (select timezone from public.trips where id = :'ada_trip') = 'Europe/Lisbon',
+  'choosing sets the trip timezone, which itinerary times depend on'
+);
+
+-- Spec 4.2: reversible.
+select public.unchoose_destination(:'ada_lisbon');
+select assert(
+  (select count(*) from public.trip_destinations
+    where trip_id = :'ada_trip' and state = 'candidate') = 2,
+  'unchoosing puts every candidate back in play, not just the chosen one'
+);
+
+select public.choose_destination(:'ada_porto');
+select assert(
+  (select count(*) from public.trip_destinations
+    where trip_id = :'ada_trip' and state = 'chosen') = 1,
+  'a trip can only have one chosen destination'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.trip_destinations) = 0,
+  'a stranger sees no candidates'
+);
+select assert_raises(
+  format('select public.choose_destination(%L)', :'ada_lisbon'),
+  'NOT_A_MEMBER',
+  'and cannot choose one'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== reference data is readable, and read-only =='
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.visa_rules) > 0,
+  'visa rules are shared reference data, readable by any signed-in user'
+);
+select assert_raises(
+  'insert into public.visa_rules (passport_country, destination_country, tier)
+     values (''ZZ'', ''YY'', 0)',
+  'row-level security',
+  'but nobody can write advisory immigration data through the API'
+);
+-- An UPDATE with no policy to permit it is filtered out rather than refused:
+-- the rows simply are not visible to write, so nothing raises and nothing
+-- changes. Assert the outcome, not an exception.
+update public.visa_rules set tier = 0 where tier > 0;
+select assert(
+  (select count(*) from public.visa_rules where tier > 0) > 0,
+  'or edit it — the update matches no writable rows and changes nothing'
+);
+
+set request.jwt.claim.sub = '';
+set role anon;
+select assert(
+  (select count(*) from public.visa_rules) = 0,
+  'and an unauthenticated caller sees none of it'
+);
+set role authenticated;
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== allowance: defaults are shared, overrides are personal =='
+set request.jwt.claim.sub = :'ada_ada';
+select assert(
+  (select count(*) from public.allowance_rules where couple_id is null) > 0,
+  'the seeded defaults are visible'
+);
+select assert(
+  (select max_days from public.allowance_rules
+    where couple_id is null and passport_country = 'US' and destination_country = 'SCHENGEN')
+  = 90,
+  'and the Schengen rule is 90 days'
+);
+select assert(
+  (select window_days from public.allowance_rules
+    where couple_id is null and passport_country = 'US' and destination_country = 'SCHENGEN')
+  = 180,
+  'in any 180'
+);
+select assert(
+  (select cardinality(region_members) from public.allowance_rules
+    where couple_id is null and passport_country = 'US' and destination_country = 'SCHENGEN')
+  = 29,
+  'counted across all 29 member states'
+);
+
+-- Same shape as the visa table: the write policy's USING clause excludes every
+-- default row, so the statement matches nothing instead of raising.
+update public.allowance_rules set max_days = 999 where couple_id is null;
+select assert(
+  (select count(*) from public.allowance_rules where couple_id is null and max_days = 999) = 0,
+  'a user cannot edit the shared defaults'
+);
+
+-- An override for their own actual visa.
+insert into public.allowance_rules (
+  couple_id, user_id, passport_country, destination_country, rule_type, max_days, window_days
+) values (:'ada_couple', :'ada_ada', 'US', 'PT', 'per_visa', 365, null)
+returning id as override \gset ada_
+select assert(:'ada_override' is not null, 'but can add their own override');
+
+select assert_raises(
+  format(
+    'insert into public.allowance_rules (couple_id, user_id, passport_country,
+       destination_country, rule_type, max_days) values (%L, %L, ''US'', ''ES'', ''per_entry'', 90)',
+    :'ada_couple', :'bo_bo'
+  ),
+  'row-level security',
+  'and cannot write a rule in their partner''s name'
+);
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.allowance_rules where id = :'ada_override') = 1,
+  'the partner can see the override — planning together needs both sides visible'
+);
+update public.allowance_rules set max_days = 1 where id = :'ada_override';
+select assert(
+  (select max_days from public.allowance_rules where id = :'ada_override') = 365,
+  'but not change it — someone else''s allowance is not theirs to rewrite'
+);
+
+-- A rolling rule with no window is not a rule anyone can evaluate.
+select assert_raises(
+  format(
+    'insert into public.allowance_rules (couple_id, user_id, passport_country,
+       destination_country, rule_type, max_days) values (%L, %L, ''GB'', ''BR'', ''rolling'', 90)',
+    :'ada_couple', :'bo_bo'
+  ),
+  'rolling_needs_window',
+  'a rolling rule without a window is refused'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== the entry log is shared to read and personal to write =='
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.entry_exit_log (couple_id, user_id, country_code, entered_on, exited_on)
+values (:'ada_couple', :'ada_ada', 'PT', '2026-01-01', '2026-01-10')
+returning id as crossing \gset ada_
+
+-- Currently present: no exit date.
+insert into public.entry_exit_log (couple_id, user_id, country_code, entered_on)
+values (:'ada_couple', :'ada_ada', 'ES', '2026-03-01');
+select assert(
+  (select count(*) from public.entry_exit_log where exited_on is null) = 1,
+  'an open-ended stay is allowed — it means they are still there'
+);
+
+select assert_raises(
+  format(
+    'insert into public.entry_exit_log (couple_id, user_id, country_code, entered_on, exited_on)
+       values (%L, %L, ''FR'', ''2026-05-10'', ''2026-05-01'')',
+    :'ada_couple', :'ada_ada'
+  ),
+  'valid_stay',
+  'but leaving before arriving is not'
+);
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.entry_exit_log where id = :'ada_crossing') = 1,
+  'the partner can read the log — a shared limit needs a shared view'
+);
+select assert_raises(
+  format(
+    'insert into public.entry_exit_log (couple_id, user_id, country_code, entered_on)
+       values (%L, %L, ''IT'', ''2026-06-01'')',
+    :'ada_couple', :'ada_ada'
+  ),
+  'row-level security',
+  'but cannot record a border crossing on their behalf'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.entry_exit_log) = 0,
+  'a stranger sees no crossings at all'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
 \echo '== leaving =='
 set request.jwt.claim.sub = :'bo_bo';
 select public.leave_couple();

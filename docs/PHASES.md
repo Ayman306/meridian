@@ -16,9 +16,9 @@ records what changed.
 | — | *Milestone* | ✅ | Plan one real trip end to end with no other tool |
 | 6 | 7 — Wishlist & Blend | ✅ done | Depends on Itinerary |
 | 7 | 6 — Map | ✅ done | Depends on Itinerary, Wishlist |
-| 8 | 4 — Destinations | ⬜ next | Depends on Trips |
-| 9 | 10 — Stay Allowance | ⬜ | Depends on Destinations, Trips |
-| 10 | 9 — Flights | ⬜ | First external API; polling discipline matters |
+| 8 | 4 — Destinations | ✅ done | Depends on Trips |
+| 9 | 10 — Stay Allowance | ✅ done | Depends on Destinations, Trips |
+| 10 | 9 — Flights | ⬜ next | First external API; polling discipline matters |
 | 11 | 11 — Gallery | ⬜ | Largest module; free-tier storage drives its design |
 | 12 | 13 — Budget | ⬜ | Self-contained |
 | 13 | 14 — Settings | ⬜ | Grows throughout; formalised here |
@@ -203,9 +203,64 @@ Spec: Module 6.
 - [x] `/map` — every place across every trip and the whole wishlist
 - [x] Geocode cache table, 600 ms debounce, one network call per query
 - [ ] Photo and accommodation layers — those modules do not exist yet
-- [ ] Empty map centred on the destination — needs Module 4 (Phase 8); it
-      centres on the world until then
+- [x] Empty map centred on the destination — Module 4 landed in Phase 8, so a
+      trip with a chosen city has coordinates to open over
 
-## Phase 8 — Destinations (next)
+## Phase 8 — Destinations
 
 Spec: Module 4.
+
+- [x] `trip_destinations` + RLS; `visa_rules` and `airport_routes` as shared
+      reference data, readable by any signed-in user and writable by nobody
+- [x] Add candidates by city search — name, country and coordinates in one pick
+- [x] Comparison board: candidates across, attributes down, scrolling sideways
+      on a phone with the row header still attached
+- [x] Flight hours per partner, cache first and great-circle second, with the
+      estimate visibly marked as one
+- [x] Fairness as a two-sided bar that names who flies further, never a number
+- [x] Visa tier per partner, dual nationality resolved to the better passport
+      and labelled with which one
+- [x] **Every visa cell carries its source link, verified date and the
+      "advisory only" line** — non-negotiable #4
+- [x] A missing rule reads "Unknown — check officially", and costs as much
+      friction as an embassy appointment in the scoring
+- [x] Tier 5 excludes a candidate and says why
+- [x] Season band from a static climate table — no API, never stale
+- [x] Rough daily cost band, and wishlist saves per candidate city
+- [x] Stay-allowance headroom per partner, from Module 10
+- [x] Choose / unchoose in one transaction: rivals become rejected but stay
+      visible, and the trip takes the destination's timezone
+- [x] Optional scoring: all weights zero, ranking hidden until one moves, and
+      the breakdown always one tap away
+- [x] Equal-distance lens
+- [ ] `tz-lookup` for coordinate→timezone — the city search returns a country
+      but not a zone, so a chosen destination sets the trip's timezone only
+      when the candidate carries one
+- [ ] `airport_routes` is empty, so every duration is an estimate. Seeding it
+      needs a real dataset; the "est" marker is honest until then
+
+## Phase 9 — Stay Allowance
+
+Spec: Module 10.
+
+- [x] `allowance_rules` holding both seeded defaults and personal overrides —
+      an override wins, because a resident permit is a fact about the person
+- [x] `entry_exit_log`, shared to read and personal to write
+- [x] Rolling window evaluated on **every day** of a planned stay, not just
+      arrival — the spec's central point, and the acceptance test for it
+- [x] Entry and exit days both count; a same-day in-and-out is one day
+- [x] Zone rules: days in any Schengen member count against one total
+- [x] `per_entry`, `per_year`, `per_visa` and `none` (resident/PR)
+- [x] Overlapping rows merged before counting and surfaced as a warning
+- [x] Must-leave-by date, walked forward rather than subtracted
+- [x] Open-ended stays counted through today, so the answer changes overnight
+- [x] Suggestions from trips with exact dates and a chosen destination —
+      offered, never written, and only for your own crossings
+- [x] Inline warning on the trip and on the destination board, silent when the
+      stay comfortably fits
+- [x] **Disclaimer, source link and verified date on every surface** — a
+      missing rule reads "not tracked", never "no limit"
+- [ ] Editing a rule from the UI — `useUpsertRule` exists, the form does not.
+      The seeded defaults cover the common cases; overrides land with Settings
+- [ ] Allowance alerts on the dashboard — priority 3 is reserved for them and
+      the check is now available to fill it
