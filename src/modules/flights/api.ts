@@ -2,10 +2,10 @@
 'use client'
 
 import { supabase } from '@/lib/supabase/client'
-import { toAppError, unwrap, unwrapList } from '@/lib/errors'
+import { toAppError, unwrap, unwrapList, unwrapMaybe } from '@/lib/errors'
 import type { InsertDto, UpdateDto } from '@/types/database'
 import { normaliseFlightNumber } from './logic'
-import type { AirportWaitTime, FlightPosition, FlightRow, Journey } from './types'
+import type { AirportRow, AirportWaitTime, FlightPosition, FlightRow, Journey } from './types'
 
 export async function listFlights(coupleId: string): Promise<FlightRow[]> {
   return unwrapList(
@@ -238,4 +238,38 @@ export async function getQuotaUsage(): Promise<{ aerodatabox: number; opensky: n
     supabase.rpc('api_usage_in_window', { target_provider: 'opensky' }),
   ])
   return { aerodatabox: adb.data ?? 0, opensky: osky.data ?? 0 }
+}
+
+/**
+ * Airport search for the picker.
+ *
+ * An exact IATA match always sorts first: typing "DXB" must not rank Dubai
+ * below something whose *name* happens to contain those letters. Everything
+ * else matches on code, city or name, because people think in all three.
+ */
+export async function searchAirports(query: string): Promise<AirportRow[]> {
+  const q = query.trim()
+  if (!q) return []
+
+  const rows = unwrapList(
+    await supabase
+      .from('airports')
+      .select('*')
+      .or(`iata.ilike.%${q}%,city.ilike.%${q}%,name.ilike.%${q}%`)
+      .limit(20),
+  )
+
+  const upper = q.toUpperCase()
+  return rows.sort((a, b) => {
+    const aExact = a.iata === upper ? 0 : 1
+    const bExact = b.iata === upper ? 0 : 1
+    return aExact - bExact || a.city.localeCompare(b.city)
+  })
+}
+
+/** One airport by code, for filling a flight's route columns. */
+export async function getAirport(iata: string): Promise<AirportRow | null> {
+  return unwrapMaybe(
+    await supabase.from('airports').select('*').eq('iata', iata.toUpperCase()).maybeSingle(),
+  )
 }

@@ -7,6 +7,14 @@ export type FlightEvent = Tables<'flight_events'>
 export type Journey = Tables<'journeys'>
 export type AirlineCode = Tables<'airline_codes'>
 export type AirportWaitTime = Tables<'airport_wait_times'>
+/**
+ * A row from the airports reference table.
+ *
+ * Named `AirportRow` because `Airport` below is a different thing: the
+ * per-flight endpoint, whose fields are all nullable and which carries the
+ * gate and belt for *that* flight. This one is the fixed fact about a place.
+ */
+export type AirportRow = Tables<'airports'>
 
 export type Phase =
   | 'scheduled'

@@ -15,12 +15,14 @@ import { Button } from '@/components/ui/button'
 import { Field, Input, Select, Textarea } from '@/components/ui/input'
 import { PersonBadge } from '@/components/PersonBadge'
 import { userMessage } from '@/lib/errors'
-import { isValidDateOnly } from '@/lib/dates'
+import { isValidDateOnly, tripLocalToUtc } from '@/lib/dates'
 import { useCouple } from '@/providers/CoupleProvider'
 import { normaliseFlightNumber } from '../logic'
 import { parseConfirmation } from '../parse'
 import { useAddFlight, useLookupFlight } from '../hooks'
 import type { LookupResult } from '../api'
+import { AirportPicker } from './AirportPicker'
+import type { AirportRow } from '../types'
 
 export function AddFlightForm({
   tripId,
@@ -46,6 +48,15 @@ export function AddFlightForm({
   const [departure, setDeparture] = useState('')
   const [arrival, setArrival] = useState('')
 
+  // The route. Typed by hand unless a lookup filled it — which needs an API
+  // key, and the app is built to work without one. A flight number with no
+  // endpoints is not a flight: it cannot draw, cannot be timed against a
+  // destination clock, and reads as `??? → ???`.
+  const [originIata, setOriginIata] = useState('')
+  const [destIata, setDestIata] = useState('')
+  const [originAirport, setOriginAirport] = useState<AirportRow | null>(null)
+  const [destAirport, setDestAirport] = useState<AirportRow | null>(null)
+
   const people = [selfRef, partnerRef].filter(Boolean)
 
   const runLookup = async () => {
@@ -56,7 +67,12 @@ export function AddFlightForm({
       return
     }
     setFlightNumber(number)
-    setResolved(await lookup.mutateAsync({ flightNumber: number, date }))
+    const result = await lookup.mutateAsync({ flightNumber: number, date })
+    setResolved(result)
+    // Fill the route from the lookup, but leave it editable: the provider is
+    // right more often than a person, and wrong often enough to matter.
+    if (result?.originIata) setOriginIata(result.originIata)
+    if (result?.destIata) setDestIata(result.destIata)
   }
 
   const onPaste = () => {
@@ -94,14 +110,24 @@ export function AddFlightForm({
       airline_name: resolved?.airlineName ?? null,
       registration: resolved?.registration ?? null,
       aircraft_type: resolved?.aircraftType ?? null,
-      origin_iata: resolved?.originIata ?? null,
-      origin_name: resolved?.originName ?? null,
-      origin_tz: resolved?.originTz ?? null,
-      dest_iata: resolved?.destIata ?? null,
-      dest_name: resolved?.destName ?? null,
-      dest_tz: resolved?.destTz ?? null,
-      scheduled_departure: resolved?.scheduledDeparture ?? toInstant(departure),
-      scheduled_arrival: resolved?.scheduledArrival ?? toInstant(arrival),
+      // What the user chose wins over what the provider said: they are
+      // holding the booking email.
+      origin_iata: originIata || resolved?.originIata || null,
+      origin_name: originAirport?.name ?? resolved?.originName ?? null,
+      origin_tz: originAirport?.timezone ?? resolved?.originTz ?? null,
+      origin_lat: originAirport ? Number(originAirport.lat) : null,
+      origin_lng: originAirport ? Number(originAirport.lng) : null,
+      dest_iata: destIata || resolved?.destIata || null,
+      dest_name: destAirport?.name ?? resolved?.destName ?? null,
+      dest_tz: destAirport?.timezone ?? resolved?.destTz ?? null,
+      dest_lat: destAirport ? Number(destAirport.lat) : null,
+      dest_lng: destAirport ? Number(destAirport.lng) : null,
+      // A departure time is in the departure airport's zone, not the viewer's.
+      // "11:25 from Dubai" means 11:25 in Dubai wherever you are reading it.
+      scheduled_departure:
+        resolved?.scheduledDeparture ?? toInstant(departure, originAirport?.timezone ?? null),
+      scheduled_arrival:
+        resolved?.scheduledArrival ?? toInstant(arrival, destAirport?.timezone ?? null),
       estimated_departure: resolved?.estimatedDeparture ?? null,
       estimated_arrival: resolved?.estimatedArrival ?? null,
       gate: resolved?.gate ?? null,
@@ -158,6 +184,32 @@ export function AddFlightForm({
             </Field>
           </div>
 
+          {/* The route. Always shown and always editable, whether or not a
+              lookup filled it — without these the flight has no endpoints,
+              which is what produced `??? → ???`. */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <AirportPicker
+              id="flight-origin"
+              label="From"
+              value={originIata}
+              hint="Where it takes off"
+              onChange={(iata, airport) => {
+                setOriginIata(iata)
+                setOriginAirport(airport)
+              }}
+            />
+            <AirportPicker
+              id="flight-dest"
+              label="To"
+              value={destIata}
+              hint="Where it lands"
+              onChange={(iata, airport) => {
+                setDestIata(iata)
+                setDestAirport(airport)
+              }}
+            />
+          </div>
+
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" disabled={lookup.isPending} onClick={() => void runLookup()}>
               <Search aria-hidden="true" />
@@ -192,7 +244,7 @@ export function AddFlightForm({
 
           {!resolved?.resolved && (
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Departs (your time)" htmlFor="flight-dep">
+              <Field label={originAirport ? `Departs (${originAirport.city} time)` : 'Departs (your time)'} htmlFor="flight-dep">
                 <Input
                   id="flight-dep"
                   type="datetime-local"
@@ -200,7 +252,7 @@ export function AddFlightForm({
                   onChange={(e) => setDeparture(e.target.value)}
                 />
               </Field>
-              <Field label="Arrives (your time)" htmlFor="flight-arr">
+              <Field label={destAirport ? `Arrives (${destAirport.city} time)` : 'Arrives (your time)'} htmlFor="flight-arr">
                 <Input
                   id="flight-arr"
                   type="datetime-local"
@@ -265,8 +317,20 @@ export function AddFlightForm({
 }
 
 /** A `datetime-local` value is wall-clock; the column wants an instant. */
-function toInstant(local: string): string | null {
+/**
+ * A typed local time, in the airport's zone, as an instant.
+ *
+ * Without a zone this falls back to the browser's, which is the old behaviour
+ * and wrong the moment somebody enters a flight while sitting somewhere else —
+ * which, for this app's users, is most of the time.
+ */
+function toInstant(local: string, zone: string | null): string | null {
   if (!local) return null
-  const parsed = new Date(local)
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+  if (!zone) {
+    const parsed = new Date(local)
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+  }
+  const [date, time] = local.split('T')
+  if (!date || !time) return null
+  return tripLocalToUtc(date, time.slice(0, 5), zone).toISOString()
 }
