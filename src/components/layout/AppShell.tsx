@@ -7,6 +7,7 @@ import {
   FileText,
   Heart,
   Home,
+  Images,
   Map as MapIcon,
   Plane,
   Settings as SettingsIcon,
@@ -19,8 +20,8 @@ import { APP_NAME } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
 /**
- * `short` is what the bottom bar uses: eight columns on a 360px screen leaves
- * about forty-five pixels each, which is an icon and four characters.
+ * `short` is what the bottom bar uses: nine columns on a 360px screen leaves
+ * forty pixels each, which is an icon and four characters and no more.
  */
 const NAV = [
   { href: '/', label: 'Home', short: 'Home', icon: Home, exact: true },
@@ -28,6 +29,7 @@ const NAV = [
   { href: '/wishlist', label: 'Wishlist', short: 'Saves', icon: Heart, exact: false },
   { href: '/map', label: 'Map', short: 'Map', icon: MapIcon, exact: false },
   { href: '/flights', label: 'Flights', short: 'Fly', icon: Plane, exact: false },
+  { href: '/gallery', label: 'Photos', short: 'Pics', icon: Images, exact: false },
   { href: '/documents', label: 'Docs', short: 'Docs', icon: FileText, exact: false },
   { href: '/allowance', label: 'Allowance', short: 'Stay', icon: Timer, exact: false },
   { href: '/settings', label: 'Settings', short: 'You', icon: SettingsIcon, exact: false },
@@ -86,7 +88,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 backdrop-blur md:hidden"
         aria-label="Main"
       >
-        <div className="grid grid-cols-8">
+        <div className="grid grid-cols-9">
           {NAV.map(({ href, label, short, icon: Icon, exact }) => (
             <Link
               key={href}

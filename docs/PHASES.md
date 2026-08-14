@@ -19,8 +19,8 @@ records what changed.
 | 8 | 4 — Destinations | ✅ done | Depends on Trips |
 | 9 | 10 — Stay Allowance | ✅ done | Depends on Destinations, Trips |
 | 10 | 9 — Flights | ✅ done | First external API; polling discipline matters |
-| 11 | 11 — Gallery | ⬜ next | Largest module; free-tier storage drives its design |
-| 12 | 13 — Budget | ⬜ | Self-contained |
+| 11 | 11 — Gallery | ✅ done | Largest module; free-tier storage drives its design |
+| 12 | 13 — Budget | ⬜ next | Self-contained |
 | 13 | 14 — Settings | ⬜ | Grows throughout; formalised here |
 | 14 | 12 — Health | ⬜ | Last. Consent-first. Design it together. |
 
@@ -309,3 +309,39 @@ Spec: Module 9, the largest in the document.
       optional
 - [ ] `pg_cron` schedule for the sweep — the route and its secret exist; the
       schedule is one statement to run once the app is deployed
+
+## Phase 11 — Gallery
+
+Spec: Module 11.
+
+- [x] `media`, `albums`, `album_media`, `media_comments`, `share_links`,
+      `daily_exchange` + RLS
+- [x] Private `media` bucket, path `{couple_id}/{media_id}/{variant}.jpg`, four
+      storage policies keyed on the first path segment
+- [x] **Originals are never uploaded.** Two derivatives per photo, generated on
+      the device: a 1600px display and a 400px thumb, ~340 KB together
+- [x] EXIF read for date and GPS; HEIC converted only when it turns up
+- [x] Thumbhash computed at upload and rendered before any image loads
+- [x] Perceptual hash and a duplicate prompt that always offers "upload anyway"
+- [x] Upload queue: one at a time, per-file progress, pause, retry with 1/2/4/8s
+      backoff, and IndexedDB persistence so a refresh does not lose it
+- [x] Grid loads **thumbs only**, sixty a page, grouped by the viewer's day
+- [x] Lightbox loads one display and preloads at most one neighbour each way
+- [x] Caption editing, favourites, comments, keyboard and swipe navigation
+- [x] Full-text search over captions via a tsvector kept by trigger
+- [x] Filters: uploader, favourites, has-location, trip, date range
+- [x] Albums, auto-created per trip and idempotent
+- [x] Share links: 32 random bytes, expiry, optional passcode, instant revoke,
+      resolved server-side so a storage path is never handed out
+- [x] Trash with a per-photo countdown, and a sweep that deletes **objects
+      before rows**
+- [x] Storage usage and "room for about N more photos"
+- [x] Auto-bucketing, same-moment pairing and the trip recap, all tested
+- [ ] Virtualised grid — `@tanstack/react-virtual` is installed but the grid
+      paginates instead. Worth doing once a library is big enough to need it
+- [ ] Videos — the schema and the size cap are in place; derivative generation
+      and a poster frame are stubbed and the uploader refuses them for now
+- [ ] The daily-exchange strip UI — the table, the logic and the hooks exist;
+      the surface at the top of the gallery does not
+- [ ] Bulk download and the recap screen — `buildRecap` is written and tested
+- [ ] `pg_cron` schedule for the media sweep, same as the flight one

@@ -4,7 +4,7 @@
  *   npm run db:types
  *   # supabase gen types typescript --project-id <ref> > src/types/database.ts
  *
- * Generated from the live project after migrations 0001-0010. The aliases at
+ * Generated from the live project after migrations 0001-0011. The aliases at
  * the bottom are the only hand-written part: they are what the modules import,
  * and they are re-added after each regeneration.
  */
@@ -150,6 +150,100 @@ export type Database = {
             columns: ['flight_id']
             isOneToOne: false
             referencedRelation: 'flights'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      album_media: {
+        Row: {
+          album_id: string
+          media_id: string
+          sort_key: string | null
+        }
+        Insert: {
+          album_id: string
+          media_id: string
+          sort_key?: string | null
+        }
+        Update: {
+          album_id?: string
+          media_id?: string
+          sort_key?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'album_media_album_id_fkey'
+            columns: ['album_id']
+            isOneToOne: false
+            referencedRelation: 'albums'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'album_media_media_id_fkey'
+            columns: ['media_id']
+            isOneToOne: false
+            referencedRelation: 'media'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      albums: {
+        Row: {
+          couple_id: string
+          cover_media_id: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          kind: string
+          sort_order: number
+          title: string
+          trip_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          couple_id: string
+          cover_media_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind?: string
+          sort_order?: number
+          title: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          couple_id?: string
+          cover_media_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind?: string
+          sort_order?: number
+          title?: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'albums_couple_id_fkey'
+            columns: ['couple_id']
+            isOneToOne: false
+            referencedRelation: 'couples'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'albums_cover_media_id_fkey'
+            columns: ['cover_media_id']
+            isOneToOne: false
+            referencedRelation: 'media'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'albums_trip_id_fkey'
+            columns: ['trip_id']
+            isOneToOne: false
+            referencedRelation: 'trips'
             referencedColumns: ['id']
           },
         ]
@@ -312,6 +406,55 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      daily_exchange: {
+        Row: {
+          couple_id: string
+          created_at: string
+          exchange_date: string
+          id: string
+          media_id: string
+          user_id: string
+        }
+        Insert: {
+          couple_id: string
+          created_at?: string
+          exchange_date: string
+          id?: string
+          media_id: string
+          user_id: string
+        }
+        Update: {
+          couple_id?: string
+          created_at?: string
+          exchange_date?: string
+          id?: string
+          media_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'daily_exchange_couple_id_fkey'
+            columns: ['couple_id']
+            isOneToOne: false
+            referencedRelation: 'couples'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'daily_exchange_media_id_fkey'
+            columns: ['media_id']
+            isOneToOne: false
+            referencedRelation: 'media'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'daily_exchange_user_id_fkey'
+            columns: ['user_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+        ]
       }
       destination_weights: {
         Row: {
@@ -865,6 +1008,161 @@ export type Database = {
           },
         ]
       }
+      media: {
+        Row: {
+          bytes: number | null
+          caption: string | null
+          couple_id: string
+          deleted_at: string | null
+          duration_s: number | null
+          height: number | null
+          id: string
+          is_favorite: boolean
+          itinerary_item_id: string | null
+          lat: number | null
+          lng: number | null
+          media_type: string
+          mime_type: string | null
+          path_display: string
+          path_original: string | null
+          path_thumb: string
+          phash: string | null
+          search_tsv: unknown | null
+          taken_at: string | null
+          thumbhash: string | null
+          trip_id: string | null
+          updated_at: string
+          uploaded_at: string
+          uploader_id: string
+          width: number | null
+        }
+        Insert: {
+          bytes?: number | null
+          caption?: string | null
+          couple_id: string
+          deleted_at?: string | null
+          duration_s?: number | null
+          height?: number | null
+          id?: string
+          is_favorite?: boolean
+          itinerary_item_id?: string | null
+          lat?: number | null
+          lng?: number | null
+          media_type?: string
+          mime_type?: string | null
+          path_display: string
+          path_original?: string | null
+          path_thumb: string
+          phash?: string | null
+          search_tsv?: unknown | null
+          taken_at?: string | null
+          thumbhash?: string | null
+          trip_id?: string | null
+          updated_at?: string
+          uploaded_at?: string
+          uploader_id: string
+          width?: number | null
+        }
+        Update: {
+          bytes?: number | null
+          caption?: string | null
+          couple_id?: string
+          deleted_at?: string | null
+          duration_s?: number | null
+          height?: number | null
+          id?: string
+          is_favorite?: boolean
+          itinerary_item_id?: string | null
+          lat?: number | null
+          lng?: number | null
+          media_type?: string
+          mime_type?: string | null
+          path_display?: string
+          path_original?: string | null
+          path_thumb?: string
+          phash?: string | null
+          search_tsv?: unknown | null
+          taken_at?: string | null
+          thumbhash?: string | null
+          trip_id?: string | null
+          updated_at?: string
+          uploaded_at?: string
+          uploader_id?: string
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'media_couple_id_fkey'
+            columns: ['couple_id']
+            isOneToOne: false
+            referencedRelation: 'couples'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'media_itinerary_item_id_fkey'
+            columns: ['itinerary_item_id']
+            isOneToOne: false
+            referencedRelation: 'itinerary_items'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'media_trip_id_fkey'
+            columns: ['trip_id']
+            isOneToOne: false
+            referencedRelation: 'trips'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'media_uploader_id_fkey'
+            columns: ['uploader_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      media_comments: {
+        Row: {
+          author_id: string | null
+          body: string
+          created_at: string
+          id: string
+          media_id: string
+          updated_at: string
+        }
+        Insert: {
+          author_id?: string | null
+          body: string
+          created_at?: string
+          id?: string
+          media_id: string
+          updated_at?: string
+        }
+        Update: {
+          author_id?: string | null
+          body?: string
+          created_at?: string
+          id?: string
+          media_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'media_comments_author_id_fkey'
+            columns: ['author_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'media_comments_media_id_fkey'
+            columns: ['media_id']
+            isOneToOne: false
+            referencedRelation: 'media'
+            referencedColumns: ['id']
+          },
+        ]
+      }
       profiles: {
         Row: {
           accent_color: string
@@ -960,6 +1258,69 @@ export type Database = {
             columns: ['trip_id']
             isOneToOne: false
             referencedRelation: 'trips'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      share_links: {
+        Row: {
+          allow_download: boolean
+          couple_id: string
+          created_at: string
+          created_by: string | null
+          expires_at: string
+          id: string
+          passcode_hash: string | null
+          revoked_at: string | null
+          target_id: string
+          target_type: string
+          token: string
+          updated_at: string
+          view_count: number
+        }
+        Insert: {
+          allow_download?: boolean
+          couple_id: string
+          created_at?: string
+          created_by?: string | null
+          expires_at: string
+          id?: string
+          passcode_hash?: string | null
+          revoked_at?: string | null
+          target_id: string
+          target_type: string
+          token: string
+          updated_at?: string
+          view_count?: number
+        }
+        Update: {
+          allow_download?: boolean
+          couple_id?: string
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string
+          id?: string
+          passcode_hash?: string | null
+          revoked_at?: string | null
+          target_id?: string
+          target_type?: string
+          token?: string
+          updated_at?: string
+          view_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'share_links_couple_id_fkey'
+            columns: ['couple_id']
+            isOneToOne: false
+            referencedRelation: 'couples'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'share_links_created_by_fkey'
+            columns: ['created_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
             referencedColumns: ['id']
           },
         ]
@@ -1632,6 +1993,25 @@ export type Database = {
       choose_destination: { Args: { destination_id: string }; Returns: undefined }
       api_usage_in_window: { Args: { target_provider: string }; Returns: number }
       dashboard: { Args: never; Returns: Json }
+      ensure_trip_album: { Args: { target_trip: string }; Returns: string }
+      expired_media: {
+        Args: { grace_days?: number }
+        Returns: {
+          id: string
+          path_display: string
+          path_thumb: string
+          path_original: string
+        }[]
+      }
+      media_usage: {
+        Args: never
+        Returns: {
+          photo_count: number
+          total_bytes: number
+          trashed_count: number
+        }[]
+      }
+      purge_media: { Args: { ids: string[] }; Returns: number }
       deactivate_finished_flights: { Args: never; Returns: number }
       generate_invite_code: { Args: never; Returns: string }
       health: { Args: never; Returns: Json }

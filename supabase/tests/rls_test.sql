@@ -944,6 +944,195 @@ select assert(
 
 -- ---------------------------------------------------------------------------
 \echo ''
+\echo '== the gallery is shared, and originals are never stored =='
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.media (
+  couple_id, uploader_id, trip_id, path_display, path_thumb, caption, taken_at
+) values (
+  :'ada_couple', :'ada_ada', :'ada_trip',
+  :'ada_couple' || '/photo-1/display.jpg',
+  :'ada_couple' || '/photo-1/thumb.jpg',
+  'Pastel de nata on the wall', '2026-06-02T10:00:00Z'
+) returning id as photo \gset ada_
+
+select assert(
+  (select path_original from public.media where id = :'ada_photo') is null,
+  'no original is recorded — that decision is what makes a gigabyte hold thousands'
+);
+
+-- The trigger keeps search working without anyone maintaining a second column.
+select assert(
+  (select count(*) from public.media
+    where id = :'ada_photo' and search_tsv @@ websearch_to_tsquery('simple', 'nata')) = 1,
+  'the caption is searchable the moment it is written'
+);
+
+update public.media set caption = 'A tram going up a hill' where id = :'ada_photo';
+select assert(
+  (select count(*) from public.media
+    where id = :'ada_photo' and search_tsv @@ websearch_to_tsquery('simple', 'tram')) = 1,
+  'and re-indexed when it changes'
+);
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.media where id = :'ada_photo') = 1,
+  'the partner sees a photo they did not take'
+);
+update public.media set is_favorite = true where id = :'ada_photo';
+select assert(
+  (select is_favorite from public.media where id = :'ada_photo') = true,
+  'and can favourite it — a shared library is shared'
+);
+
+-- A comment is yours; editing what your partner said is not a feature.
+insert into public.media_comments (media_id, author_id, body)
+values (:'ada_photo', :'bo_bo', 'That was a good morning')
+returning id as comment \gset bo_
+
+select assert_raises(
+  format(
+    'insert into public.media_comments (media_id, author_id, body) values (%L, %L, %L)',
+    :'ada_photo', :'ada_ada', 'planted'
+  ),
+  'row-level security',
+  'nobody can put words in the other one''s mouth'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.media) = 0,
+  'a stranger sees no photos'
+);
+select assert(
+  (select count(*) from public.media_comments) = 0,
+  'and no comments'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== trash, then the sweep that actually frees the space =='
+set request.jwt.claim.sub = :'ada_ada';
+update public.media set deleted_at = now() - interval '31 days' where id = :'ada_photo';
+
+-- The sweep belongs to cron, so a signed-in user cannot even look at its list.
+select assert_raises(
+  'select * from public.expired_media(30)',
+  'permission denied',
+  'the sweep''s functions are not callable by a signed-in user'
+);
+
+reset role;
+select assert(
+  (select count(*) from public.expired_media(30)) >= 1,
+  'a photo past its grace period is listed for deletion'
+);
+select assert(
+  (select path_thumb from public.expired_media(30) where id = :'ada_photo') is not null,
+  'and the sweep is handed the paths — objects go first, or the files are orphaned'
+);
+select assert(
+  (select count(*) from public.expired_media(60)) = 0,
+  'a longer grace period leaves it alone'
+);
+
+-- purge_media refuses to touch a live row even if asked directly.
+update public.media set deleted_at = null where id = :'ada_photo';
+select assert(
+  (select count(*) from public.expired_media(30)) = 0,
+  'restoring takes it back off the list'
+);
+select assert(
+  public.purge_media(array[:'ada_photo']::uuid[]) = 0,
+  'purge refuses a row that is not in the trash, whatever the caller passed'
+);
+
+set role authenticated;
+set request.jwt.claim.sub = :'ada_ada';
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== share links: revocable, and never a storage path =='
+insert into public.share_links (couple_id, created_by, token, target_type, target_id, expires_at)
+values (:'ada_couple', :'ada_ada', 'test-token-abc', 'media', :'ada_photo', now() + interval '7 days')
+returning id as share \gset ada_
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.share_links) = 0,
+  'a stranger cannot read the share table — tokens are not browsable'
+);
+
+-- An anonymous caller does not merely read zero rows from these tables — it
+-- cannot evaluate their policies at all, because `is_couple_member` had
+-- EXECUTE revoked from anon in 0004. Refusing before the row filter is the
+-- stronger answer, and it is exactly why the public share route runs
+-- server-side with the service role instead of relying on a policy.
+set request.jwt.claim.sub = '';
+set role anon;
+select assert_raises(
+  'select count(*) from public.share_links',
+  'permission denied',
+  'an anonymous caller cannot browse tokens; resolution happens server-side'
+);
+select assert_raises(
+  'select count(*) from public.media',
+  'permission denied',
+  'and a share does not make the underlying photo readable'
+);
+set role authenticated;
+set request.jwt.claim.sub = :'ada_ada';
+
+update public.share_links set revoked_at = now() where id = :'ada_share';
+select assert(
+  (select revoked_at from public.share_links where id = :'ada_share') is not null,
+  'revoking is one write, and takes effect on the next resolve'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== albums and the daily exchange =='
+select public.ensure_trip_album(:'ada_trip') as album \gset ada_
+select assert(:'ada_album' is not null, 'a trip gets an album');
+select assert(
+  public.ensure_trip_album(:'ada_trip') = :'ada_album',
+  'and calling again returns the same one rather than a second'
+);
+
+insert into public.album_media (album_id, media_id, sort_key)
+values (:'ada_album', :'ada_photo', 'a0');
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.album_media where album_id = :'ada_album') = 1,
+  'the partner sees what is in the album'
+);
+
+insert into public.daily_exchange (couple_id, user_id, media_id, exchange_date)
+values (:'ada_couple', :'bo_bo', :'ada_photo', '2026-06-02');
+
+select assert_raises(
+  format(
+    'insert into public.daily_exchange (couple_id, user_id, media_id, exchange_date)
+       values (%L, %L, %L, %L)',
+    :'ada_couple', :'bo_bo', :'ada_photo', '2026-06-02'
+  ),
+  'daily_exchange_couple_id_user_id_exchange_date_key',
+  'one photo per person per day — that constraint is the whole feature'
+);
+
+select assert_raises(
+  format(
+    'insert into public.daily_exchange (couple_id, user_id, media_id, exchange_date)
+       values (%L, %L, %L, %L)',
+    :'ada_couple', :'ada_ada', :'ada_photo', '2026-06-03'
+  ),
+  'row-level security',
+  'and nobody posts on the other one''s behalf'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
 \echo '== leaving =='
 set request.jwt.claim.sub = :'bo_bo';
 select public.leave_couple();
