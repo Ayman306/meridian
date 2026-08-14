@@ -4,13 +4,19 @@ import { useState } from 'react'
 import { useAuth } from '@/providers/AuthProvider'
 import { Button } from '@/components/ui/button'
 import { ErrorState } from '@/components/common/states'
+import { AppError } from '@/lib/errors'
 import { APP_NAME } from '@/lib/constants'
 
-export function LoginPage() {
+export function LoginPage({ callbackError = null }: { callbackError?: string | null }) {
   // Sign-in state is settled on the server before this renders, so there is
   // no redirect to do here.
   const { signIn } = useAuth()
-  const [error, setError] = useState<unknown>(null)
+  const [error, setError] = useState<unknown>(
+    // A failed callback lands back here with a reason. Showing it is the
+    // difference between "the redirect URL is not on the allowlist" and an
+    // unexplained bounce to the sign-in screen.
+    callbackError ? new AppError(callbackError, { kind: 'auth' }) : null,
+  )
   const [pending, setPending] = useState(false)
 
   const onSignIn = async () => {

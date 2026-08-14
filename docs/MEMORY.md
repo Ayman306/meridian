@@ -679,6 +679,43 @@ A caption edited from the lightbox, a future bulk tool, or a migration is
 searchable without anyone remembering to update a second column — which is the
 kind of thing that is remembered for a year and then is not.
 
+### D65 — `redirectTo` is the callback handler, and it is not optional
+
+Sign-in completed at Google and then landed the user back on `/login`, which
+looked like a Supabase misconfiguration and was not. `signInWithGoogle`
+defaulted `redirectTo` to `${origin}/`. That is a page inside `(app)`, whose
+server layout calls `requireUser()`. The PKCE code arrived as a query
+parameter, nothing exchanged it, the gate saw no cookie, and it redirected —
+correctly — to `/login`. `/auth/callback` was written in Phase 1 and never
+actually reached.
+
+The shape of the bug is worth keeping: **only a Route Handler can complete an
+OAuth exchange**, because only it can write the session cookie before anything
+reads it. A Server Component cannot (`setAll` is a no-op there, which is why
+`createServerSupabase` swallows the error), and a Client Component runs after
+the gate has already decided. Any future provider goes through
+`callbackUrl()` for the same reason.
+
+Three things changed alongside it, all of which existed to make the next
+failure legible rather than silent:
+
+- The handler now forwards Google's own `error`/`error_description` instead of
+  reporting `missing_code` — a declined consent screen and an origin that is
+  not on the allowlist arrive that way, and both used to read identically.
+- `/login` renders `?error=`. A bounce with no message now means one specific
+  thing (the handler never ran, so the redirect URL is wrong at Supabase); a
+  bounce with a message means the handler ran and the message is the reason.
+  `docs/SETUP.md`'s troubleshooting table splits the row on exactly that.
+- `safeRedirectPath` moved into `logic.ts` with tests. The old inline check was
+  `next.startsWith('/')`, which accepts `//evil.example` — a protocol-relative
+  URL. An open redirect on a handler that has just minted a session is the
+  worst place to have one.
+
+Behind a proxy the redirect origin comes from `x-forwarded-host`, since
+`request.url` carries the internal host. The header is only ever used to
+rebuild our own origin — the path is always one we chose — so spoofing it
+cannot redirect off-site.
+
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 
 Supabase's linter, run against the live project, showed every helper and
