@@ -5,6 +5,9 @@ export { TripFlightsPage } from './pages/TripFlightsPage'
 export { FlightCard } from './components/FlightCard'
 export { HandoffCard } from './components/HandoffCard'
 export {
+  describeJourney,
+  nextLegIndex,
+  summariseJourney,
   useFlights,
   useFlight,
   useFlightState,

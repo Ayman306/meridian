@@ -110,14 +110,47 @@ export async function addJourney(
   tripId: string | null,
   travelerId: string,
   direction: 'outbound' | 'return',
+  bookingRef?: string | null,
 ): Promise<Journey> {
   return unwrap(
     await supabase
       .from('journeys')
-      .insert({ couple_id: coupleId, trip_id: tripId, traveler_id: travelerId, direction })
+      .insert({
+        couple_id: coupleId,
+        trip_id: tripId,
+        traveler_id: travelerId,
+        direction,
+        booking_ref: bookingRef ?? null,
+      })
       .select('*')
       .single(),
   )
+}
+
+export async function listJourneys(): Promise<Journey[]> {
+  return unwrapList(
+    await supabase.from('journeys').select('*').order('created_at', { ascending: true }),
+  )
+}
+
+/**
+ * Delete a journey and every leg on it.
+ *
+ * The flights cascade in the database (`journey_id ... on delete cascade`), but
+ * they are soft-deleted here first so a mistaken delete is as recoverable as
+ * any other flight. The journey row itself is small and carries nothing worth
+ * keeping once its legs are gone.
+ */
+export async function deleteJourney(journeyId: string): Promise<void> {
+  const stamp = new Date().toISOString()
+  const { error: flightError } = await supabase
+    .from('flights')
+    .update({ deleted_at: stamp, tracking_active: false })
+    .eq('journey_id', journeyId)
+  if (flightError) throw toAppError(flightError)
+
+  const { error } = await supabase.from('journeys').delete().eq('id', journeyId)
+  if (error) throw toAppError(error)
 }
 
 // ---------------------------------------------------------------------------
@@ -272,4 +305,91 @@ export async function getAirport(iata: string): Promise<AirportRow | null> {
   return unwrapMaybe(
     await supabase.from('airports').select('*').eq('iata', iata.toUpperCase()).maybeSingle(),
   )
+}
+
+// ---------------------------------------------------------------------------
+// Saving a whole booking
+// ---------------------------------------------------------------------------
+
+export interface LegInput {
+  legIndex: number
+  flightNumber: string
+  flightDate: string
+  originIata: string | null
+  originName: string | null
+  originTz: string | null
+  originLat: number | null
+  originLng: number | null
+  destIata: string | null
+  destName: string | null
+  destTz: string | null
+  destLat: number | null
+  destLng: number | null
+  scheduledDeparture: string | null
+  scheduledArrival: string | null
+}
+
+export interface JourneyInput {
+  tripId: string | null
+  travelerId: string
+  bookingRef: string | null
+  hasCheckedBags: boolean
+  outbound: LegInput[]
+  return?: LegInput[]
+}
+
+/**
+ * Save a booking: one journey per direction, and its legs beneath it.
+ *
+ * The two directions are separate journeys sharing a booking reference, which
+ * is what they are — you can be delayed on the way out without that meaning
+ * anything about the way home, and each has its own connections.
+ *
+ * Not a transaction, because Supabase's client cannot open one. The inserts are
+ * ordered so a partial failure leaves something coherent rather than orphaned:
+ * the journey row first, then its legs. A journey with no legs is visible and
+ * deletable; a leg pointing at a journey that does not exist would not be.
+ */
+export async function saveJourney(coupleId: string, input: JourneyInput): Promise<void> {
+  const write = async (direction: 'outbound' | 'return', legs: LegInput[]) => {
+    const journey = await addJourney(
+      coupleId,
+      input.tripId,
+      input.travelerId,
+      direction,
+      input.bookingRef,
+    )
+
+    const rows = legs.map((leg) => ({
+      couple_id: coupleId,
+      journey_id: journey.id,
+      trip_id: input.tripId,
+      traveler_id: input.travelerId,
+      leg_index: leg.legIndex,
+      flight_number: leg.flightNumber,
+      flight_date: leg.flightDate,
+      has_checked_bags: input.hasCheckedBags,
+      origin_iata: leg.originIata,
+      origin_name: leg.originName,
+      origin_tz: leg.originTz,
+      origin_lat: leg.originLat,
+      origin_lng: leg.originLng,
+      dest_iata: leg.destIata,
+      dest_name: leg.destName,
+      dest_tz: leg.destTz,
+      dest_lat: leg.destLat,
+      dest_lng: leg.destLng,
+      scheduled_departure: leg.scheduledDeparture,
+      scheduled_arrival: leg.scheduledArrival,
+      // Untimed is a real state and the phase says so, rather than claiming a
+      // schedule nobody supplied.
+      phase: leg.scheduledDeparture ? 'scheduled' : 'unknown',
+    }))
+
+    const { error } = await supabase.from('flights').insert(rows)
+    if (error) throw toAppError(error)
+  }
+
+  await write('outbound', input.outbound)
+  if (input.return && input.return.length > 0) await write('return', input.return)
 }

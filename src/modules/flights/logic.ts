@@ -637,3 +637,106 @@ export const PHASE_LABELS: Record<Phase, string> = {
   diverted: 'Diverted',
   unknown: 'Unconfirmed',
 }
+
+// ---------------------------------------------------------------------------
+// Journeys
+// ---------------------------------------------------------------------------
+
+/**
+ * A journey is one direction of a booking: the legs that get you there, in
+ * order. `DXB → BOM → IXE` is one journey with two legs; the trip home is a
+ * second journey with `direction: 'return'` and usually the same booking
+ * reference.
+ *
+ * Modelling it this way rather than as a flat list of flights is what makes
+ * three things expressible at all: which legs connect (so a tight layover can
+ * be warned about), what the journey's real endpoints are (`DXB → IXE`, not
+ * whichever leg happens to sort first), and when somebody actually arrives.
+ */
+export interface JourneyLeg {
+  flight: FlightRow
+  /** The connection *into* this leg. Null on the first one. */
+  connection: Connection | null
+}
+
+export interface JourneySummary {
+  legs: JourneyLeg[]
+  originIata: string | null
+  destIata: string | null
+  /** Airports changed at, in order. Empty on a direct flight. */
+  stops: string[]
+  departure: string | null
+  arrival: string | null
+  /** Door to door, including layovers. Null unless both ends are known. */
+  totalMinutes: number | null
+  /** The worst connection on the journey — what the card leads with. */
+  worstRisk: ConnectionRisk | null
+}
+
+/**
+ * Order the legs and work out where they connect.
+ *
+ * Sorted by `leg_index` rather than by time: a leg with no times yet still has
+ * a position in the sequence, and a journey being entered leg by leg has to
+ * render sensibly before any of them are timed.
+ */
+export function summariseJourney(flights: readonly FlightRow[]): JourneySummary {
+  const legs = [...flights]
+    .filter((f) => !f.deleted_at)
+    .sort((a, b) => a.leg_index - b.leg_index)
+
+  const withConnections: JourneyLeg[] = legs.map((flight, i) => {
+    const previous = legs[i - 1]
+    return {
+      flight,
+      // Always treated as international, which sets the 90-minute minimum.
+      // The flight row carries no country, only an IATA code, so this cannot
+      // be decided here — and of the two wrong answers, the one that warns
+      // about a 70-minute domestic layover is much better than the one that
+      // stays quiet about a 70-minute international one.
+      connection: previous ? connectionRisk(previous, flight, true) : null,
+    }
+  })
+
+  const first = legs[0] ?? null
+  const last = legs[legs.length - 1] ?? null
+  const departure = first?.scheduled_departure ?? null
+  const arrival = last?.estimated_arrival ?? last?.scheduled_arrival ?? null
+
+  const risks = withConnections
+    .map((l) => l.connection?.risk)
+    .filter((r): r is ConnectionRisk => r !== undefined)
+
+  return {
+    legs: withConnections,
+    originIata: first?.origin_iata ?? null,
+    destIata: last?.dest_iata ?? null,
+    // Every airport you land at except the last one is a stop.
+    stops: legs.slice(0, -1).map((l) => l.dest_iata).filter((c): c is string => Boolean(c)),
+    departure,
+    arrival,
+    totalMinutes:
+      departure && arrival ? Math.round(minutesBetween(departure, arrival)) : null,
+    worstRisk: risks.includes('high') ? 'high' : risks.includes('tight') ? 'tight' : risks.length ? 'ok' : null,
+  }
+}
+
+/** Where the journey reads as one line: "DXB → IXE, 1 stop". */
+export function describeJourney(summary: JourneySummary): string {
+  const route =
+    summary.originIata && summary.destIata
+      ? `${summary.originIata} → ${summary.destIata}`
+      : 'Route not set'
+  if (summary.stops.length === 0) return `${route} · direct`
+  return `${route} · ${summary.stops.length} stop${summary.stops.length === 1 ? '' : 's'} (${summary.stops.join(', ')})`
+}
+
+/**
+ * The next leg index to use when adding to a journey.
+ *
+ * Max plus one rather than length, so removing a middle leg and adding another
+ * cannot produce a duplicate index.
+ */
+export function nextLegIndex(flights: readonly FlightRow[]): number {
+  return flights.reduce((max, f) => Math.max(max, f.leg_index), 0) + 1
+}
