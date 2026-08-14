@@ -18,8 +18,8 @@ records what changed.
 | 7 | 6 — Map | ✅ done | Depends on Itinerary, Wishlist |
 | 8 | 4 — Destinations | ✅ done | Depends on Trips |
 | 9 | 10 — Stay Allowance | ✅ done | Depends on Destinations, Trips |
-| 10 | 9 — Flights | ⬜ next | First external API; polling discipline matters |
-| 11 | 11 — Gallery | ⬜ | Largest module; free-tier storage drives its design |
+| 10 | 9 — Flights | ✅ done | First external API; polling discipline matters |
+| 11 | 11 — Gallery | ⬜ next | Largest module; free-tier storage drives its design |
 | 12 | 13 — Budget | ⬜ | Self-contained |
 | 13 | 14 — Settings | ⬜ | Grows throughout; formalised here |
 | 14 | 12 — Health | ⬜ | Last. Consent-first. Design it together. |
@@ -140,7 +140,8 @@ Spec: Module 8.
 - [x] Trip readiness scored against `trip.end_date`, not today
 - [x] The full number is never stored — the form asks for the last four
 - [ ] Daily expiry sweep — `crossedThreshold`/`shouldAlert` are written and
-      tested; the cron Route Handler lands with the others in Phase 10
+      tested. The cron pattern now exists (`/api/cron/flight-sweep`); this one
+      needs the notification channel that Phase 13 brings
 - [ ] Client-side image compression before upload (spec 8.3)
 - [ ] Vault re-auth gate after 15 minutes idle (spec 8.3) — needs the Settings
       surface for the WebAuthn fallback, so it follows Phase 13
@@ -159,7 +160,8 @@ Spec: Module 2.
 - [x] Alert strip, sorted by the spec's priority order, capped at three
 - [x] Everything timezone-dependent resolved against the *viewer's* midnight
 - [ ] Active flight card — waits on Phase 10
-- [ ] Stay-allowance alerts — priority 3 is reserved, lands in Phase 9
+- [ ] Stay-allowance alerts — priority 3 is reserved; `checkPlannedStay` can
+      fill it once the dashboard RPC returns destination countries
 
 ## Phase 6 — Wishlist & Blend
 
@@ -264,3 +266,46 @@ Spec: Module 10.
       The seeded defaults cover the common cases; overrides land with Settings
 - [ ] Allowance alerts on the dashboard — priority 3 is reserved for them and
       the check is now available to fill it
+
+## Phase 10 — Flights
+
+Spec: Module 9, the largest in the document.
+
+- [x] `journeys`, `flights`, `flight_positions`, `flight_events`, `api_usage`,
+      `airline_codes`, `airport_wait_times` + RLS
+- [x] Either partner reads **and edits** any flight — `traveler_id` says whose
+      it is, not who may see it
+- [x] Positions are insertable only by the service role: a fabricated aircraft
+      location is the worst thing this module could render
+- [x] Manual entry as the baseline — a flight number and a date is enough
+- [x] Paste a confirmation, get the flight, route, date and booking reference
+- [x] One lookup per flight ever resolves airline, route, times and callsign
+- [x] Phase state machine, and everything derived from it
+- [x] Reconciliation: ground contact at the destination beats the airline's
+      "enroute"; airborne beats "scheduled"; off-corridor means diverted;
+      manual override beats everything and is applied last
+- [x] Cache max-age by phase, from 24h out to 2 min in the final hour
+- [x] Quota guard at 90%, counted from the database rather than memory
+- [x] Isolated sources — OpenSky failing cannot block a status update
+- [x] The hard stop, enforced by `deactivate_finished_flights()` on a cron
+- [x] 60s tick, paused on a hidden tab, immediate on focus; manual refresh
+      goes through the same server-side max-age, so spamming it costs nothing
+- [x] All seven degradation levels render; there is no error state on the live
+      view
+- [x] Great-circle route split at the antimeridian — Tokyo → Los Angeles
+      renders correctly, with a test
+- [x] Aircraft marker styled by confidence; an estimate is **hollow and
+      dashed**, never drawn like a real fix
+- [x] Dead reckoning between fixes, respecting `prefers-reduced-motion`
+- [x] Breadcrumb trail, downsampled; follow-aircraft toggle
+- [x] Arrival handoff with its full breakdown, voided loudly on a diversion
+- [x] Post-arrival feedback writes measured wait times back
+- [x] Connection risk between legs of a journey
+- [x] Both-flying case suppresses the handoff and reports the arrival gap
+- [ ] Notifications — the events are recorded (`flight_events`) and the sweep
+      that would send them runs, but there is no channel yet. Push needs
+      `push_subscriptions` from Module 14 (Phase 13)
+- [ ] Screenshot/PDF parsing — needs the AI module, and the spec marks it
+      optional
+- [ ] `pg_cron` schedule for the sweep — the route and its secret exist; the
+      schedule is one statement to run once the app is deployed

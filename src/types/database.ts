@@ -4,7 +4,7 @@
  *   npm run db:types
  *   # supabase gen types typescript --project-id <ref> > src/types/database.ts
  *
- * Generated from the live project after migrations 0001-0009. The aliases at
+ * Generated from the live project after migrations 0001-0010. The aliases at
  * the bottom are the only hand-written part: they are what the modules import,
  * and they are re-added after each regeneration.
  */
@@ -59,6 +59,97 @@ export type Database = {
             columns: ['couple_id']
             isOneToOne: false
             referencedRelation: 'couples'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      airline_codes: {
+        Row: {
+          iata: string
+          icao: string
+          name: string | null
+        }
+        Insert: {
+          iata: string
+          icao: string
+          name?: string | null
+        }
+        Update: {
+          iata?: string
+          icao?: string
+          name?: string | null
+        }
+        Relationships: []
+      }
+      airport_wait_times: {
+        Row: {
+          baggage_minutes: number | null
+          iata: string
+          immigration_minutes: number | null
+          notes: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          baggage_minutes?: number | null
+          iata: string
+          immigration_minutes?: number | null
+          notes?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          baggage_minutes?: number | null
+          iata?: string
+          immigration_minutes?: number | null
+          notes?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'airport_wait_times_updated_by_fkey'
+            columns: ['updated_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      api_usage: {
+        Row: {
+          called_at: string
+          error: string | null
+          flight_id: string | null
+          id: string
+          provider: string
+          success: boolean | null
+          units: number
+        }
+        Insert: {
+          called_at?: string
+          error?: string | null
+          flight_id?: string | null
+          id?: string
+          provider: string
+          success?: boolean | null
+          units?: number
+        }
+        Update: {
+          called_at?: string
+          error?: string | null
+          flight_id?: string | null
+          id?: string
+          provider?: string
+          success?: boolean | null
+          units?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'api_usage_flight_id_fkey'
+            columns: ['flight_id']
+            isOneToOne: false
+            referencedRelation: 'flights'
             referencedColumns: ['id']
           },
         ]
@@ -315,6 +406,276 @@ export type Database = {
           },
         ]
       }
+      flight_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          flight_id: string | null
+          from_value: Json | null
+          id: string
+          notified_at: string | null
+          notified_user_id: string | null
+          to_value: Json | null
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          flight_id?: string | null
+          from_value?: Json | null
+          id?: string
+          notified_at?: string | null
+          notified_user_id?: string | null
+          to_value?: Json | null
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          flight_id?: string | null
+          from_value?: Json | null
+          id?: string
+          notified_at?: string | null
+          notified_user_id?: string | null
+          to_value?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'flight_events_flight_id_fkey'
+            columns: ['flight_id']
+            isOneToOne: false
+            referencedRelation: 'flights'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      flight_positions: {
+        Row: {
+          altitude_m: number | null
+          created_at: string
+          flight_id: string
+          heading: number | null
+          id: string
+          lat: number
+          lng: number
+          on_ground: boolean
+          recorded_at: string
+          source: string
+          velocity_ms: number | null
+          vertical_rate: number | null
+        }
+        Insert: {
+          altitude_m?: number | null
+          created_at?: string
+          flight_id: string
+          heading?: number | null
+          id?: string
+          lat: number
+          lng: number
+          on_ground?: boolean
+          recorded_at: string
+          source?: string
+          velocity_ms?: number | null
+          vertical_rate?: number | null
+        }
+        Update: {
+          altitude_m?: number | null
+          created_at?: string
+          flight_id?: string
+          heading?: number | null
+          id?: string
+          lat?: number
+          lng?: number
+          on_ground?: boolean
+          recorded_at?: string
+          source?: string
+          velocity_ms?: number | null
+          vertical_rate?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'flight_positions_flight_id_fkey'
+            columns: ['flight_id']
+            isOneToOne: false
+            referencedRelation: 'flights'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      flights: {
+        Row: {
+          actual_arrival: string | null
+          actual_departure: string | null
+          aircraft_type: string | null
+          airline_iata: string | null
+          airline_name: string | null
+          baggage_belt: string | null
+          callsign: string | null
+          couple_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          dest_iata: string | null
+          dest_lat: number | null
+          dest_lng: number | null
+          dest_name: string | null
+          dest_tz: string | null
+          estimated_arrival: string | null
+          estimated_departure: string | null
+          flight_date: string
+          flight_number: string
+          gate: string | null
+          has_checked_bags: boolean
+          icao24: string | null
+          id: string
+          journey_id: string | null
+          leg_index: number
+          manual_override: Json | null
+          origin_iata: string | null
+          origin_lat: number | null
+          origin_lng: number | null
+          origin_name: string | null
+          origin_tz: string | null
+          phase: string
+          position_error_count: number
+          position_polled_at: string | null
+          raw_status: Json | null
+          registration: string | null
+          scheduled_arrival: string | null
+          scheduled_departure: string | null
+          status_error_count: number
+          status_polled_at: string | null
+          terminal: string | null
+          tracking_active: boolean
+          traveler_id: string
+          trip_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          actual_arrival?: string | null
+          actual_departure?: string | null
+          aircraft_type?: string | null
+          airline_iata?: string | null
+          airline_name?: string | null
+          baggage_belt?: string | null
+          callsign?: string | null
+          couple_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          dest_iata?: string | null
+          dest_lat?: number | null
+          dest_lng?: number | null
+          dest_name?: string | null
+          dest_tz?: string | null
+          estimated_arrival?: string | null
+          estimated_departure?: string | null
+          flight_date: string
+          flight_number: string
+          gate?: string | null
+          has_checked_bags?: boolean
+          icao24?: string | null
+          id?: string
+          journey_id?: string | null
+          leg_index?: number
+          manual_override?: Json | null
+          origin_iata?: string | null
+          origin_lat?: number | null
+          origin_lng?: number | null
+          origin_name?: string | null
+          origin_tz?: string | null
+          phase?: string
+          position_error_count?: number
+          position_polled_at?: string | null
+          raw_status?: Json | null
+          registration?: string | null
+          scheduled_arrival?: string | null
+          scheduled_departure?: string | null
+          status_error_count?: number
+          status_polled_at?: string | null
+          terminal?: string | null
+          tracking_active?: boolean
+          traveler_id: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          actual_arrival?: string | null
+          actual_departure?: string | null
+          aircraft_type?: string | null
+          airline_iata?: string | null
+          airline_name?: string | null
+          baggage_belt?: string | null
+          callsign?: string | null
+          couple_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          dest_iata?: string | null
+          dest_lat?: number | null
+          dest_lng?: number | null
+          dest_name?: string | null
+          dest_tz?: string | null
+          estimated_arrival?: string | null
+          estimated_departure?: string | null
+          flight_date?: string
+          flight_number?: string
+          gate?: string | null
+          has_checked_bags?: boolean
+          icao24?: string | null
+          id?: string
+          journey_id?: string | null
+          leg_index?: number
+          manual_override?: Json | null
+          origin_iata?: string | null
+          origin_lat?: number | null
+          origin_lng?: number | null
+          origin_name?: string | null
+          origin_tz?: string | null
+          phase?: string
+          position_error_count?: number
+          position_polled_at?: string | null
+          raw_status?: Json | null
+          registration?: string | null
+          scheduled_arrival?: string | null
+          scheduled_departure?: string | null
+          status_error_count?: number
+          status_polled_at?: string | null
+          terminal?: string | null
+          tracking_active?: boolean
+          traveler_id?: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'flights_couple_id_fkey'
+            columns: ['couple_id']
+            isOneToOne: false
+            referencedRelation: 'couples'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'flights_journey_id_fkey'
+            columns: ['journey_id']
+            isOneToOne: false
+            referencedRelation: 'journeys'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'flights_traveler_id_fkey'
+            columns: ['traveler_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'flights_trip_id_fkey'
+            columns: ['trip_id']
+            isOneToOne: false
+            referencedRelation: 'trips'
+            referencedColumns: ['id']
+          },
+        ]
+      }
       geocode_cache: {
         Row: {
           cached_at: string
@@ -442,6 +803,61 @@ export type Database = {
           },
           {
             foreignKeyName: 'itinerary_items_trip_id_fkey'
+            columns: ['trip_id']
+            isOneToOne: false
+            referencedRelation: 'trips'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      journeys: {
+        Row: {
+          booking_ref: string | null
+          couple_id: string
+          created_at: string
+          direction: string
+          id: string
+          traveler_id: string
+          trip_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          booking_ref?: string | null
+          couple_id: string
+          created_at?: string
+          direction: string
+          id?: string
+          traveler_id: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          booking_ref?: string | null
+          couple_id?: string
+          created_at?: string
+          direction?: string
+          id?: string
+          traveler_id?: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'journeys_couple_id_fkey'
+            columns: ['couple_id']
+            isOneToOne: false
+            referencedRelation: 'couples'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'journeys_traveler_id_fkey'
+            columns: ['traveler_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'journeys_trip_id_fkey'
             columns: ['trip_id']
             isOneToOne: false
             referencedRelation: 'trips'
@@ -1214,7 +1630,9 @@ export type Database = {
         }
       }
       choose_destination: { Args: { destination_id: string }; Returns: undefined }
+      api_usage_in_window: { Args: { target_provider: string }; Returns: number }
       dashboard: { Args: never; Returns: Json }
+      deactivate_finished_flights: { Args: never; Returns: number }
       generate_invite_code: { Args: never; Returns: string }
       health: { Args: never; Returns: Json }
       is_couple_member: { Args: { target: string }; Returns: boolean }

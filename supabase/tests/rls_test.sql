@@ -803,6 +803,147 @@ select assert(
 
 -- ---------------------------------------------------------------------------
 \echo ''
+\echo '== flights: whose it is, not who may see it =='
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.flights (
+  couple_id, trip_id, traveler_id, flight_number, flight_date,
+  origin_iata, dest_iata, scheduled_departure, scheduled_arrival, created_by
+) values (
+  :'ada_couple', :'ada_trip', :'ada_ada', 'AC42', '2026-06-01',
+  'LHR', 'JFK', '2026-06-01T11:00:00Z', '2026-06-01T19:00:00Z', :'ada_ada'
+) returning id as flight \gset ada_
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.flights where id = :'ada_flight') = 1,
+  'the partner can see a flight they are not on'
+);
+
+-- Spec 9.8: either partner can edit any flight. The one on the ground is
+-- usually the one refreshing it.
+update public.flights set gate = 'B12' where id = :'ada_flight';
+select assert(
+  (select gate from public.flights where id = :'ada_flight') = 'B12',
+  'and can edit it — the watcher is the one with a free hand'
+);
+
+select assert_raises(
+  format('insert into public.flight_positions (flight_id, lat, lng, recorded_at)
+            values (%L, 51.4, -0.4, now())', :'ada_flight'),
+  'row-level security',
+  'but nobody can invent an aircraft position from the browser'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.flights) = 0,
+  'a stranger sees no flights'
+);
+select assert(
+  (select count(*) from public.flight_positions) = 0,
+  'and no positions'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== the tracking hard stop =='
+set request.jwt.claim.sub = :'ada_ada';
+
+-- A flight whose landing nobody noticed: scheduled to arrive long ago, still
+-- marked active. This is the case that would poll until the month is gone.
+insert into public.flights (
+  couple_id, traveler_id, flight_number, flight_date,
+  scheduled_departure, scheduled_arrival, tracking_active
+) values (
+  :'ada_couple', :'ada_ada', 'AC99', '2020-01-01',
+  '2020-01-01T10:00:00Z', '2020-01-01T18:00:00Z', true
+) returning id as stale_flight \gset ada_
+
+-- And one that is genuinely upcoming, which must survive the sweep.
+insert into public.flights (
+  couple_id, traveler_id, flight_number, flight_date,
+  scheduled_departure, scheduled_arrival, tracking_active
+) values (
+  :'ada_couple', :'ada_ada', 'AC100', '2030-01-01',
+  '2030-01-01T10:00:00Z', '2030-01-01T18:00:00Z', true
+) returning id as future_flight \gset ada_
+
+reset role;
+select assert(
+  public.deactivate_finished_flights() >= 1,
+  'the sweep switches off flights that should have landed hours ago'
+);
+set role authenticated;
+set request.jwt.claim.sub = :'ada_ada';
+
+select assert(
+  (select tracking_active from public.flights where id = :'ada_stale_flight') = false,
+  'the missed landing stops costing anything'
+);
+select assert(
+  (select tracking_active from public.flights where id = :'ada_future_flight') = true,
+  'and next year''s flight is left alone'
+);
+
+select assert_raises(
+  'select public.deactivate_finished_flights()',
+  'permission denied',
+  'the sweep is not callable by a signed-in user — it belongs to cron'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== the API budget is counted in the database =='
+reset role;
+insert into public.api_usage (provider, units, success) values ('aerodatabox', 3, true);
+insert into public.api_usage (provider, units, success) values ('opensky', 40, true);
+-- Last month's spend must not count against this month's allowance.
+insert into public.api_usage (provider, units, success, called_at)
+  values ('aerodatabox', 500, true, now() - interval '45 days');
+set role authenticated;
+set request.jwt.claim.sub = :'ada_ada';
+
+select assert(
+  public.api_usage_in_window('aerodatabox') = 3,
+  'the monthly window excludes older spend'
+);
+select assert(
+  public.api_usage_in_window('opensky') = 40,
+  'and OpenSky is counted per day'
+);
+
+select assert_raises(
+  'insert into public.api_usage (provider, units) values (''aerodatabox'', 999)',
+  'row-level security',
+  'nobody can forge usage to unblock the quota guard'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== wait times: reference data users may write, because they measured it =='
+set request.jwt.claim.sub = :'bo_bo';
+insert into public.airport_wait_times (iata, immigration_minutes, updated_by)
+values ('LIS', 22, :'bo_bo');
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select immigration_minutes from public.airport_wait_times where iata = 'LIS') = 22,
+  'anyone signed in reads it — a queue at Lisbon is the same queue for everyone'
+);
+select assert_raises(
+  'insert into public.airport_wait_times (iata, immigration_minutes, updated_by)
+     values (''OPO'', 10, ''00000000-0000-0000-0000-000000000000'')',
+  'row-level security',
+  'but nobody can report in someone else''s name'
+);
+
+select assert(
+  (select count(*) from public.airline_codes where iata = 'AC') = 1,
+  'the airline table is seeded, which is what makes callsigns possible'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
 \echo '== leaving =='
 set request.jwt.claim.sub = :'bo_bo';
 select public.leave_couple();

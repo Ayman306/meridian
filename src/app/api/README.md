@@ -12,9 +12,9 @@ non-negotiable #2 amounts to under Next.
 | --- | --- | --- | --- |
 | `GET /api/health` | GitHub Actions, every 2 days | Keeps the free-tier project from auto-pausing | done |
 | `POST /api/extract` | Pasting a link into the wishlist | Reads OpenGraph tags from a page the browser cannot fetch itself (CORS) | done |
-| `POST /api/flights/lookup` | On demand | Validate a flight number + date on save (1 AeroDataBox unit) | 10 |
-| `GET /api/flights/status` | Client, every 60s while the module is open | OpenSky position + AeroDataBox status, server-gated by max-age | 10 |
-| `POST /api/cron/flight-sweep` | pg_cron, every 30 min | Notify when nobody has the app open | 10 |
+| `POST /api/flights/lookup` | On save | Resolve airline, route, times and callsign (1 AeroDataBox unit, once per flight ever) | done |
+| `POST /api/flights/status` | Client, every 60s while the module is open | Batched refresh; decides per flight per source whether a call is allowed | done |
+| `POST /api/cron/flight-sweep` | pg_cron, every 30 min | Hard-stops finished flights, then refreshes the ones in play so the watcher learns without the app open | done |
 | `POST /api/cron/expiry-sweep` | pg_cron, daily 08:00 | Document expiry + stay-allowance warnings | 4 |
 | `POST /api/ai/suggest` | On demand, optional | The only feature that may be disabled entirely | later |
 
@@ -43,3 +43,18 @@ pg_cron calls these with `net.http_post`, passing `CRON_SECRET` as a header.
 AeroDataBox allows roughly 600 units a month. The cache max-age is enforced
 here, server-side, shared between both partners, with a hard stop once a flight
 has landed — never in the client, where two browsers would double the spend.
+
+Concretely, in `lib/flights/`:
+
+- `statusMaxAgeSeconds()` decides whether a call may happen at all. It is the
+  single most expensive function in the codebase to get wrong.
+- `withQuota()` reads spend from `api_usage` — the database, not a counter in a
+  process that restarts — and refuses above 90% of the allowance.
+- `refreshFlight()` settles both providers separately, so one being down
+  degrades a field group with a notice rather than failing the request.
+- `deactivate_finished_flights()` is the hard stop, enforced by cron whether or
+  not anyone opens the app. Without it, one flight whose landing was missed
+  polls until the month is gone.
+
+Manual refresh goes through the same max-age check as the automatic tick, so
+spamming the button cannot turn into spend.

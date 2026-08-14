@@ -8,6 +8,7 @@ import {
   Heart,
   Home,
   Map as MapIcon,
+  Plane,
   Settings as SettingsIcon,
   Timer,
 } from 'lucide-react'
@@ -18,14 +19,15 @@ import { APP_NAME } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
 /**
- * `short` is what the bottom bar uses: seven columns on a 360px screen leaves
- * about fifty pixels each, which is an icon and five characters.
+ * `short` is what the bottom bar uses: eight columns on a 360px screen leaves
+ * about forty-five pixels each, which is an icon and four characters.
  */
 const NAV = [
   { href: '/', label: 'Home', short: 'Home', icon: Home, exact: true },
   { href: '/trips', label: 'Trips', short: 'Trips', icon: CalendarRange, exact: false },
   { href: '/wishlist', label: 'Wishlist', short: 'Saves', icon: Heart, exact: false },
   { href: '/map', label: 'Map', short: 'Map', icon: MapIcon, exact: false },
+  { href: '/flights', label: 'Flights', short: 'Fly', icon: Plane, exact: false },
   { href: '/documents', label: 'Docs', short: 'Docs', icon: FileText, exact: false },
   { href: '/allowance', label: 'Allowance', short: 'Stay', icon: Timer, exact: false },
   { href: '/settings', label: 'Settings', short: 'You', icon: SettingsIcon, exact: false },
@@ -84,7 +86,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 backdrop-blur md:hidden"
         aria-label="Main"
       >
-        <div className="grid grid-cols-7">
+        <div className="grid grid-cols-8">
           {NAV.map(({ href, label, short, icon: Icon, exact }) => (
             <Link
               key={href}
