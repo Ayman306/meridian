@@ -1,5 +1,6 @@
-import { Placeholder } from '@/components/common/Placeholder'
+import { WherePage } from '@/modules/destinations'
 
-export default function TripWhere() {
-  return <Placeholder title="Where" phase="Phase 8" />
+export default async function TripWhere({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  return <WherePage tripId={id} />
 }

@@ -13,6 +13,8 @@
 --   supabase/migrations/0005_documents.sql
 --   supabase/migrations/0006_dashboard.sql
 --   supabase/migrations/0007_wishlist.sql
+--   supabase/migrations/0008_destinations.sql
+--   supabase/migrations/0009_allowance.sql
 --
 -- Safe to re-run: every statement is idempotent or uses "or replace".
 -- =============================================================================
@@ -1544,4 +1546,494 @@ end $$;
 
 revoke all on function public.push_wishlist_to_itinerary(uuid, uuid, text) from public, anon;
 grant execute on function public.push_wishlist_to_itinerary(uuid, uuid, text) to authenticated;
+
+
+-- ===========================================================================
+-- 0008_destinations.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0008_destinations — deciding *where*. Spec: Module 4.
+--
+-- A comparison workspace, not a recommender. The board holds candidates side by
+-- side and shows what differs; choosing is a human act, and the app never
+-- ranks unless someone moves a weight off zero.
+--
+-- Two of the three tables here are shared reference data rather than couple
+-- data. That is deliberate: a visa rule for an Indian passport entering the
+-- Schengen area is the same fact for every couple in the app, and duplicating
+-- it per couple would mean N copies of a thing that has one correct value.
+-- =============================================================================
+
+create table if not exists public.trip_destinations (
+  id           uuid primary key default gen_random_uuid(),
+  couple_id    uuid not null references public.couples(id) on delete cascade,
+  trip_id      uuid not null references public.trips(id) on delete cascade,
+  city         text not null,
+  country_code text,                              -- ISO 3166-1 alpha-2
+  lat          numeric,
+  lng          numeric,
+  timezone     text,
+  state        text not null default 'candidate',
+  arrive_on    date,
+  depart_on    date,
+  sort_key     text not null,
+  notes        text,
+  -- Everything the board computed when the candidate was added. Nothing in it
+  -- goes stale on its own: flight durations are constant, visa rules change
+  -- about yearly, and seasons never change at all.
+  board        jsonb not null default '{}',
+  created_by   uuid references public.profiles(id),
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  deleted_at   timestamptz,
+  constraint valid_state check (state in ('candidate', 'chosen', 'rejected')),
+  constraint valid_window check (
+    arrive_on is null or depart_on is null or depart_on >= arrive_on
+  )
+);
+
+create index if not exists trip_destinations_trip_idx
+  on public.trip_destinations (trip_id, sort_key) where deleted_at is null;
+
+-- At most one chosen destination per trip. The RPC below enforces the
+-- transition; this makes the invariant true even if someone writes directly.
+create unique index if not exists trip_destinations_one_chosen_idx
+  on public.trip_destinations (trip_id)
+  where state = 'chosen' and deleted_at is null;
+
+drop trigger if exists trip_destinations_updated_at on public.trip_destinations;
+create trigger trip_destinations_updated_at before update on public.trip_destinations
+  for each row execute function public.set_updated_at();
+
+alter table public.trip_destinations enable row level security;
+
+drop policy if exists "couple read" on public.trip_destinations;
+create policy "couple read" on public.trip_destinations
+  for select using (public.is_couple_member(couple_id));
+drop policy if exists "couple write" on public.trip_destinations;
+create policy "couple write" on public.trip_destinations
+  for all using (public.is_couple_member(couple_id))
+      with check (public.is_couple_member(couple_id));
+
+-- =============================================================================
+-- Shared reference data.
+--
+-- Readable by anyone signed in, writable by nobody through the API. New rows
+-- arrive by migration, which is the only way advisory data should change: a
+-- user-editable visa table is a user-editable source of immigration advice.
+-- Per-person exceptions live in `allowance_rules` (0009), where they belong.
+-- =============================================================================
+
+create table if not exists public.visa_rules (
+  id                  uuid primary key default gen_random_uuid(),
+  passport_country    text not null,
+  destination_country text not null,              -- or a zone code, e.g. SCHENGEN
+  tier                int not null,
+  label               text,
+  max_days            int,
+  source_url          text,
+  verified_on         date,
+  unique (passport_country, destination_country),
+  constraint valid_tier check (tier between 0 and 5)
+);
+
+alter table public.visa_rules enable row level security;
+
+drop policy if exists "signed in read" on public.visa_rules;
+create policy "signed in read" on public.visa_rules
+  for select using (auth.uid() is not null);
+
+create table if not exists public.airport_routes (
+  origin_iata      text not null,
+  dest_iata        text not null,
+  duration_minutes int not null,
+  is_direct        boolean not null default true,
+  primary key (origin_iata, dest_iata)
+);
+
+alter table public.airport_routes enable row level security;
+
+drop policy if exists "signed in read" on public.airport_routes;
+create policy "signed in read" on public.airport_routes
+  for select using (auth.uid() is not null);
+
+-- =============================================================================
+-- Scoring weights (spec 4.2: "persisted per couple, not per trip").
+--
+-- Its own table rather than a column on `couples`, and not folded into
+-- `couple_settings` — that table belongs to Module 14 and inventing half of it
+-- here would make the later migration a merge instead of a create.
+-- =============================================================================
+create table if not exists public.destination_weights (
+  couple_id  uuid primary key references public.couples(id) on delete cascade,
+  -- All zero by default, which is what makes ranking opt-in.
+  weights    jsonb not null default '{}',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+drop trigger if exists destination_weights_updated_at on public.destination_weights;
+create trigger destination_weights_updated_at before update on public.destination_weights
+  for each row execute function public.set_updated_at();
+
+alter table public.destination_weights enable row level security;
+
+drop policy if exists "couple read" on public.destination_weights;
+create policy "couple read" on public.destination_weights
+  for select using (public.is_couple_member(couple_id));
+drop policy if exists "couple write" on public.destination_weights;
+create policy "couple write" on public.destination_weights
+  for all using (public.is_couple_member(couple_id))
+      with check (public.is_couple_member(couple_id));
+
+-- =============================================================================
+-- Choosing a destination.
+--
+-- Three writes that must not be separable: this one becomes chosen, its rivals
+-- become rejected, and the trip takes its timezone. Half of that applied is a
+-- trip whose itinerary times mean something different from what its planner
+-- intended, so it is one transaction.
+--
+-- Rejected candidates stay visible. The reasoning for a decision is worth as
+-- much as the decision, and a board with one column explains nothing.
+-- =============================================================================
+create or replace function public.choose_destination(destination_id uuid)
+returns void language plpgsql security definer
+set search_path = public as $$
+declare
+  d public.trip_destinations;
+begin
+  select * into d from public.trip_destinations
+   where id = destination_id and deleted_at is null;
+  if d is null then raise exception 'NOT_FOUND'; end if;
+  if not public.is_couple_member(d.couple_id) then raise exception 'NOT_A_MEMBER'; end if;
+
+  update public.trip_destinations
+     set state = 'rejected'
+   where trip_id = d.trip_id
+     and id <> d.id
+     and deleted_at is null
+     and state <> 'rejected';
+
+  update public.trip_destinations set state = 'chosen' where id = d.id;
+
+  -- A destination with no timezone leaves the trip's alone rather than
+  -- clearing it: an unknown zone is not the same as no zone.
+  update public.trips
+     set timezone = coalesce(d.timezone, timezone)
+   where id = d.trip_id;
+end $$;
+
+revoke all on function public.choose_destination(uuid) from public, anon;
+grant execute on function public.choose_destination(uuid) to authenticated;
+
+-- Undo. Marking one chosen is reversible (spec 4.2), and going back should not
+-- resurrect the rejections that the choice caused.
+create or replace function public.unchoose_destination(destination_id uuid)
+returns void language plpgsql security definer
+set search_path = public as $$
+declare
+  d public.trip_destinations;
+begin
+  select * into d from public.trip_destinations
+   where id = destination_id and deleted_at is null;
+  if d is null then raise exception 'NOT_FOUND'; end if;
+  if not public.is_couple_member(d.couple_id) then raise exception 'NOT_A_MEMBER'; end if;
+
+  update public.trip_destinations
+     set state = 'candidate'
+   where trip_id = d.trip_id and deleted_at is null;
+end $$;
+
+revoke all on function public.unchoose_destination(uuid) from public, anon;
+grant execute on function public.unchoose_destination(uuid) to authenticated;
+
+-- =============================================================================
+-- Seed: visa rules.
+--
+-- READ THIS BEFORE TRUSTING A ROW. These are a starting point, not an
+-- authority. Every one carries its source and the date it was checked, and
+-- every surface that renders one shows both plus "Advisory only — confirm with
+-- the embassy" (spec 4.3, non-negotiable #4). Rules change with no notice and
+-- individual circumstances differ; the app's job is to say what it knows and
+-- when it learned it, never to be believed.
+--
+-- Deliberately small. A missing rule renders as "Unknown — check officially",
+-- which is a safe answer. A wrong rule is not.
+--
+-- Tiers: 0 visa-free · 1 eVisa/ETA online · 2 visa on arrival ·
+--        3 embassy appointment · 4 difficult/long lead · 5 unavailable
+-- =============================================================================
+insert into public.visa_rules
+  (passport_country, destination_country, tier, label, max_days, source_url, verified_on)
+values
+  -- Indian passport
+  ('IN', 'SCHENGEN', 3, 'Schengen visa required — embassy appointment', 90,
+   'https://en.wikipedia.org/wiki/Visa_requirements_for_Indian_citizens', '2026-08-14'),
+  ('IN', 'US', 3, 'B1/B2 visa required — embassy interview', 180,
+   'https://travel.state.gov/content/travel/en/us-visas/tourism-visit/visitor.html', '2026-08-14'),
+  ('IN', 'GB', 3, 'Standard Visitor visa required', 180,
+   'https://www.gov.uk/standard-visitor', '2026-08-14'),
+  ('IN', 'CA', 3, 'Visitor visa (TRV) required', 180,
+   'https://www.canada.ca/en/immigration-refugees-citizenship.html', '2026-08-14'),
+  ('IN', 'JP', 3, 'Visa required — embassy or accredited agency', 90,
+   'https://www.mofa.go.jp/j_info/visit/visa/index.html', '2026-08-14'),
+  ('IN', 'AE', 1, 'eVisa, or visa on arrival with a US/UK/Schengen visa', 60,
+   'https://u.ae/en/information-and-services/visa-and-emirates-id', '2026-08-14'),
+  ('IN', 'LK', 1, 'ETA online before travel', 30,
+   'https://www.eta.gov.lk/', '2026-08-14'),
+  ('IN', 'MV', 2, 'Free visa on arrival', 30,
+   'https://immigration.gov.mv/tourist-visa/', '2026-08-14'),
+  ('IN', 'NP', 0, 'No visa required', null,
+   'https://www.immigration.gov.np/', '2026-08-14'),
+
+  -- US passport
+  ('US', 'SCHENGEN', 0, 'Visa-free — 90 days in any 180', 90,
+   'https://home-affairs.ec.europa.eu/policies/schengen-borders-and-visa_en', '2026-08-14'),
+  ('US', 'GB', 1, 'Electronic Travel Authorisation required', 180,
+   'https://www.gov.uk/guidance/apply-for-an-electronic-travel-authorisation-eta', '2026-08-14'),
+  ('US', 'JP', 0, 'Visa-free short stay', 90,
+   'https://www.mofa.go.jp/j_info/visit/visa/short/novisa.html', '2026-08-14'),
+  ('US', 'CA', 0, 'Visa-free; eTA not required for US citizens', 180,
+   'https://www.canada.ca/en/immigration-refugees-citizenship.html', '2026-08-14'),
+  ('US', 'AU', 1, 'ETA (subclass 601) online', 90,
+   'https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing/electronic-travel-authority-601',
+   '2026-08-14'),
+  ('US', 'IN', 1, 'e-Tourist visa online', 90,
+   'https://indianvisaonline.gov.in/', '2026-08-14'),
+
+  -- British passport
+  ('GB', 'SCHENGEN', 0, 'Visa-free — 90 days in any 180', 90,
+   'https://home-affairs.ec.europa.eu/policies/schengen-borders-and-visa_en', '2026-08-14'),
+  ('GB', 'US', 1, 'ESTA under the Visa Waiver Program', 90,
+   'https://esta.cbp.dhs.gov/', '2026-08-14'),
+  ('GB', 'CA', 1, 'eTA required for air travel', 180,
+   'https://www.canada.ca/en/immigration-refugees-citizenship.html', '2026-08-14'),
+  ('GB', 'AU', 1, 'ETA (subclass 601) online', 90,
+   'https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing/electronic-travel-authority-601',
+   '2026-08-14'),
+  ('GB', 'JP', 0, 'Visa-free short stay', 90,
+   'https://www.mofa.go.jp/j_info/visit/visa/short/novisa.html', '2026-08-14'),
+  ('GB', 'IN', 1, 'e-Tourist visa online', 90,
+   'https://indianvisaonline.gov.in/', '2026-08-14'),
+
+  -- Canadian passport
+  ('CA', 'SCHENGEN', 0, 'Visa-free — 90 days in any 180', 90,
+   'https://home-affairs.ec.europa.eu/policies/schengen-borders-and-visa_en', '2026-08-14'),
+  ('CA', 'US', 0, 'Visa-free for short visits', 180,
+   'https://travel.state.gov/content/travel/en/us-visas/tourism-visit/visitor.html', '2026-08-14'),
+  ('CA', 'GB', 1, 'Electronic Travel Authorisation required', 180,
+   'https://www.gov.uk/guidance/apply-for-an-electronic-travel-authorisation-eta', '2026-08-14'),
+  ('CA', 'JP', 0, 'Visa-free short stay', 90,
+   'https://www.mofa.go.jp/j_info/visit/visa/short/novisa.html', '2026-08-14'),
+  ('CA', 'IN', 1, 'e-Tourist visa online', 90,
+   'https://indianvisaonline.gov.in/', '2026-08-14')
+on conflict (passport_country, destination_country) do nothing;
+
+
+-- ===========================================================================
+-- 0009_allowance.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0009_allowance — how long each of them may legally stay. Spec: Module 10.
+--
+-- The module that prevents a real-world mistake with real-world consequences,
+-- which shapes two things in this file.
+--
+-- First, a missing rule is never "unlimited". There is no default row and no
+-- fallback; a country with no rule reads "not tracked" and the app says
+-- nothing about it.
+--
+-- Second, every rule carries where it came from and when it was checked, and
+-- every screen that shows one repeats the disclaimer. This module must never
+-- present itself as authoritative.
+-- =============================================================================
+
+-- =============================================================================
+-- Rules.
+--
+-- The spec's schema has no owner columns, but 10.2 requires rules to be per
+-- person and manually editable — "the user's actual visa may differ from the
+-- generic rule", which is exactly the case that matters. So one table holds
+-- both: rows with a null couple_id are the seeded defaults everyone reads, and
+-- a row with a couple_id and user_id is that person's override.
+--
+-- Overrides win. A resident permit or a long-stay visa is a fact about the
+-- person, and the generic rule for their passport is simply wrong for them.
+-- =============================================================================
+create table if not exists public.allowance_rules (
+  id                  uuid primary key default gen_random_uuid(),
+  -- Null on the seeded defaults. Set on a couple's own override.
+  couple_id           uuid references public.couples(id) on delete cascade,
+  user_id             uuid references public.profiles(id) on delete cascade,
+  passport_country    text not null,
+  destination_country text not null,               -- or a zone code, e.g. SCHENGEN
+  rule_type           text not null,
+  max_days            int not null,
+  window_days         int,                         -- required by 'rolling'
+  region_members      text[],                      -- zone rules count across these
+  label               text,
+  notes               text,
+  source_url          text,
+  verified_on         date,
+  created_at          timestamptz not null default now(),
+  updated_at          timestamptz not null default now(),
+  constraint valid_rule_type check (
+    -- 'none' is spec 10.6's resident/PR case: tracked, and deliberately no limit.
+    rule_type in ('rolling', 'per_entry', 'per_year', 'per_visa', 'none')
+  ),
+  constraint rolling_needs_window check (
+    rule_type <> 'rolling' or window_days is not null
+  ),
+  -- An override belongs to somebody. A default belongs to nobody.
+  constraint owner_is_all_or_nothing check (
+    (couple_id is null and user_id is null) or (couple_id is not null and user_id is not null)
+  )
+);
+
+-- One default per passport/destination, and one override per person per
+-- destination. Partial indexes because the null couple_id is the distinction.
+-- The date a 'per_visa' allowance starts counting from — the visa's issue
+-- date. The spec's schema has no column for it and its rule type cannot be
+-- evaluated without one: "days since the visa was issued" needs the date the
+-- visa was issued. Null for every other rule type.
+alter table public.allowance_rules add column if not exists window_start date;
+
+create unique index if not exists allowance_rules_default_idx
+  on public.allowance_rules (passport_country, destination_country)
+  where couple_id is null;
+create unique index if not exists allowance_rules_override_idx
+  on public.allowance_rules (user_id, destination_country)
+  where couple_id is not null;
+
+drop trigger if exists allowance_rules_updated_at on public.allowance_rules;
+create trigger allowance_rules_updated_at before update on public.allowance_rules
+  for each row execute function public.set_updated_at();
+
+alter table public.allowance_rules enable row level security;
+
+-- The defaults are reference data; a couple's overrides are theirs.
+drop policy if exists "read defaults and own" on public.allowance_rules;
+create policy "read defaults and own" on public.allowance_rules
+  for select using (
+    (couple_id is null and auth.uid() is not null)
+    or public.is_couple_member(couple_id)
+  );
+
+-- You edit your own overrides and nobody else's, and you cannot edit a default
+-- through the API at all — those change by migration.
+drop policy if exists "write own override" on public.allowance_rules;
+create policy "write own override" on public.allowance_rules
+  for all using (couple_id is not null and user_id = auth.uid())
+      with check (
+        couple_id is not null
+        and user_id = auth.uid()
+        and public.is_couple_member(couple_id)
+      );
+
+-- =============================================================================
+-- The log.
+--
+-- Shared, not private: two people planning a trip need to see whether either
+-- of them is close to a limit. (Health data is the module where the default
+-- flips; this is not that.) Each writes only their own rows.
+-- =============================================================================
+create table if not exists public.entry_exit_log (
+  id           uuid primary key default gen_random_uuid(),
+  couple_id    uuid not null references public.couples(id) on delete cascade,
+  user_id      uuid not null references public.profiles(id) on delete cascade,
+  country_code text not null,
+  entered_on   date not null,
+  -- Null means still there. Counted through today, and the answer changes daily.
+  exited_on    date,
+  trip_id      uuid references public.trips(id) on delete set null,
+  -- True when derived from trip dates rather than confirmed by a stamp.
+  is_estimated boolean not null default false,
+  notes        text,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  constraint valid_stay check (exited_on is null or exited_on >= entered_on)
+);
+
+create index if not exists entry_exit_log_lookup_idx
+  on public.entry_exit_log (user_id, country_code, entered_on);
+
+drop trigger if exists entry_exit_log_updated_at on public.entry_exit_log;
+create trigger entry_exit_log_updated_at before update on public.entry_exit_log
+  for each row execute function public.set_updated_at();
+
+alter table public.entry_exit_log enable row level security;
+
+drop policy if exists "couple read" on public.entry_exit_log;
+create policy "couple read" on public.entry_exit_log
+  for select using (public.is_couple_member(couple_id));
+
+drop policy if exists "write own" on public.entry_exit_log;
+create policy "write own" on public.entry_exit_log
+  for all using (user_id = auth.uid())
+      with check (user_id = auth.uid() and public.is_couple_member(couple_id));
+
+-- =============================================================================
+-- Seed: allowance rules.
+--
+-- Same warning as the visa seed in 0008. These are a starting point with a
+-- source and a date attached, not an authority, and the UI never presents them
+-- as one. Small on purpose: "not tracked" is a safe answer and a wrong limit
+-- is not.
+--
+-- The Schengen rule is the one worth getting exactly right, because it is the
+-- one people get wrong: 90 days in any rolling 180, counted across every
+-- member state together, with entry and exit days both counting.
+-- =============================================================================
+insert into public.allowance_rules (
+  passport_country, destination_country, rule_type, max_days, window_days,
+  region_members, label, source_url, verified_on
+)
+values
+  ('US', 'SCHENGEN', 'rolling', 90, 180,
+   array['AT','BE','BG','HR','CZ','DK','EE','FI','FR','DE','GR','HU','IS','IT',
+         'LV','LI','LT','LU','MT','NL','NO','PL','PT','RO','SK','SI','ES','SE','CH'],
+   '90 days in any 180 across the Schengen area',
+   'https://home-affairs.ec.europa.eu/policies/schengen-borders-and-visa_en', '2026-08-14'),
+  ('GB', 'SCHENGEN', 'rolling', 90, 180,
+   array['AT','BE','BG','HR','CZ','DK','EE','FI','FR','DE','GR','HU','IS','IT',
+         'LV','LI','LT','LU','MT','NL','NO','PL','PT','RO','SK','SI','ES','SE','CH'],
+   '90 days in any 180 across the Schengen area',
+   'https://home-affairs.ec.europa.eu/policies/schengen-borders-and-visa_en', '2026-08-14'),
+  ('CA', 'SCHENGEN', 'rolling', 90, 180,
+   array['AT','BE','BG','HR','CZ','DK','EE','FI','FR','DE','GR','HU','IS','IT',
+         'LV','LI','LT','LU','MT','NL','NO','PL','PT','RO','SK','SI','ES','SE','CH'],
+   '90 days in any 180 across the Schengen area',
+   'https://home-affairs.ec.europa.eu/policies/schengen-borders-and-visa_en', '2026-08-14'),
+  ('IN', 'SCHENGEN', 'rolling', 90, 180,
+   array['AT','BE','BG','HR','CZ','DK','EE','FI','FR','DE','GR','HU','IS','IT',
+         'LV','LI','LT','LU','MT','NL','NO','PL','PT','RO','SK','SI','ES','SE','CH'],
+   'Short-stay visa: 90 days in any 180 across the Schengen area',
+   'https://home-affairs.ec.europa.eu/policies/schengen-borders-and-visa_en', '2026-08-14'),
+
+  -- Per-entry rules: the clock restarts each time you arrive.
+  ('US', 'GB', 'per_entry', 180, null, null,
+   'Up to 6 months per visit',
+   'https://www.gov.uk/standard-visitor', '2026-08-14'),
+  ('CA', 'GB', 'per_entry', 180, null, null,
+   'Up to 6 months per visit',
+   'https://www.gov.uk/standard-visitor', '2026-08-14'),
+  ('GB', 'US', 'per_entry', 90, null, null,
+   'Visa Waiver Program: up to 90 days per entry',
+   'https://esta.cbp.dhs.gov/', '2026-08-14'),
+  ('CA', 'US', 'per_entry', 180, null, null,
+   'Generally up to 6 months per entry',
+   'https://travel.state.gov/content/travel/en/us-visas/tourism-visit/visitor.html', '2026-08-14'),
+  ('US', 'JP', 'per_entry', 90, null, null,
+   'Visa-free short stay, up to 90 days',
+   'https://www.mofa.go.jp/j_info/visit/visa/short/novisa.html', '2026-08-14'),
+  ('GB', 'JP', 'per_entry', 90, null, null,
+   'Visa-free short stay, up to 90 days',
+   'https://www.mofa.go.jp/j_info/visit/visa/short/novisa.html', '2026-08-14'),
+  ('IN', 'NP', 'none', 0, null, null,
+   'No limit for Indian citizens',
+   'https://www.immigration.gov.np/', '2026-08-14')
+on conflict do nothing;
 

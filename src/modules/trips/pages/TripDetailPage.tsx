@@ -16,8 +16,11 @@ import { useDeleteTrip, useTrip, useTripRealtime, useTripStatuses, useUpdateTrip
 import { countdownDays, formatTripDates, isLongStay, isStalePlanning, nights } from '../logic'
 import { TripDatesEditor } from '../components/TripDatesEditor'
 import { TravelerDates } from '../components/TravelerDates'
+import { TripAllowanceStrip } from '@/modules/allowance'
+import { chosenDestination, useDestinations } from '@/modules/destinations'
 
 const TABS = [
+  { segment: 'where', label: 'Where' },
   { segment: 'plan', label: 'Plan' },
   { segment: 'blend', label: 'Blend' },
   { segment: 'map', label: 'Map' },
@@ -43,6 +46,12 @@ export function TripDetailPage({ children }: { children: React.ReactNode }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   useTripRealtime(id)
+
+  // The chosen destination is what makes an allowance check possible at all —
+  // without a country there is no rule to check against.
+  const destinations = useDestinations(id)
+  const destinationCountry =
+    chosenDestination(destinations.data ?? [])?.country_code ?? null
 
   if (isLoading) return <PageLoading />
   if (error) return <ErrorState error={error} onRetry={() => void refetch()} />
@@ -150,6 +159,13 @@ export function TripDetailPage({ children }: { children: React.ReactNode }) {
       </header>
 
       <TravelerDates trip={trip} />
+
+      {/* Only speaks up when a limit is close or crossed (spec 10.2). */}
+      <TripAllowanceStrip
+        countryCode={destinationCountry}
+        from={trip.date_precision === 'exact' ? trip.start_date : null}
+        to={trip.date_precision === 'exact' ? trip.end_date : null}
+      />
 
       <nav className="flex gap-1 border-b border-border" aria-label="Trip sections">
         {TABS.map((tab) => {
