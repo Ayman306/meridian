@@ -7,6 +7,7 @@ import {
   isPlausibleInviteCode,
   needsProfileSetup,
   normaliseInviteCode,
+  safeRedirectPath,
   toPersonRef,
 } from '@/modules/auth/logic'
 import { INVITE_ALPHABET } from '@/lib/constants'
@@ -107,5 +108,26 @@ describe('person refs', () => {
     expect(accentCollides(profile(), profile({ id: 'u2' }))).toBe(true)
     expect(accentCollides(profile(), profile({ id: 'u2', accent_color: 'teal' }))).toBe(false)
     expect(accentCollides(profile(), null)).toBe(false)
+  })
+})
+
+describe('post-sign-in redirect target', () => {
+  it('keeps an ordinary local path', () => {
+    expect(safeRedirectPath('/trips')).toBe('/trips')
+    expect(safeRedirectPath('/trips/abc?tab=days')).toBe('/trips/abc?tab=days')
+  })
+
+  it('defaults to the root when there is nothing to honour', () => {
+    expect(safeRedirectPath(null)).toBe('/')
+    expect(safeRedirectPath(undefined)).toBe('/')
+    expect(safeRedirectPath('')).toBe('/')
+  })
+
+  it('refuses anything that could leave this origin', () => {
+    // The whole point: a fresh session must not be redirected off-site.
+    expect(safeRedirectPath('https://evil.example')).toBe('/')
+    expect(safeRedirectPath('//evil.example')).toBe('/')
+    expect(safeRedirectPath('/\\evil.example')).toBe('/')
+    expect(safeRedirectPath('trips')).toBe('/')
   })
 })

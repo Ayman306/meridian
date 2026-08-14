@@ -82,3 +82,19 @@ export function toPersonRef(profile: Profile | null, selfId: string | null): Per
 export function accentCollides(self: Profile | null, partner: Profile | null): boolean {
   return Boolean(self && partner && self.accent_color === partner.accent_color)
 }
+
+/**
+ * Where to send someone after the OAuth exchange.
+ *
+ * Only ever a path on our own origin. `startsWith('/')` alone is not enough:
+ * `//evil.com` is a protocol-relative URL and `/\evil.com` is treated as one by
+ * several browsers. An open redirect here would hand a freshly minted session
+ * to another site, so anything that is not plainly a local path becomes `/`.
+ */
+export function safeRedirectPath(value: string | null | undefined): string {
+  if (!value) return '/'
+  if (!value.startsWith('/')) return '/'
+  // Second character decides: another slash or a backslash makes it host-relative.
+  if (value[1] === '/' || value[1] === '\\') return '/'
+  return value
+}

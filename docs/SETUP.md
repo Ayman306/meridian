@@ -174,7 +174,8 @@ applied to a real project.
 
 | Symptom | Cause |
 | --- | --- |
-| Sign-in loops back to `/login` | `/auth/callback` is missing from Supabase's redirect URLs |
+| Sign-in loops back to `/login` with no message | `/auth/callback` is missing from Supabase's redirect URLs, so Supabase fell back to the Site URL. The code never reached our handler. |
+| Sign-in loops back to `/login` **with** a message | The handler ran and the message is the real reason — read it. |
 | `redirect_uri_mismatch` from Google | The Supabase callback URL is not in Google's authorised redirect URIs |
 | "Missing NEXT_PUBLIC_SUPABASE_URL" | No `.env.local`, or the dev server was not restarted after creating it |
 | Signed in, but the app shows nothing | The migrations did not run — check the Table Editor for the ten tables |

@@ -11,7 +11,21 @@ function toProfile(row: Tables<'profiles'>): Profile {
   return { ...row, accent_color: (row.accent_color as AccentColor) ?? DEFAULT_ACCENT }
 }
 
-export async function signInWithGoogle(redirectTo = `${window.location.origin}/`): Promise<void> {
+/**
+ * `redirectTo` must be the callback Route Handler, never a page. The PKCE code
+ * arrives as a query parameter and something has to exchange it for a session
+ * cookie; a page inside `(app)` would instead hit the server-side auth gate
+ * with no cookie yet and bounce straight back to `/login`.
+ *
+ * Whatever we pass here must also be listed in Supabase's redirect allowlist.
+ */
+export function callbackUrl(next = '/'): string {
+  const url = new URL('/auth/callback', window.location.origin)
+  if (next !== '/') url.searchParams.set('next', next)
+  return url.toString()
+}
+
+export async function signInWithGoogle(redirectTo = callbackUrl()): Promise<void> {
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
