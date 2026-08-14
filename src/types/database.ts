@@ -4,65 +4,27 @@
  *   npm run db:types
  *   # supabase gen types typescript --project-id <ref> > src/types/database.ts
  *
- * Generated from the live project after migrations 0001-0011. The aliases at
+ * Generated from the live project after migrations 0001-0012. The aliases at
  * the bottom are the only hand-written part: they are what the modules import,
  * and they are re-added after each regeneration.
  */
 
-export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
 
 export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: '14.15'
+    PostgrestVersion: "14.15"
   }
   public: {
     Tables: {
-      categories: {
-        Row: {
-          color: string | null
-          couple_id: string
-          created_at: string
-          icon: string | null
-          id: string
-          is_default: boolean
-          name: string
-          sort_order: number
-          updated_at: string
-        }
-        Insert: {
-          color?: string | null
-          couple_id: string
-          created_at?: string
-          icon?: string | null
-          id?: string
-          is_default?: boolean
-          name: string
-          sort_order?: number
-          updated_at?: string
-        }
-        Update: {
-          color?: string | null
-          couple_id?: string
-          created_at?: string
-          icon?: string | null
-          id?: string
-          is_default?: boolean
-          name?: string
-          sort_order?: number
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: 'categories_couple_id_fkey'
-            columns: ['couple_id']
-            isOneToOne: false
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
-          },
-        ]
-      }
       airline_codes: {
         Row: {
           iata: string
@@ -78,6 +40,27 @@ export type Database = {
           iata?: string
           icao?: string
           name?: string | null
+        }
+        Relationships: []
+      }
+      airport_routes: {
+        Row: {
+          dest_iata: string
+          duration_minutes: number
+          is_direct: boolean
+          origin_iata: string
+        }
+        Insert: {
+          dest_iata: string
+          duration_minutes: number
+          is_direct?: boolean
+          origin_iata: string
+        }
+        Update: {
+          dest_iata?: string
+          duration_minutes?: number
+          is_direct?: boolean
+          origin_iata?: string
         }
         Relationships: []
       }
@@ -108,49 +91,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'airport_wait_times_updated_by_fkey'
-            columns: ['updated_by']
+            foreignKeyName: "airport_wait_times_updated_by_fkey"
+            columns: ["updated_by"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
-          },
-        ]
-      }
-      api_usage: {
-        Row: {
-          called_at: string
-          error: string | null
-          flight_id: string | null
-          id: string
-          provider: string
-          success: boolean | null
-          units: number
-        }
-        Insert: {
-          called_at?: string
-          error?: string | null
-          flight_id?: string | null
-          id?: string
-          provider: string
-          success?: boolean | null
-          units?: number
-        }
-        Update: {
-          called_at?: string
-          error?: string | null
-          flight_id?: string | null
-          id?: string
-          provider?: string
-          success?: boolean | null
-          units?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: 'api_usage_flight_id_fkey'
-            columns: ['flight_id']
-            isOneToOne: false
-            referencedRelation: 'flights'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -172,18 +117,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'album_media_album_id_fkey'
-            columns: ['album_id']
+            foreignKeyName: "album_media_album_id_fkey"
+            columns: ["album_id"]
             isOneToOne: false
-            referencedRelation: 'albums'
-            referencedColumns: ['id']
+            referencedRelation: "albums"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'album_media_media_id_fkey'
-            columns: ['media_id']
+            foreignKeyName: "album_media_media_id_fkey"
+            columns: ["media_id"]
             isOneToOne: false
-            referencedRelation: 'media'
-            referencedColumns: ['id']
+            referencedRelation: "media"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -226,48 +171,34 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'albums_couple_id_fkey'
-            columns: ['couple_id']
+            foreignKeyName: "albums_couple_id_fkey"
+            columns: ["couple_id"]
             isOneToOne: false
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'albums_cover_media_id_fkey'
-            columns: ['cover_media_id']
+            foreignKeyName: "albums_cover_media_id_fkey"
+            columns: ["cover_media_id"]
             isOneToOne: false
-            referencedRelation: 'media'
-            referencedColumns: ['id']
+            referencedRelation: "media"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'albums_trip_id_fkey'
-            columns: ['trip_id']
+            foreignKeyName: "albums_created_by_fkey"
+            columns: ["created_by"]
             isOneToOne: false
-            referencedRelation: 'trips'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "albums_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
           },
         ]
-      }
-      airport_routes: {
-        Row: {
-          dest_iata: string
-          duration_minutes: number
-          is_direct: boolean
-          origin_iata: string
-        }
-        Insert: {
-          dest_iata: string
-          duration_minutes: number
-          is_direct?: boolean
-          origin_iata: string
-        }
-        Update: {
-          dest_iata?: string
-          duration_minutes?: number
-          is_direct?: boolean
-          origin_iata?: string
-        }
-        Relationships: []
       }
       allowance_rules: {
         Row: {
@@ -326,18 +257,168 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'allowance_rules_couple_id_fkey'
-            columns: ['couple_id']
+            foreignKeyName: "allowance_rules_couple_id_fkey"
+            columns: ["couple_id"]
             isOneToOne: false
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'allowance_rules_user_id_fkey'
-            columns: ['user_id']
+            foreignKeyName: "allowance_rules_user_id_fkey"
+            columns: ["user_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      api_usage: {
+        Row: {
+          called_at: string
+          error: string | null
+          flight_id: string | null
+          id: string
+          provider: string
+          success: boolean | null
+          units: number
+        }
+        Insert: {
+          called_at?: string
+          error?: string | null
+          flight_id?: string | null
+          id?: string
+          provider: string
+          success?: boolean | null
+          units?: number
+        }
+        Update: {
+          called_at?: string
+          error?: string | null
+          flight_id?: string | null
+          id?: string
+          provider?: string
+          success?: boolean | null
+          units?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_usage_flight_id_fkey"
+            columns: ["flight_id"]
+            isOneToOne: false
+            referencedRelation: "flights"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      budgets: {
+        Row: {
+          amount: number
+          category_id: string | null
+          couple_id: string
+          created_at: string
+          created_by: string | null
+          currency: string
+          id: string
+          period: string
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          category_id?: string | null
+          couple_id: string
+          created_at?: string
+          created_by?: string | null
+          currency: string
+          id?: string
+          period?: string
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          category_id?: string | null
+          couple_id?: string
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          id?: string
+          period?: string
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "budgets_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "expense_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "budgets_couple_id_fkey"
+            columns: ["couple_id"]
+            isOneToOne: false
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "budgets_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "budgets_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      categories: {
+        Row: {
+          color: string | null
+          couple_id: string
+          created_at: string
+          icon: string | null
+          id: string
+          is_default: boolean
+          name: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          color?: string | null
+          couple_id: string
+          created_at?: string
+          icon?: string | null
+          id?: string
+          is_default?: boolean
+          name: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          color?: string | null
+          couple_id?: string
+          created_at?: string
+          icon?: string | null
+          id?: string
+          is_default?: boolean
+          name?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "categories_couple_id_fkey"
+            columns: ["couple_id"]
+            isOneToOne: false
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -359,24 +440,25 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'couple_members_couple_id_fkey'
-            columns: ['couple_id']
+            foreignKeyName: "couple_members_couple_id_fkey"
+            columns: ["couple_id"]
             isOneToOne: false
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'couple_members_user_id_fkey'
-            columns: ['user_id']
+            foreignKeyName: "couple_members_user_id_fkey"
+            columns: ["user_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
       couples: {
         Row: {
           anniversary_date: string | null
+          base_currency: string
           created_at: string
           created_by: string | null
           id: string
@@ -387,6 +469,7 @@ export type Database = {
         }
         Insert: {
           anniversary_date?: string | null
+          base_currency?: string
           created_at?: string
           created_by?: string | null
           id?: string
@@ -397,6 +480,7 @@ export type Database = {
         }
         Update: {
           anniversary_date?: string | null
+          base_currency?: string
           created_at?: string
           created_by?: string | null
           id?: string
@@ -434,25 +518,25 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'daily_exchange_couple_id_fkey'
-            columns: ['couple_id']
+            foreignKeyName: "daily_exchange_couple_id_fkey"
+            columns: ["couple_id"]
             isOneToOne: false
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'daily_exchange_media_id_fkey'
-            columns: ['media_id']
+            foreignKeyName: "daily_exchange_media_id_fkey"
+            columns: ["media_id"]
             isOneToOne: false
-            referencedRelation: 'media'
-            referencedColumns: ['id']
+            referencedRelation: "media"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'daily_exchange_user_id_fkey'
-            columns: ['user_id']
+            foreignKeyName: "daily_exchange_user_id_fkey"
+            columns: ["user_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -477,11 +561,140 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'destination_weights_couple_id_fkey'
-            columns: ['couple_id']
+            foreignKeyName: "destination_weights_couple_id_fkey"
+            columns: ["couple_id"]
             isOneToOne: true
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      document_types: {
+        Row: {
+          couple_id: string
+          created_at: string
+          has_expiry: boolean
+          id: string
+          name: string
+          requires_country: boolean
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          couple_id: string
+          created_at?: string
+          has_expiry?: boolean
+          id?: string
+          name: string
+          requires_country?: boolean
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          couple_id?: string
+          created_at?: string
+          has_expiry?: boolean
+          id?: string
+          name?: string
+          requires_country?: boolean
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_types_couple_id_fkey"
+            columns: ["couple_id"]
+            isOneToOne: false
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      documents: {
+        Row: {
+          country_code: string | null
+          couple_id: string
+          created_at: string
+          deleted_at: string | null
+          expires_on: string | null
+          file_name: string | null
+          file_size: number | null
+          id: string
+          is_shared: boolean
+          issued_on: string | null
+          label: string
+          last_alerted_threshold: string | null
+          mime_type: string | null
+          notes: string | null
+          number_last4: string | null
+          owner_id: string
+          storage_path: string | null
+          type_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          country_code?: string | null
+          couple_id: string
+          created_at?: string
+          deleted_at?: string | null
+          expires_on?: string | null
+          file_name?: string | null
+          file_size?: number | null
+          id?: string
+          is_shared?: boolean
+          issued_on?: string | null
+          label: string
+          last_alerted_threshold?: string | null
+          mime_type?: string | null
+          notes?: string | null
+          number_last4?: string | null
+          owner_id: string
+          storage_path?: string | null
+          type_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          country_code?: string | null
+          couple_id?: string
+          created_at?: string
+          deleted_at?: string | null
+          expires_on?: string | null
+          file_name?: string | null
+          file_size?: number | null
+          id?: string
+          is_shared?: boolean
+          issued_on?: string | null
+          label?: string
+          last_alerted_threshold?: string | null
+          mime_type?: string | null
+          notes?: string | null
+          number_last4?: string | null
+          owner_id?: string
+          storage_path?: string | null
+          type_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "documents_couple_id_fkey"
+            columns: ["couple_id"]
+            isOneToOne: false
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_type_id_fkey"
+            columns: ["type_id"]
+            isOneToOne: false
+            referencedRelation: "document_types"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -527,25 +740,198 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'entry_exit_log_couple_id_fkey'
-            columns: ['couple_id']
+            foreignKeyName: "entry_exit_log_couple_id_fkey"
+            columns: ["couple_id"]
             isOneToOne: false
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'entry_exit_log_trip_id_fkey'
-            columns: ['trip_id']
+            foreignKeyName: "entry_exit_log_trip_id_fkey"
+            columns: ["trip_id"]
             isOneToOne: false
-            referencedRelation: 'trips'
-            referencedColumns: ['id']
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'entry_exit_log_user_id_fkey'
-            columns: ['user_id']
+            foreignKeyName: "entry_exit_log_user_id_fkey"
+            columns: ["user_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_categories: {
+        Row: {
+          color: string | null
+          couple_id: string
+          created_at: string
+          created_by: string | null
+          icon: string | null
+          id: string
+          name: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          color?: string | null
+          couple_id: string
+          created_at?: string
+          created_by?: string | null
+          icon?: string | null
+          id?: string
+          name: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          color?: string | null
+          couple_id?: string
+          created_at?: string
+          created_by?: string | null
+          icon?: string | null
+          id?: string
+          name?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_categories_couple_id_fkey"
+            columns: ["couple_id"]
+            isOneToOne: false
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_categories_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expenses: {
+        Row: {
+          amount: number
+          amount_base: number | null
+          category_id: string | null
+          couple_id: string
+          created_at: string
+          created_by: string | null
+          currency: string
+          deleted_at: string | null
+          description: string
+          fx_date: string | null
+          fx_rate: number | null
+          id: string
+          itinerary_item_id: string | null
+          notes: string | null
+          paid_by: string
+          receipt_media_id: string | null
+          spent_on: string
+          split_detail: Json | null
+          split_type: string
+          trip_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          amount_base?: number | null
+          category_id?: string | null
+          couple_id: string
+          created_at?: string
+          created_by?: string | null
+          currency: string
+          deleted_at?: string | null
+          description: string
+          fx_date?: string | null
+          fx_rate?: number | null
+          id?: string
+          itinerary_item_id?: string | null
+          notes?: string | null
+          paid_by: string
+          receipt_media_id?: string | null
+          spent_on?: string
+          split_detail?: Json | null
+          split_type?: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          amount_base?: number | null
+          category_id?: string | null
+          couple_id?: string
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          deleted_at?: string | null
+          description?: string
+          fx_date?: string | null
+          fx_rate?: number | null
+          id?: string
+          itinerary_item_id?: string | null
+          notes?: string | null
+          paid_by?: string
+          receipt_media_id?: string | null
+          spent_on?: string
+          split_detail?: Json | null
+          split_type?: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expenses_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "expense_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expenses_couple_id_fkey"
+            columns: ["couple_id"]
+            isOneToOne: false
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expenses_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expenses_itinerary_item_id_fkey"
+            columns: ["itinerary_item_id"]
+            isOneToOne: false
+            referencedRelation: "itinerary_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expenses_paid_by_fkey"
+            columns: ["paid_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expenses_receipt_media_id_fkey"
+            columns: ["receipt_media_id"]
+            isOneToOne: false
+            referencedRelation: "media"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expenses_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -582,11 +968,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'flight_events_flight_id_fkey'
-            columns: ['flight_id']
+            foreignKeyName: "flight_events_flight_id_fkey"
+            columns: ["flight_id"]
             isOneToOne: false
-            referencedRelation: 'flights'
-            referencedColumns: ['id']
+            referencedRelation: "flights"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flight_events_notified_user_id_fkey"
+            columns: ["notified_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -635,11 +1028,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'flight_positions_flight_id_fkey'
-            columns: ['flight_id']
+            foreignKeyName: "flight_positions_flight_id_fkey"
+            columns: ["flight_id"]
             isOneToOne: false
-            referencedRelation: 'flights'
-            referencedColumns: ['id']
+            referencedRelation: "flights"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -790,34 +1183,68 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'flights_couple_id_fkey'
-            columns: ['couple_id']
+            foreignKeyName: "flights_couple_id_fkey"
+            columns: ["couple_id"]
             isOneToOne: false
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'flights_journey_id_fkey'
-            columns: ['journey_id']
+            foreignKeyName: "flights_created_by_fkey"
+            columns: ["created_by"]
             isOneToOne: false
-            referencedRelation: 'journeys'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'flights_traveler_id_fkey'
-            columns: ['traveler_id']
+            foreignKeyName: "flights_journey_id_fkey"
+            columns: ["journey_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "journeys"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'flights_trip_id_fkey'
-            columns: ['trip_id']
+            foreignKeyName: "flights_traveler_id_fkey"
+            columns: ["traveler_id"]
             isOneToOne: false
-            referencedRelation: 'trips'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flights_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
           },
         ]
+      }
+      fx_rates: {
+        Row: {
+          base: string
+          fetched_at: string
+          quote: string
+          rate: number
+          rate_date: string
+          source: string | null
+        }
+        Insert: {
+          base: string
+          fetched_at?: string
+          quote: string
+          rate: number
+          rate_date: string
+          source?: string | null
+        }
+        Update: {
+          base?: string
+          fetched_at?: string
+          quote?: string
+          rate?: number
+          rate_date?: string
+          source?: string | null
+        }
+        Relationships: []
       }
       geocode_cache: {
         Row: {
@@ -924,32 +1351,32 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'itinerary_items_category_id_fkey'
-            columns: ['category_id']
+            foreignKeyName: "itinerary_items_category_id_fkey"
+            columns: ["category_id"]
             isOneToOne: false
-            referencedRelation: 'categories'
-            referencedColumns: ['id']
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'itinerary_items_couple_id_fkey'
-            columns: ['couple_id']
+            foreignKeyName: "itinerary_items_couple_id_fkey"
+            columns: ["couple_id"]
             isOneToOne: false
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'itinerary_items_proposed_by_fkey'
-            columns: ['proposed_by']
+            foreignKeyName: "itinerary_items_proposed_by_fkey"
+            columns: ["proposed_by"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'itinerary_items_trip_id_fkey'
-            columns: ['trip_id']
+            foreignKeyName: "itinerary_items_trip_id_fkey"
+            columns: ["trip_id"]
             isOneToOne: false
-            referencedRelation: 'trips'
-            referencedColumns: ['id']
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -986,25 +1413,25 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'journeys_couple_id_fkey'
-            columns: ['couple_id']
+            foreignKeyName: "journeys_couple_id_fkey"
+            columns: ["couple_id"]
             isOneToOne: false
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'journeys_traveler_id_fkey'
-            columns: ['traveler_id']
+            foreignKeyName: "journeys_traveler_id_fkey"
+            columns: ["traveler_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'journeys_trip_id_fkey'
-            columns: ['trip_id']
+            foreignKeyName: "journeys_trip_id_fkey"
+            columns: ["trip_id"]
             isOneToOne: false
-            referencedRelation: 'trips'
-            referencedColumns: ['id']
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1027,7 +1454,7 @@ export type Database = {
           path_original: string | null
           path_thumb: string
           phash: string | null
-          search_tsv: unknown | null
+          search_tsv: unknown
           taken_at: string | null
           thumbhash: string | null
           trip_id: string | null
@@ -1054,7 +1481,7 @@ export type Database = {
           path_original?: string | null
           path_thumb: string
           phash?: string | null
-          search_tsv?: unknown | null
+          search_tsv?: unknown
           taken_at?: string | null
           thumbhash?: string | null
           trip_id?: string | null
@@ -1081,7 +1508,7 @@ export type Database = {
           path_original?: string | null
           path_thumb?: string
           phash?: string | null
-          search_tsv?: unknown | null
+          search_tsv?: unknown
           taken_at?: string | null
           thumbhash?: string | null
           trip_id?: string | null
@@ -1092,32 +1519,32 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'media_couple_id_fkey'
-            columns: ['couple_id']
+            foreignKeyName: "media_couple_id_fkey"
+            columns: ["couple_id"]
             isOneToOne: false
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'media_itinerary_item_id_fkey'
-            columns: ['itinerary_item_id']
+            foreignKeyName: "media_itinerary_item_id_fkey"
+            columns: ["itinerary_item_id"]
             isOneToOne: false
-            referencedRelation: 'itinerary_items'
-            referencedColumns: ['id']
+            referencedRelation: "itinerary_items"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'media_trip_id_fkey'
-            columns: ['trip_id']
+            foreignKeyName: "media_trip_id_fkey"
+            columns: ["trip_id"]
             isOneToOne: false
-            referencedRelation: 'trips'
-            referencedColumns: ['id']
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'media_uploader_id_fkey'
-            columns: ['uploader_id']
+            foreignKeyName: "media_uploader_id_fkey"
+            columns: ["uploader_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1148,18 +1575,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'media_comments_author_id_fkey'
-            columns: ['author_id']
+            foreignKeyName: "media_comments_author_id_fkey"
+            columns: ["author_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'media_comments_media_id_fkey'
-            columns: ['media_id']
+            foreignKeyName: "media_comments_media_id_fkey"
+            columns: ["media_id"]
             isOneToOne: false
-            referencedRelation: 'media'
-            referencedColumns: ['id']
+            referencedRelation: "media"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1214,51 +1641,90 @@ export type Database = {
         }
         Relationships: []
       }
-      suggestion_tray: {
+      settlements: {
         Row: {
-          accepted_at: string | null
+          amount: number
           couple_id: string
-          dismissed_at: string | null
-          generated_at: string
+          created_at: string
+          created_by: string | null
+          currency: string
+          deleted_at: string | null
+          from_user: string
           id: string
-          payload: Json
-          source: string | null
+          method: string | null
+          notes: string | null
+          settled_on: string
+          to_user: string
           trip_id: string | null
+          updated_at: string
         }
         Insert: {
-          accepted_at?: string | null
+          amount: number
           couple_id: string
-          dismissed_at?: string | null
-          generated_at?: string
+          created_at?: string
+          created_by?: string | null
+          currency: string
+          deleted_at?: string | null
+          from_user: string
           id?: string
-          payload: Json
-          source?: string | null
+          method?: string | null
+          notes?: string | null
+          settled_on?: string
+          to_user: string
           trip_id?: string | null
+          updated_at?: string
         }
         Update: {
-          accepted_at?: string | null
+          amount?: number
           couple_id?: string
-          dismissed_at?: string | null
-          generated_at?: string
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          deleted_at?: string | null
+          from_user?: string
           id?: string
-          payload?: Json
-          source?: string | null
+          method?: string | null
+          notes?: string | null
+          settled_on?: string
+          to_user?: string
           trip_id?: string | null
+          updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: 'suggestion_tray_couple_id_fkey'
-            columns: ['couple_id']
+            foreignKeyName: "settlements_couple_id_fkey"
+            columns: ["couple_id"]
             isOneToOne: false
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'suggestion_tray_trip_id_fkey'
-            columns: ['trip_id']
+            foreignKeyName: "settlements_created_by_fkey"
+            columns: ["created_by"]
             isOneToOne: false
-            referencedRelation: 'trips'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "settlements_from_user_fkey"
+            columns: ["from_user"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "settlements_to_user_fkey"
+            columns: ["to_user"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "settlements_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1310,18 +1776,66 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'share_links_couple_id_fkey'
-            columns: ['couple_id']
+            foreignKeyName: "share_links_couple_id_fkey"
+            columns: ["couple_id"]
             isOneToOne: false
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'share_links_created_by_fkey'
-            columns: ['created_by']
+            foreignKeyName: "share_links_created_by_fkey"
+            columns: ["created_by"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      suggestion_tray: {
+        Row: {
+          accepted_at: string | null
+          couple_id: string
+          dismissed_at: string | null
+          generated_at: string
+          id: string
+          payload: Json
+          source: string | null
+          trip_id: string | null
+        }
+        Insert: {
+          accepted_at?: string | null
+          couple_id: string
+          dismissed_at?: string | null
+          generated_at?: string
+          id?: string
+          payload: Json
+          source?: string | null
+          trip_id?: string | null
+        }
+        Update: {
+          accepted_at?: string | null
+          couple_id?: string
+          dismissed_at?: string | null
+          generated_at?: string
+          id?: string
+          payload?: Json
+          source?: string | null
+          trip_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "suggestion_tray_couple_id_fkey"
+            columns: ["couple_id"]
+            isOneToOne: false
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "suggestion_tray_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1358,181 +1872,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'trip_days_trip_id_fkey'
-            columns: ['trip_id']
+            foreignKeyName: "trip_days_trip_id_fkey"
+            columns: ["trip_id"]
             isOneToOne: false
-            referencedRelation: 'trips'
-            referencedColumns: ['id']
-          },
-        ]
-      }
-      trip_statuses: {
-        Row: {
-          color: string | null
-          couple_id: string
-          created_at: string
-          id: string
-          is_terminal: boolean
-          name: string
-          sort_order: number
-          updated_at: string
-        }
-        Insert: {
-          color?: string | null
-          couple_id: string
-          created_at?: string
-          id?: string
-          is_terminal?: boolean
-          name: string
-          sort_order?: number
-          updated_at?: string
-        }
-        Update: {
-          color?: string | null
-          couple_id?: string
-          created_at?: string
-          id?: string
-          is_terminal?: boolean
-          name?: string
-          sort_order?: number
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: 'trip_statuses_couple_id_fkey'
-            columns: ['couple_id']
-            isOneToOne: false
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
-          },
-        ]
-      }
-      document_types: {
-        Row: {
-          couple_id: string
-          created_at: string
-          has_expiry: boolean
-          id: string
-          name: string
-          requires_country: boolean
-          sort_order: number
-          updated_at: string
-        }
-        Insert: {
-          couple_id: string
-          created_at?: string
-          has_expiry?: boolean
-          id?: string
-          name: string
-          requires_country?: boolean
-          sort_order?: number
-          updated_at?: string
-        }
-        Update: {
-          couple_id?: string
-          created_at?: string
-          has_expiry?: boolean
-          id?: string
-          name?: string
-          requires_country?: boolean
-          sort_order?: number
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: 'document_types_couple_id_fkey'
-            columns: ['couple_id']
-            isOneToOne: false
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
-          },
-        ]
-      }
-      documents: {
-        Row: {
-          couple_id: string
-          country_code: string | null
-          created_at: string
-          deleted_at: string | null
-          expires_on: string | null
-          file_name: string | null
-          file_size: number | null
-          id: string
-          is_shared: boolean
-          issued_on: string | null
-          label: string
-          last_alerted_threshold: string | null
-          mime_type: string | null
-          notes: string | null
-          number_last4: string | null
-          owner_id: string
-          storage_path: string | null
-          type_id: string | null
-          updated_at: string
-        }
-        Insert: {
-          couple_id: string
-          country_code?: string | null
-          created_at?: string
-          deleted_at?: string | null
-          expires_on?: string | null
-          file_name?: string | null
-          file_size?: number | null
-          id?: string
-          is_shared?: boolean
-          issued_on?: string | null
-          label: string
-          last_alerted_threshold?: string | null
-          mime_type?: string | null
-          notes?: string | null
-          number_last4?: string | null
-          owner_id: string
-          storage_path?: string | null
-          type_id?: string | null
-          updated_at?: string
-        }
-        Update: {
-          couple_id?: string
-          country_code?: string | null
-          created_at?: string
-          deleted_at?: string | null
-          expires_on?: string | null
-          file_name?: string | null
-          file_size?: number | null
-          id?: string
-          is_shared?: boolean
-          issued_on?: string | null
-          label?: string
-          last_alerted_threshold?: string | null
-          mime_type?: string | null
-          notes?: string | null
-          number_last4?: string | null
-          owner_id?: string
-          storage_path?: string | null
-          type_id?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: 'documents_couple_id_fkey'
-            columns: ['couple_id']
-            isOneToOne: false
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
-          },
-          {
-            foreignKeyName: 'documents_owner_id_fkey'
-            columns: ['owner_id']
-            isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
-          },
-          {
-            foreignKeyName: 'documents_type_id_fkey'
-            columns: ['type_id']
-            isOneToOne: false
-            referencedRelation: 'document_types'
-            referencedColumns: ['id']
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1599,25 +1943,25 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'trip_destinations_couple_id_fkey'
-            columns: ['couple_id']
+            foreignKeyName: "trip_destinations_couple_id_fkey"
+            columns: ["couple_id"]
             isOneToOne: false
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'trip_destinations_created_by_fkey'
-            columns: ['created_by']
+            foreignKeyName: "trip_destinations_created_by_fkey"
+            columns: ["created_by"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'trip_destinations_trip_id_fkey'
-            columns: ['trip_id']
+            foreignKeyName: "trip_destinations_trip_id_fkey"
+            columns: ["trip_id"]
             isOneToOne: false
-            referencedRelation: 'trips'
-            referencedColumns: ['id']
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1657,25 +2001,73 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'trip_document_requirements_trip_id_fkey'
-            columns: ['trip_id']
+            foreignKeyName: "trip_document_requirements_document_id_fkey"
+            columns: ["document_id"]
             isOneToOne: false
-            referencedRelation: 'trips'
-            referencedColumns: ['id']
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'trip_document_requirements_type_id_fkey'
-            columns: ['type_id']
+            foreignKeyName: "trip_document_requirements_trip_id_fkey"
+            columns: ["trip_id"]
             isOneToOne: false
-            referencedRelation: 'document_types'
-            referencedColumns: ['id']
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'trip_document_requirements_user_id_fkey'
-            columns: ['user_id']
+            foreignKeyName: "trip_document_requirements_type_id_fkey"
+            columns: ["type_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "document_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_document_requirements_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trip_statuses: {
+        Row: {
+          color: string | null
+          couple_id: string
+          created_at: string
+          id: string
+          is_terminal: boolean
+          name: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          color?: string | null
+          couple_id: string
+          created_at?: string
+          id?: string
+          is_terminal?: boolean
+          name: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          color?: string | null
+          couple_id?: string
+          created_at?: string
+          id?: string
+          is_terminal?: boolean
+          name?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_statuses_couple_id_fkey"
+            columns: ["couple_id"]
+            isOneToOne: false
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1712,18 +2104,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'trip_travelers_trip_id_fkey'
-            columns: ['trip_id']
+            foreignKeyName: "trip_travelers_trip_id_fkey"
+            columns: ["trip_id"]
             isOneToOne: false
-            referencedRelation: 'trips'
-            referencedColumns: ['id']
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'trip_travelers_user_id_fkey'
-            columns: ['user_id']
+            foreignKeyName: "trip_travelers_user_id_fkey"
+            columns: ["user_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1784,25 +2176,25 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'trips_couple_id_fkey'
-            columns: ['couple_id']
+            foreignKeyName: "trips_couple_id_fkey"
+            columns: ["couple_id"]
             isOneToOne: false
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'trips_created_by_fkey'
-            columns: ['created_by']
+            foreignKeyName: "trips_created_by_fkey"
+            columns: ["created_by"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'trips_status_id_fkey'
-            columns: ['status_id']
+            foreignKeyName: "trips_status_id_fkey"
+            columns: ["status_id"]
             isOneToOne: false
-            referencedRelation: 'trip_statuses'
-            referencedColumns: ['id']
+            referencedRelation: "trip_statuses"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1905,25 +2297,25 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'wishlist_items_category_id_fkey'
-            columns: ['category_id']
+            foreignKeyName: "wishlist_items_category_id_fkey"
+            columns: ["category_id"]
             isOneToOne: false
-            referencedRelation: 'categories'
-            referencedColumns: ['id']
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'wishlist_items_couple_id_fkey'
-            columns: ['couple_id']
+            foreignKeyName: "wishlist_items_couple_id_fkey"
+            columns: ["couple_id"]
             isOneToOne: false
-            referencedRelation: 'couples'
-            referencedColumns: ['id']
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'wishlist_items_user_id_fkey'
-            columns: ['user_id']
+            foreignKeyName: "wishlist_items_user_id_fkey"
+            columns: ["user_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1951,18 +2343,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'wishlist_verdicts_user_id_fkey'
-            columns: ['user_id']
+            foreignKeyName: "wishlist_verdicts_user_id_fkey"
+            columns: ["user_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'wishlist_verdicts_wishlist_id_fkey'
-            columns: ['wishlist_id']
+            foreignKeyName: "wishlist_verdicts_wishlist_id_fkey"
+            columns: ["wishlist_id"]
             isOneToOne: false
-            referencedRelation: 'wishlist_items'
-            referencedColumns: ['id']
+            referencedRelation: "wishlist_items"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1971,10 +2363,19 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      api_usage_in_window: {
+        Args: { target_provider: string }
+        Returns: number
+      }
+      choose_destination: {
+        Args: { destination_id: string }
+        Returns: undefined
+      }
       create_couple: {
         Args: { couple_name?: string }
         Returns: {
           anniversary_date: string | null
+          base_currency: string
           created_at: string
           created_by: string | null
           id: string
@@ -1984,25 +2385,29 @@ export type Database = {
           updated_at: string
         }
         SetofOptions: {
-          from: '*'
-          to: 'couples'
+          from: "*"
+          to: "couples"
           isOneToOne: true
           isSetofReturn: false
         }
       }
-      choose_destination: { Args: { destination_id: string }; Returns: undefined }
-      api_usage_in_window: { Args: { target_provider: string }; Returns: number }
       dashboard: { Args: never; Returns: Json }
+      deactivate_finished_flights: { Args: never; Returns: number }
       ensure_trip_album: { Args: { target_trip: string }; Returns: string }
       expired_media: {
         Args: { grace_days?: number }
         Returns: {
           id: string
           path_display: string
-          path_thumb: string
           path_original: string
+          path_thumb: string
         }[]
       }
+      generate_invite_code: { Args: never; Returns: string }
+      health: { Args: never; Returns: Json }
+      is_couple_member: { Args: { target: string }; Returns: boolean }
+      join_couple: { Args: { code: string }; Returns: string }
+      leave_couple: { Args: never; Returns: undefined }
       media_usage: {
         Args: never
         Returns: {
@@ -2011,15 +2416,9 @@ export type Database = {
           trashed_count: number
         }[]
       }
-      purge_media: { Args: { ids: string[] }; Returns: number }
-      deactivate_finished_flights: { Args: never; Returns: number }
-      generate_invite_code: { Args: never; Returns: string }
-      health: { Args: never; Returns: Json }
-      is_couple_member: { Args: { target: string }; Returns: boolean }
-      join_couple: { Args: { code: string }; Returns: string }
-      leave_couple: { Args: never; Returns: undefined }
       my_couple_id: { Args: never; Returns: string }
       partner_id: { Args: never; Returns: string }
+      purge_media: { Args: { ids: string[] }; Returns: number }
       push_wishlist_to_itinerary: {
         Args: {
           new_sort_key: string
@@ -2033,25 +2432,28 @@ export type Database = {
       seed_document_types: { Args: { target: string }; Returns: undefined }
       seed_trip_statuses: { Args: { target: string }; Returns: undefined }
       sync_trip_days: { Args: { target: string }; Returns: number }
-      unchoose_destination: { Args: { destination_id: string }; Returns: undefined }
-      trip_readiness: {
-        Args: { target: string }
-        Returns: {
-          user_id: string
-          type_id: string
-          type_name: string
-          is_manual: boolean
-          document_id: string | null
-          expires_on: string | null
-          satisfied: boolean
-        }[]
-      }
       trip_item_counts_by_day: {
         Args: { target: string }
         Returns: {
           date: string
           item_count: number
         }[]
+      }
+      trip_readiness: {
+        Args: { target: string }
+        Returns: {
+          document_id: string
+          expires_on: string
+          is_manual: boolean
+          satisfied: boolean
+          type_id: string
+          type_name: string
+          user_id: string
+        }[]
+      }
+      unchoose_destination: {
+        Args: { destination_id: string }
+        Returns: undefined
       }
     }
     Enums: {
@@ -2063,33 +2465,33 @@ export type Database = {
   }
 }
 
-type DatabaseWithoutInternals = Omit<Database, '__InternalSupabase'>
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
 
-type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, 'public'>]
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
-    | keyof (DefaultSchema['Tables'] & DefaultSchema['Views'])
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'] &
-        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Views'])
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
     : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'] &
-      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Views'])[TableName] extends {
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
       Row: infer R
     }
     ? R
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema['Tables'] &
-        DefaultSchema['Views'])
-    ? (DefaultSchema['Tables'] &
-        DefaultSchema['Views'])[DefaultSchemaTableNameOrOptions] extends {
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
         Row: infer R
       }
       ? R
@@ -2098,23 +2500,23 @@ export type Tables<
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema['Tables']
+    | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables']
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'][TableName] extends {
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
       Insert: infer I
     }
     ? I
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema['Tables']
-    ? DefaultSchema['Tables'][DefaultSchemaTableNameOrOptions] extends {
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
         Insert: infer I
       }
       ? I
@@ -2123,23 +2525,23 @@ export type TablesInsert<
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema['Tables']
+    | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables']
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'][TableName] extends {
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
       Update: infer U
     }
     ? U
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema['Tables']
-    ? DefaultSchema['Tables'][DefaultSchemaTableNameOrOptions] extends {
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
         Update: infer U
       }
       ? U
@@ -2148,36 +2550,36 @@ export type TablesUpdate<
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema['Enums']
+    | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
   EnumName extends DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions['schema']]['Enums']
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
     : never = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions['schema']]['Enums'][EnumName]
-  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema['Enums']
-    ? DefaultSchema['Enums'][DefaultSchemaEnumNameOrOptions]
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
     : never
 
 export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
-    | keyof DefaultSchema['CompositeTypes']
+    | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
   CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions['schema']]['CompositeTypes']
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
     : never = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions['schema']]['CompositeTypes'][CompositeTypeName]
-  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema['CompositeTypes']
-    ? DefaultSchema['CompositeTypes'][PublicCompositeTypeNameOrOptions]
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
     : never
 
 export const Constants = {

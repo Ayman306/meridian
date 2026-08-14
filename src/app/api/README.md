@@ -17,6 +17,8 @@ non-negotiable #2 amounts to under Next.
 | `POST /api/cron/flight-sweep` | pg_cron, every 30 min | Hard-stops finished flights, then refreshes the ones in play so the watcher learns without the app open | done |
 | `GET /api/share/[token]` | A public share link, no session | Validates the token and mints short-lived signed URLs — never a storage path | done |
 | `POST /api/cron/media-sweep` | pg_cron, daily | Hard-deletes trashed photos: **storage objects first, then rows** | done |
+| `POST /api/fx` | Saving an expense in a foreign currency | The rate for the day it was spent, cached forever in `fx_rates` | done |
+| `POST /api/cron/fx-backfill` | pg_cron, daily | Converts the expenses that saved while the rate provider was down | done |
 | `POST /api/cron/expiry-sweep` | pg_cron, daily 08:00 | Document expiry + stay-allowance warnings | 4 |
 | `POST /api/ai/suggest` | On demand, optional | The only feature that may be disabled entirely | later |
 
@@ -66,6 +68,31 @@ Concretely, in `lib/flights/`:
 
 Manual refresh goes through the same max-age check as the automatic tick, so
 spamming the button cannot turn into spend.
+
+## Why FX goes through a handler at all
+
+`fx_rates` is the one cache in this app that signed-in users can read but not
+write. `geocode_cache` lets them write, and the difference is what a poisoned
+row costs: a wrong geocode is a pin in the wrong place, a wrong rate is a wrong
+number in somebody's balance. So the table has a select policy and no insert
+policy, and the only thing that writes to it is this handler under the service
+role.
+
+The provider is Frankfurter (ECB reference rates) — free, no key, and it
+serves historical dates, which is the only kind this app asks for. There is no
+env var to set, and nothing to fail when a key expires.
+
+The cache is absolute rather than time-based. A past date's rate cannot change,
+so a row is correct forever and a miss is the only reason to make a call.
+Weekends and holidays have no ECB rate; the handler stores the answer under
+both the date it belongs to *and* the date that was asked for, so the same
+weekend is never looked up twice.
+
+When every route fails the answer is `{ rate: null }`, not an error. The
+expense saves with `amount_base`, `fx_rate` and `fx_date` all null — the
+constraint makes that all-or-nothing — and `amount_base is null` is the
+backfill sweep's entire working set. There is no separate flag column to drift
+out of sync with it.
 
 ## Order of operations in the media sweep
 

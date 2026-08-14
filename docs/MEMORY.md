@@ -12,12 +12,12 @@ work up next — including a future session with no memory of this one.
 
 | | |
 | --- | --- |
-| Phase | 11 complete — the gallery |
-| Next | Phase 12 — Budget (spec Module 13) |
+| Phase | 12 complete — the budget |
+| Next | Phase 13 — Settings (spec Module 14) |
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0011, live |
+| Migrations applied | 0001–0012, live |
 | Deployed | no |
 
 ### What runs today
@@ -58,7 +58,16 @@ the device, land in the grid grouped by the day they were taken, and can be
 captioned, favourited, commented on, put in albums, and shared by a link that
 expires and can be revoked. Deleting is reversible for thirty days.
 
-Typecheck, lint, 466 unit tests, 136 database assertions and a production build
+And Phase 12, the money. Record what either of you spent, in whatever currency
+you spent it, split evenly or exactly or by percentage or not at all; the app
+converts it at the rate for that day, fixes it there, and tells you in one
+sentence who owes whom. Settle up and the balance resets. A trip summary adds
+totals by category and by person, a per-day average over the days the trip
+actually ran, budgets where you set them, and — on stays of a fortnight or more
+— a per-week view, because a month-long total is hard to reason about. It
+exports to CSV. There is no API key involved anywhere in it.
+
+Typecheck, lint, 516 unit tests, 156 database assertions and a production build
 pass.
 
 Sign-in is now settled on the server: `src/app/(app)/layout.tsx` redirects an
@@ -67,8 +76,13 @@ setup stay client-side gates, because they depend on the couple query.
 
 ### What is stubbed
 
-- Two `Placeholder` routes remain: `/trips/:id/money` (Phase 12) and
-  `/settings` (Phase 13).
+- One `Placeholder` route remains: `/settings` (Phase 13).
+- Receipt photos on an expense: `receipt_media_id` is on the row and the
+  gallery can hold the file, but the expense form has no picker.
+- Per-week *budgets*. `period = 'week'` is modelled, constrained and indexed;
+  only trip-period budgets can be set from the UI.
+- The FX backfill sweep has a route and a secret but no `pg_cron` schedule,
+  same as the flight and media sweeps.
 - The blend narrows to a city by matching the trip title against the cities in
   the wishlist. It could read the chosen destination now that Module 4 exists;
   it does not yet.
@@ -716,6 +730,87 @@ Behind a proxy the redirect origin comes from `x-forwarded-host`, since
 rebuild our own origin — the path is always one we chose — so spoofing it
 cannot redirect off-site.
 
+### D66 — Three charts by hand, no Recharts
+
+Spec 13.2 names Recharts. This does not use it, for the reason D54 did not use
+turf: the library is ~100 KB gzipped and pulls several d3 packages behind it,
+and what is needed is a donut, a line and a stacked bar over at most a few
+dozen points. `components/charts.tsx` is about two hundred lines of SVG, costs
+nothing in the bundle, reads the theme's colours directly rather than being
+handed a palette, and scales with the viewport because it is markup.
+
+The donut is drawn as one stroked `circle` per slice with a `stroke-dasharray`
+and a cumulative offset, not as arc paths — less arithmetic, and no rounding
+seam where two slices meet. All three carry `role="img"` and a written summary,
+because a chart that exists only visually is not information, and every number
+in them is already on the page as text.
+
+The offsets are computed up front rather than accumulated inside the `map`. A
+running total mutated in a render closure is precisely what the React Compiler
+refuses, and this is the fifth time in this project that the compiler's
+objection pointed at code that was better rewritten than suppressed.
+
+### D67 — The rate is fixed at save time, and the cache is absolute
+
+Two rules, and everything else in Module 13 follows from them.
+
+**A past expense's converted value never changes.** `amount_base`, `fx_rate`
+and `fx_date` are written once, at save time, and no read path recomputes
+them. Rates move; a balance that moves with them is not a balance. A
+`fx_all_or_nothing` constraint keeps the three columns together, so there can
+never be a converted amount whose rate nobody can point at.
+
+**A past date's rate cannot change either**, so `fx_rates` is a permanent
+cache rather than a TTL one, and a miss is the only reason to call anybody.
+The provider is Frankfurter — European Central Bank reference rates, free, no
+key, historical dates served directly. Keylessness is worth something on its
+own here: it is one fewer secret to leak and one fewer thing to expire.
+
+The ECB publishes on working days, so a weekend has no rate of its own.
+Frankfurter answers with the previous working day and says which; the handler
+writes the row under *both* that date and the date asked for, otherwise every
+future lookup for that Saturday calls out again.
+
+Three consequences worth stating:
+
+- **The browser cannot write `fx_rates`.** `geocode_cache` lets signed-in users
+  write; this does not. A poisoned geocode is a pin in the wrong place, a
+  poisoned rate is a wrong number in someone's balance. Select policy, no
+  insert policy, service role only, asserted in the RLS test.
+- **A failed lookup does not fail the save.** The expense is recorded with all
+  three FX columns null, and `amount_base is null` is both the retry flag and
+  the entire working set of `/api/cron/fx-backfill`. No second flag column to
+  drift out of sync with the first.
+- **Every screen that totals money reports what it could not convert**, rather
+  than treating an unconverted row as zero. A total that is quietly missing an
+  expense is worse than one that says it is incomplete.
+
+### D68 — Money is integer cents, and splits sum exactly
+
+`numeric(12,2)` arrives in JavaScript as a number, and 0.1 + 0.2 is not 0.3.
+Thirty expenses summed in floating point drift, and the drift lands in the one
+number a person reads and acts on. So every operation in `logic.ts` converts to
+cents, works in integers, and converts back once at the edge.
+
+`shares()` sums to the expense total **exactly**, not to within a cent. Where a
+division leaves a remainder the payer absorbs it: they are the one out of
+pocket, so rounding in their favour never leaves the other person owing a cent
+they did not agree to. €10.01 splits 5.01 / 5.00, which is spec 13.7's
+acceptance criterion stated as arithmetic.
+
+Two subtleties that are easy to get wrong and are therefore tested:
+
+- **Shares are computed on the original amount and then scaled to base**, not
+  by splitting `amount_base` directly. Splitting after conversion puts the odd
+  cent somewhere the receipt does not agree with.
+- **The per-day average is over elapsed days, not days with spending.** A
+  zero-spend day is still a day of the trip; averaging it away flatters the
+  number. When the trip's dates are known the route hands them down, so the
+  span comes from the trip rather than from whichever days happen to have rows.
+
+Validation rejects rather than rounds, as spec 13.3 requires, and the message
+names the shortfall — "that leaves 10.00 unaccounted for", not "invalid split".
+
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 
 Supabase's linter, run against the live project, showed every helper and
@@ -723,6 +818,15 @@ trigger function reachable unauthenticated at `/rest/v1/rpc/<name>`. The cause
 is a Postgres default nobody thinks about: a new function grants EXECUTE to
 PUBLIC, and `anon` inherits PUBLIC. 0001–0003 granted to `authenticated` and
 never revoked the default, which on its own does nothing.
+
+**Revisited in 0012.** Revoking from PUBLIC was not the whole fix. Supabase
+sets `ALTER DEFAULT PRIVILEGES` granting EXECUTE on new functions to `anon` and
+`authenticated` *directly*, so a function added after 0004 is reachable at
+`/rest/v1/rpc/<name>` regardless of the PUBLIC default. The advisor caught
+`seed_expense_categories()` immediately; the fix is to name all three roles in
+the revoke, which 0012 does. It also revokes `rls_auto_enable()` — Supabase's
+own event trigger, which is what has been enabling RLS on every table at
+creation, and which nobody should be able to call.
 
 Nothing was exploitable — each one either checks `auth.uid()`, goes through
 `is_couple_member()`, or is a trigger function that fails without a NEW record.
@@ -836,6 +940,12 @@ tab is picked up for free.
 | 11.3 daily-exchange strip | Table, logic and hooks only | The surface is a small piece of UI and was left for the same pass as the recap screen |
 | 11.4 phash | 8×8 average hash, not DCT | D61 — enough for a prompt, and it never rejects anything on its own |
 | 11.5 `uploadMedia` returns an observable queue | A reducer plus a hook | D60 |
+| 13.1 `expenses`, `expense_categories`, `budgets` | Add `updated_at`, `created_by`, `couple_id` where the block omitted them | Part 0.3 requires them on every couple-scoped table |
+| 13.1 `settlements` | Adds `deleted_at` | A settlement is a record that money changed hands; deleting one silently moves both people's balance |
+| 13.1 `unique (trip_id, category_id, period)` | Two partial unique indexes | In Postgres every null is distinct, so the spec's constraint would have let a trip collect any number of overall budgets. The RLS test asserts both halves |
+| 13.2 Recharts | Hand-written SVG | D66 |
+| 13.3 `fx_rates[base][currency][date]` via exchangerate.host | Frankfurter (ECB), same cache shape | No key, free, serves historical dates. D67 |
+| 13.4 `getBalance` / `getTripSummary` as services | Derived in hooks from rows already fetched | The list beside them holds the same rows; a second source of truth for a number this consequential is how the two end up disagreeing on screen |
 
 Nothing else diverges. Where the spec gave SQL verbatim, the migration uses it
 verbatim.
