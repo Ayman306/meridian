@@ -12,12 +12,12 @@ work up next — including a future session with no memory of this one.
 
 | | |
 | --- | --- |
-| Phase | 5 complete — Stage 1 milestone reached |
-| Next | Phase 6 — Wishlist & Blend (spec Module 7) |
+| Phase | 7 complete — Wishlist & Blend, then the Map |
+| Next | Phase 8 — Destinations (spec Module 4) |
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0006, live |
+| Migrations applied | 0001–0007, live |
 | Deployed | no |
 
 ### What runs today
@@ -31,7 +31,14 @@ them, and read the day list or the month grid depending on how long the stay is.
 tool.** Sign in, pair, create a trip, plan it, store the documents it needs,
 and see the whole thing from the dashboard.
 
-Typecheck, lint, 170 unit tests, 56 database assertions and a production build
+On top of that, Phases 6 and 7: save places to a shared wishlist without either
+of you having to agree yet, see the overlap on the blend screen, push what you
+both wanted into the plan, and have the app lay out a draft — arithmetic, no
+model — that waits in the tray until somebody keeps it. And a map: every place
+with coordinates, filterable by day, person, category and state, with the
+selected day's route drawn between its stops.
+
+Typecheck, lint, 222 unit tests, 72 database assertions and a production build
 pass.
 
 Sign-in is now settled on the server: `src/app/(app)/layout.tsx` redirects an
@@ -40,9 +47,13 @@ setup stay client-side gates, because they depend on the couple query.
 
 ### What is stubbed
 
-- `src/types/database.ts` is hand-maintained against the migrations. Once a
-  project exists, replace it with `supabase gen types typescript` output.
-- Every route under `AppShell` renders `Placeholder` until its phase lands.
+- The remaining routes under `AppShell` (`where`, `money`, `photos`) render
+  `Placeholder` until their phase lands.
+- The blend narrows to a city by matching the trip title against the cities in
+  the wishlist. Trips get a real destination in Module 4 (Phase 8); until then
+  no match simply means no narrowing.
+- The map opens over the world when there is nothing to fit to. Spec 6.6 wants
+  the destination — also Module 4.
 - `coarseTimezoneFromLongitude` in `lib/geocode.ts` is a placeholder for the
   `tz-lookup` package, which arrives with Destinations (Module 4) — that is the
   first module that genuinely needs coordinate→zone precision.
@@ -269,6 +280,92 @@ A trip you are on right now contributes the nights up to today, not to its end.
 Counting the whole booked window would make the lifetime total *decrease* if a
 trip were cut short, which is a strange property for a counter of shared nights.
 
+### D34 — Verdicts live in their own table, and "both of us" is computed
+
+Two decisions that are really one. A verdict is an opinion about someone else's
+save, so it cannot be a column on the save — writing it would mean the partner
+holding UPDATE on a row that is not theirs, and the RLS policy is the cleaner
+statement of the rule: you read everything, you write only your own, verdicts
+included.
+
+"Both of us" is then not a state anyone sets. It is derived, every render, from
+two people independently saving the same place — 150 m apart, or the same
+normalised name in the same city. That coincidence is the most interesting thing
+on the screen precisely because nobody arranged it.
+
+### D35 — The draft generator is arithmetic, and its output is inert
+
+Non-negotiable #8 says the app works with AI disabled, and the draft generator
+is the feature that would otherwise need a model. It is 200 lines of pure
+TypeScript in `wishlist/logic.ts`: select by agreement and intensity, k-means on
+coordinates for the day's area, nearest-neighbour plus 2-opt within the day,
+then capacity and category rules, then alternate whose pick opens each day.
+
+Two properties matter more than the quality of the output. It is deterministic —
+centroids are seeded by position in a longitude-sorted list, never at random, so
+the same saves produce the same draft and a regenerate that changes nothing
+looks like it changed nothing. And it writes to `suggestion_tray` and nowhere
+else (non-negotiable #5): the only path into `itinerary_items` is
+`acceptSuggestion`, which runs because somebody pressed Keep.
+
+On a stay over five nights it plans 40% of the days at most and says so in the
+note. Filling a month is the single worst thing this feature could do.
+
+### D36 — Unvoted saves count as their picks
+
+Caught by a test. `buildBlend` sorts the partner's unvoted saves into
+`undecided`, and the generator originally selected from `mine` and `theirs`
+only — so with verdicts optional, which spec 7.2 insists they are, a normal
+list left the generator with almost nothing to work with. Undecided is now part
+of their side for selection. Only clashes are excluded, because one of them has
+actually said no.
+
+### D37 — Fractional keys are minted in the client, never in SQL
+
+`push_wishlist_to_itinerary` takes `new_sort_key` as an argument rather than
+deriving one. The first draft appended a character per push — the kind of thing
+that works for ten items and produces 200-character keys after a year — and the
+deeper problem was two implementations of fractional indexing that would have to
+agree. `lib/fractional.ts` is the only one.
+
+The RPC still exists because the duplicate check and the insert have to be one
+transaction, and because `source` and `proposed_by` must be set the same way
+however it is called. It returns null on a duplicate rather than raising: a bulk
+push should report what it skipped, not stop at the first repeat.
+
+### D38 — The geocode cache is not couple-scoped
+
+Every other table in the schema hangs off `couple_id`. This one does not:
+"lisbon" resolves to the same coordinates for everyone, and a row per couple
+would mean more requests to a free service that explicitly asked for fewer. It
+holds public place data and nothing about who searched. RLS still applies —
+signed-in callers only — so it is not an open endpoint, just a shared one.
+
+### D39 — Leaflet is driven imperatively, and loaded in an effect
+
+No React wrapper. Clustering, custom pins and the route line all want imperative
+calls, and wrapping them means two trees arguing about who owns the DOM. The
+library is imported inside `useEffect` rather than at module scope because it
+reads `window` on load, which is fatal during server rendering — and the canvas
+is additionally behind `next/dynamic` with `ssr: false`.
+
+The popup HTML is built by hand, so every interpolated value goes through
+`escapeHtml` first. Leaflet sets it with `innerHTML`, and a place title is user
+data.
+
+### D40 — `/api/extract` treats the URL it is given as hostile
+
+Reading OpenGraph tags means fetching a URL a user typed, from the server. That
+is an open proxy unless it is fenced: http(s) only, private and link-local
+address ranges refused, cloud metadata hosts refused by name, redirects followed
+by hand — `redirect: 'follow'` would validate the first URL and then go wherever
+the chain pointed — a 6-second timeout, and the body read to a 512 KB cap rather
+than trusting `content-length`.
+
+A hostname that resolves to a private address still gets through, which is why
+the handler returns four parsed tags and never the status or body. Failure is
+answered with empties, not an error: the user can type the title.
+
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 
 Supabase's linter, run against the live project, showed every helper and
@@ -358,6 +455,14 @@ tab is picked up for free.
 | 0.9 Edge Functions | Route Handlers in `src/app/api` | D19 |
 | 0.2 project structure | Adds `src/app/`, `src/proxy.ts`; drops `main.tsx`, `App.tsx`, `routes.tsx`, `supabase/functions/` | Follows from D19 |
 | 1.2 session persisted in localStorage | Cookies via `@supabase/ssr` | D20 |
+| 7.1 `wishlist_items` / `wishlist_verdicts` | Add `updated_at` and the `set_updated_at` trigger; `verdict` gets a check constraint | Part 0.3 requires the column on every table; the spec's schema block relies on an application-level enum that the database was not enforcing |
+| 7.2 link extraction via an Edge Function | `POST /api/extract` | D19, and D40 for what the handler refuses to fetch |
+| 7.3 `getBlend(city)` as a service | `buildBlend()` over the cached list | The whole wishlist is already in memory; a second round trip per city would be a query to compute what a filter computes |
+| 7.3 "keep clusters near accommodation on arrival/departure days" | Arrival and departure days are skipped where there is room; no accommodation term | `accommodations` arrives with Module 11. The pacing intent — nothing booked for the afternoon you land — is kept |
+| 7.3 "insert a gap after any anchor" | Not modelled | Duration is optional and mostly unset, so nothing distinguishes an anchor yet. The item cap per pace does the same job coarsely |
+| 6.2 accommodation and photo layers | Not built | Those modules do not exist yet |
+| 6.2 numbered pins "in itinerary order" | Numbered in the order the day's items are returned, which is `sort_key` order | Same thing today; worth revisiting if the map ever sorts by time instead |
+| 6.4 `reverseGeocode(lat, lng)` | Not built | Nothing asks for it. Long-press stores raw coordinates and lets the user name the place |
 
 Nothing else diverges. Where the spec gave SQL verbatim, the migration uses it
 verbatim.
@@ -405,3 +510,18 @@ Ordered by how much they block.
    the row and deliberately leaves the file, so a mistake is fully recoverable.
    The 30-day hard delete needs the same cron as above.
 10. **Health module scope.** The spec says design it together, last. Left alone.
+11. **One advisor warning belongs to Supabase, not to us.** The security linter
+    flags `public.rls_auto_enable()` as callable by `anon`. It is a
+    platform-created event-trigger function that auto-enables RLS on new tables;
+    its return type is `event_trigger`, so it cannot be invoked as an RPC at
+    all. Left alone deliberately — revoking on an object the platform owns and
+    recreates is a fight we would keep losing. Everything else in the report is
+    lint 0029, which fires on every SECURITY DEFINER RPC granted to
+    `authenticated`, which is what they are for.
+12. **Nominatim is the only geocoder, and it is rate-limited to one call a
+    second.** The cache and the 600 ms debounce keep us inside the policy for
+    two people. It would not survive real traffic, which is Part 16's problem.
+13. **`isSamePlace` has never met a false positive.** 150 m is the spec's
+    number and it is untuned against real data — a food hall or a large park
+    could merge two genuinely different saves. The blend shows how each pair
+    was matched so the mistake is at least legible.

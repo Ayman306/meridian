@@ -452,6 +452,153 @@ select assert(
 
 -- ---------------------------------------------------------------------------
 \echo ''
+\echo '== wishlist: both read, each writes only their own =='
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.wishlist_items (couple_id, user_id, title, city, lat, lng)
+values (:'ada_couple', :'ada_ada', 'Cervejaria Ramiro', 'Lisbon', 38.7205, -9.1385)
+returning id as save \gset ada_
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.wishlist_items where id = :'ada_save') = 1,
+  'the partner can read a save they did not make'
+);
+
+-- The point of the module: reacting to a save without editing it.
+update public.wishlist_items set title = 'renamed by the partner' where id = :'ada_save';
+select assert(
+  (select title from public.wishlist_items where id = :'ada_save') = 'Cervejaria Ramiro',
+  'the partner cannot edit it — the USING clause filters the row out'
+);
+
+insert into public.wishlist_verdicts (wishlist_id, user_id, verdict)
+values (:'ada_save', :'bo_bo', 'yes');
+select assert(
+  (select verdict from public.wishlist_verdicts
+    where wishlist_id = :'ada_save' and user_id = :'bo_bo') = 'yes',
+  'but they can cast a verdict on it'
+);
+
+-- Changing your mind is one click, so the upsert path has to work.
+insert into public.wishlist_verdicts (wishlist_id, user_id, verdict)
+values (:'ada_save', :'bo_bo', 'maybe')
+on conflict (wishlist_id, user_id) do update set verdict = excluded.verdict;
+select assert(
+  (select verdict from public.wishlist_verdicts
+    where wishlist_id = :'ada_save' and user_id = :'bo_bo') = 'maybe',
+  'and change it'
+);
+
+select assert_raises(
+  format(
+    'insert into public.wishlist_verdicts (wishlist_id, user_id, verdict) values (%L, %L, %L)',
+    :'ada_save', :'ada_ada', 'no'
+  ),
+  'row-level security',
+  'nobody can cast a verdict in the other person''s name'
+);
+
+select assert_raises(
+  format(
+    'insert into public.wishlist_verdicts (wishlist_id, user_id, verdict) values (%L, %L, %L)',
+    :'ada_save', :'bo_bo', 'perhaps'
+  ),
+  'valid_verdict',
+  'only yes/no/maybe are verdicts'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.wishlist_items) = 0,
+  'a stranger sees no saves'
+);
+select assert(
+  (select count(*) from public.wishlist_verdicts) = 0,
+  'and no verdicts'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== push to the idea pool: once, and attribution survives =='
+set request.jwt.claim.sub = :'bo_bo';
+select public.push_wishlist_to_itinerary(:'ada_save', :'ada_trip', 'z0') as pushed \gset bo_
+select assert(:'bo_pushed' is not null, 'either partner can push a save into the plan');
+
+select assert(
+  (select proposed_by from public.itinerary_items where id = :'bo_pushed') = :'ada_ada',
+  'whose pick it was survives the move, even when the other one pushed it'
+);
+select assert(
+  (select source from public.itinerary_items where id = :'bo_pushed') = 'wishlist',
+  'and it is marked as coming from the wishlist'
+);
+select assert(
+  (select scheduled_date from public.itinerary_items where id = :'bo_pushed') is null,
+  'it lands in the idea pool, not on a day'
+);
+
+-- Spec 7.6: pushing twice is a warning, not a second copy.
+select assert(
+  public.push_wishlist_to_itinerary(:'ada_save', :'ada_trip', 'z1') is null,
+  'pushing the same save again returns null instead of duplicating it'
+);
+select assert(
+  (select count(*) from public.itinerary_items
+    where trip_id = :'ada_trip' and source = 'wishlist') = 1,
+  'and there is still only one copy'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert_raises(
+  format('select public.push_wishlist_to_itinerary(%L, %L, %L)', :'ada_save', :'ada_trip', 'z2'),
+  -- SECURITY DEFINER means the function can see the row; the membership check
+  -- inside it is what stops the caller, so this is the error that surfaces.
+  'NOT_A_MEMBER',
+  'a stranger cannot push a save they cannot see'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== the geocode cache is shared, and only for signed-in callers =='
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.geocode_cache (query, results) values ('lisbon', '[]'::jsonb);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.geocode_cache where query = 'lisbon') = 1,
+  'another signed-in user reads the same cache — it holds public place data'
+);
+
+-- An anonymous caller has no JWT at all, so clear the claim as well as the
+-- role — the role alone would still see whoever was signed in last.
+set request.jwt.claim.sub = '';
+set role anon;
+select assert(
+  (select count(*) from public.geocode_cache) = 0,
+  'but an unauthenticated caller sees nothing'
+);
+set role authenticated;
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== the suggestion tray never writes to the plan by itself =='
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.suggestion_tray (couple_id, trip_id, payload, source)
+values (:'ada_couple', :'ada_trip', '{"kind":"draft","days":[]}'::jsonb, 'blend')
+returning id as suggestion \gset ada_
+
+select assert(
+  (select count(*) from public.itinerary_items
+    where trip_id = :'ada_trip' and source = 'blend') = 0,
+  'a suggestion in the tray puts nothing in the itinerary'
+);
+select assert(
+  (select accepted_at from public.suggestion_tray where id = :'ada_suggestion') is null,
+  'and it stays unaccepted until someone says so'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
 \echo '== leaving =='
 set request.jwt.claim.sub = :'bo_bo';
 select public.leave_couple();

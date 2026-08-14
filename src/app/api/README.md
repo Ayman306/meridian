@@ -11,6 +11,7 @@ non-negotiable #2 amounts to under Next.
 | Route | Trigger | Purpose | Phase |
 | --- | --- | --- | --- |
 | `GET /api/health` | GitHub Actions, every 2 days | Keeps the free-tier project from auto-pausing | done |
+| `POST /api/extract` | Pasting a link into the wishlist | Reads OpenGraph tags from a page the browser cannot fetch itself (CORS) | done |
 | `POST /api/flights/lookup` | On demand | Validate a flight number + date on save (1 AeroDataBox unit) | 10 |
 | `GET /api/flights/status` | Client, every 60s while the module is open | OpenSky position + AeroDataBox status, server-gated by max-age | 10 |
 | `POST /api/cron/flight-sweep` | pg_cron, every 30 min | Notify when nobody has the app open | 10 |
@@ -22,6 +23,12 @@ non-negotiable #2 amounts to under Next.
 **User-initiated.** Read the caller with `createServerSupabase()` and let RLS do
 its job. The handler runs as that user and can reach nothing they could not
 reach themselves.
+
+One extra rule for any handler that fetches a URL the user supplied, which today
+means `/api/extract`: the URL is hostile until proven otherwise. Scheme
+allowlist, private and link-local ranges refused, redirects followed by hand
+rather than by `fetch`, a timeout, and a cap on how much of the body is read.
+See D40 in `docs/MEMORY.md` for what each of those is defending against.
 
 **Cron-initiated.** No user is present, so there is nothing for RLS to key off.
 These verify the `x-cron-secret` header with `assertCronRequest()` and only then

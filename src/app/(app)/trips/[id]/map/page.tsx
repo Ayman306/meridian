@@ -1,5 +1,6 @@
-import { Placeholder } from '@/components/common/Placeholder'
+import { TripMapPage } from '@/modules/map'
 
-export default function TripMap() {
-  return <Placeholder title="Map" phase="Phase 7" />
+export default async function TripMap({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  return <TripMapPage tripId={id} />
 }
