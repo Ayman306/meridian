@@ -17,7 +17,7 @@ work up next — including a future session with no memory of this one.
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0015, live |
+| Migrations applied | 0001–0018, live |
 | Deployed | Vercel, `meridian-ay-za.vercel.app` |
 
 ### What runs today
@@ -86,7 +86,7 @@ allowed.
 And 0015 made it run unattended: the three sweeps are on pg_cron, and the
 dashboard finally fills the stay-allowance slot it reserved back in phase 5.
 
-Typecheck, lint, 576 unit tests, 200 database assertions and a production build
+Typecheck, lint, 606 unit tests, 200 database assertions and a production build
 pass.
 
 ### The two operator steps left
@@ -131,9 +131,10 @@ setup stay client-side gates, because they depend on the couple query.
 - Flight notifications still have nowhere to go. `push_subscriptions` exists
   now and the per-category toggles are in Settings, but there is no service
   worker and nothing is sent.
-- No flight API keys are configured, so every flight is manual and the live
-  view sits at degradation level 6. That is a supported state, not a broken
-  one — `AERODATABOX_API_KEY` and the OpenSky pair in `.env.example` turn it on.
+- Flight tracking is live once `AERODATABOX_API_KEY` is set on Vercel. Without
+  it every flight is manual and the live view sits at degradation level 6 —
+  a supported state, not a broken one. Spend is capped at 550 of 600 a month
+  and reconciled against the provider's own balance. See D79.
 - The gallery grid paginates rather than virtualising. `@tanstack/react-virtual`
   is installed for when a library is big enough to need it.
 - Videos are refused by the uploader. The schema, the size cap and a
@@ -1000,6 +1001,105 @@ because it needs the allowance rules and the entry log — two more queries, for
 a warning that is usually absent. Adding the country to the RPC would have
 meant restating a hundred and forty lines of JSON construction in a second
 migration and maintaining both.
+
+### D76 — A flight with no endpoints is not a flight
+
+`flights` has carried `origin_iata`, `origin_lat` and `origin_tz` since 0010
+and nothing in the app could fill them. The Add Flight form asked for a
+number, a date, two times and a traveller — no airports. The only thing that
+could supply a route was the AeroDataBox lookup, and with no key configured,
+which is the documented supported baseline, every flight saved null: `??? →
+???`, no great circle, no meeting time.
+
+Manual entry is this module's baseline, so the baseline has to be able to name
+an airport. 0016 adds an `airports` reference table with ~135 rows carrying
+coordinates and IANA zones — seeded by migration, read by anyone signed in,
+written by nobody, the same shape as `visa_rules` and
+`medication_restrictions`. An airport not in the table still saves; it just
+carries no coordinates, which degrades the map rather than the flight.
+
+Two further bugs surfaced, either of which would have kept the map blank even
+with a working key: the insert never wrote `origin_lat`/`lng` at all, and
+typed times were parsed in the *browser's* zone. "Departs 11:25 from Dubai"
+means 11:25 in Dubai whoever is typing it — which, for this app's users, is
+usually somebody who is not in Dubai.
+
+### D77 — Legs belong to a journey, and that is what makes a layover checkable
+
+The module could hold single flights with no way to say two were the same
+booking, which fails the ordinary case: a return ticket with a connection is
+four flights, one reference, two directions.
+
+The schema already modelled it — `journeys` has `direction` and `booking_ref`,
+`flights` has `journey_id` and `leg_index` — and `addJourney` had no caller.
+`JourneyBuilder` uses it: one screen that adapts rather than branching, where
+a new leg prefills its origin from the previous leg's destination and turning
+on "return" seeds the way home from the way out reversed.
+
+The payoff is that **`connectionRisk` finally renders**. It was written and
+tested in phase 10 and never shown, because nothing knew which flights
+connected. Connections are treated as international, taking the 90-minute
+minimum: the flight row carries an IATA code and no country, so it cannot be
+decided there, and of the two wrong answers, warning about a short domestic
+layover beats silence on a short international one.
+
+`summariseJourney` orders by `leg_index` rather than by time, so a leg with no
+times yet still sits in the right place while a booking is being entered.
+
+### D78 — The cycle section is a default, not a rule; the fertile window is arithmetic
+
+Two decisions that could each have gone badly.
+
+**Who sees it.** `profiles.gender` sets the default, because showing period
+tracking to somebody who does not menstruate is noise. But gender is not the
+same question as "do you want to track this" — a woman past menopause, on
+continuous contraception, or simply uninterested should be able to turn it
+off, and somebody the default would hide it from should be able to turn it on.
+So `tracks_cycle` is a nullable override that always wins. A hard gender gate
+would be un-overridable and wrong for real people.
+
+**What it predicts.** Spec 12.2 rules out fertility guidance. This adds the
+estimated window every mainstream cycle app shows and no guidance at all:
+ovulation placed a luteal phase before the next expected period, the five days
+before to one day after around it, labelled an estimate in every branch and
+inheriting the cycle's variance.
+
+The line, asserted in a test rather than trusted: it never says a day is safe,
+never mentions contraception, never advises on conceiving. It reports the
+arithmetic and stops.
+
+Calendar arithmetic is not a measurement — ovulation is observed with basal
+temperature or an LH test. So `cycle_logs.ovulation_on` exists: what she
+records replaces the estimate for that cycle *and* the next estimate derives
+its luteal length from it, falling back to 14 days when the derived figure is
+implausible. Predicted, corrected, and the correction feeds forward.
+
+### D79 — The spend ceiling is a number, and our counter is not the only source
+
+The guard stopped at 600 × 0.9 = 540: the right ballpark by accident, because
+a ratio is not the thing being promised. `HARD_CAPS` is an explicit 550, with
+`LIMITS` kept as the billed figure so the pair reads as "550 of the 600 we pay
+for". The fifty between them is headroom, not padding — a call can reach the
+provider and fail before it is recorded.
+
+Which is the real point: `api_usage` **can only undercount**. It misses a call
+that succeeded upstream and failed on our side, anything else using the key,
+and everything if the table is cleared. Undercounting is the direction that
+costs money.
+
+So above 70% of the cap the guard reads the provider's own balance and refuses
+below fifty remaining whatever our arithmetic says. That check is itself
+budgeted — the balance endpoint may be metered, and a guard that burns quota
+to check quota is self-defeating — so it is cached six hours in
+`provider_quota` (0018) and only consulted near the ceiling. Normal months:
+zero extra calls. RapidAPI's response headers are preferred where present,
+since they cost nothing.
+
+A test now walks `src/`, `supabase/` and `.env.example` and fails on anything
+key-shaped or on any `NEXT_PUBLIC_` variable whose name implies a secret. The
+pattern is verified against a real key shape so it cannot pass vacuously. A
+key committed once is in every clone and every branch forever, and `git rm`
+does not remove it from history.
 
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 
