@@ -72,6 +72,12 @@ export const qk = {
   expenseCategories: ['expense-categories'] as const,
   destinationCurrency: (tripId: string) => ['destination-currency', tripId] as const,
 
+  coupleSettings: (coupleId: string) => ['couple-settings', coupleId] as const,
+  userSettings: (userId: string) => ['user-settings', userId] as const,
+  members: (coupleId: string) => ['members', coupleId] as const,
+  invites: (coupleId: string) => ['invites', coupleId] as const,
+  myModules: ['my-modules'] as const,
+
   documents: (filter?: string) => ['documents', filter ?? 'all'] as const,
   signedUrl: (path: string) => ['signed-url', path] as const,
   document: (id: string) => ['document', id] as const,

@@ -16,6 +16,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import { useCouple } from '@/providers/CoupleProvider'
+import { useAccess } from '@/providers/AccessProvider'
 import { DualTime } from '@/components/DualTime'
 import { PersonBadge } from '@/components/PersonBadge'
 import { APP_NAME } from '@/lib/constants'
@@ -32,22 +33,28 @@ import { cn } from '@/lib/utils'
  * worse than a cramped one.
  */
 const NAV = [
-  { href: '/', label: 'Home', short: 'Home', icon: Home, exact: true },
-  { href: '/trips', label: 'Trips', short: 'Trips', icon: CalendarRange, exact: false },
-  { href: '/wishlist', label: 'Wishlist', short: 'Saves', icon: Heart, exact: false },
-  { href: '/map', label: 'Map', short: 'Map', icon: MapIcon, exact: false },
-  { href: '/flights', label: 'Flights', short: 'Fly', icon: Plane, exact: false },
-  { href: '/gallery', label: 'Photos', short: 'Pics', icon: Images, exact: false },
-  { href: '/documents', label: 'Docs', short: 'Docs', icon: FileText, exact: false },
-  { href: '/allowance', label: 'Allowance', short: 'Stay', icon: Timer, exact: false },
-  { href: '/money', label: 'Money', short: 'Cash', icon: Wallet, exact: false },
-  { href: '/settings', label: 'Settings', short: 'You', icon: SettingsIcon, exact: false },
+  { href: '/', label: 'Home', short: 'Home', icon: Home, exact: true, module: null },
+  { href: '/trips', label: 'Trips', short: 'Trips', icon: CalendarRange, exact: false, module: 'trips' },
+  { href: '/wishlist', label: 'Wishlist', short: 'Saves', icon: Heart, exact: false, module: 'wishlist' },
+  { href: '/map', label: 'Map', short: 'Map', icon: MapIcon, exact: false, module: 'trips' },
+  { href: '/flights', label: 'Flights', short: 'Fly', icon: Plane, exact: false, module: 'flights' },
+  { href: '/gallery', label: 'Photos', short: 'Pics', icon: Images, exact: false, module: 'photos' },
+  { href: '/documents', label: 'Docs', short: 'Docs', icon: FileText, exact: false, module: 'documents' },
+  { href: '/allowance', label: 'Allowance', short: 'Stay', icon: Timer, exact: false, module: 'allowance' },
+  { href: '/money', label: 'Money', short: 'Cash', icon: Wallet, exact: false, module: 'money' },
+  { href: '/settings', label: 'Settings', short: 'You', icon: SettingsIcon, exact: false, module: null },
 ] as const
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { selfRef, partnerRef, tzSelf, tzPartner } = useCouple()
+  const { can } = useAccess()
   const pathname = usePathname()
   const activeRef = useRef<HTMLAnchorElement>(null)
+
+  // Hiding a link is a courtesy, not the control. The same membership row that
+  // drives this drives every RLS policy, so a link that is missing here would
+  // have led to a screen with no rows in it anyway.
+  const nav = NAV.filter((item) => item.module === null || can(item.module))
 
   const isActive = (href: string, exact: boolean) =>
     exact ? pathname === href : pathname.startsWith(href)
@@ -66,7 +73,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-6">
             <span className="text-lg font-semibold tracking-tight">{APP_NAME}</span>
             <nav className="hidden items-center gap-1 md:flex" aria-label="Main">
-              {NAV.map(({ href, label, exact }) => (
+              {nav.map(({ href, label, exact }) => (
                 <Link
                   key={href}
                   href={href}
@@ -106,7 +113,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         aria-label="Main"
       >
         <div className="flex snap-x overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {NAV.map(({ href, label, short, icon: Icon, exact }) => (
+          {nav.map(({ href, label, short, icon: Icon, exact }) => (
             <Link
               key={href}
               href={href}

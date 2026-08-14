@@ -44,7 +44,7 @@ const RPC_MESSAGES: Record<string, { kind: ErrorKind; message: string }> = {
   },
   EXPIRED_CODE: {
     kind: 'validation',
-    message: 'That invite code has expired. Ask your partner to generate a new one.',
+    message: 'That invite has expired. Ask for a new one.',
   },
   COUPLE_FULL: {
     kind: 'conflict',
@@ -57,6 +57,42 @@ const RPC_MESSAGES: Record<string, { kind: ErrorKind; message: string }> = {
   NOT_A_MEMBER: {
     kind: 'permission',
     message: "You're not a member of that couple.",
+  },
+  // An invite is issued to one address, and the code alone is not enough.
+  // Saying so plainly matters: "wrong code" would send somebody hunting for a
+  // typo that is not there.
+  EMAIL_MISMATCH: {
+    kind: 'permission',
+    message:
+      'That invite was sent to a different email address. Sign in with the address it was sent to, or ask for a new invite.',
+  },
+  ALREADY_MEMBER: {
+    kind: 'conflict',
+    message: "They're already here.",
+  },
+  INVALID_EMAIL: {
+    kind: 'validation',
+    message: "That doesn't look like an email address.",
+  },
+  NOT_ALLOWED: {
+    kind: 'permission',
+    message: 'Only the two of you can invite anyone else.',
+  },
+  NOT_PAIRED: {
+    kind: 'validation',
+    message: 'Create or join a couple first.',
+  },
+  SENSITIVE_MODULE_NOT_SHAREABLE: {
+    kind: 'permission',
+    message: 'Documents, stay allowance and health are never shared outside the couple.',
+  },
+  UNKNOWN_MODULE: {
+    kind: 'validation',
+    message: "That isn't something this app has.",
+  },
+  INVITE_NEEDS_EMAIL: {
+    kind: 'validation',
+    message: 'Invites now go to an email address. Send a new one from Settings.',
   },
 }
 
