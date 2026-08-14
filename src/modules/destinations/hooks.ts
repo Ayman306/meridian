@@ -138,3 +138,19 @@ function invalidate(qc: ReturnType<typeof useQueryClient>, tripId: string) {
   void qc.invalidateQueries({ queryKey: qk.destinations(tripId) })
   void qc.invalidateQueries({ queryKey: qk.trip(tripId) })
 }
+
+/**
+ * The chosen destination's country for a trip. Null while nothing is chosen.
+ *
+ * Separate from the board's own queries because the dashboard needs exactly
+ * this one field and nothing else on the screen wants the rest.
+ */
+export function useChosenCountry(tripId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['chosen-country', tripId ?? 'none'] as const,
+    queryFn: () => api.getChosenCountry(tripId!),
+    enabled: Boolean(tripId),
+    // Changes only when somebody chooses a different city.
+    staleTime: 5 * 60_000,
+  })
+}

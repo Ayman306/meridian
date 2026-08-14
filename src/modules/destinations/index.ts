@@ -1,6 +1,7 @@
 /** Public surface of the destinations module. */
 export { WherePage } from './pages/WherePage'
 export {
+  useChosenCountry,
   useDestinations,
   useAddCandidate,
   useUpdateDestination,

@@ -12,13 +12,13 @@ work up next — including a future session with no memory of this one.
 
 | | |
 | --- | --- |
-| Phase | **14 complete — all phases done** |
-| Next | The deferred list in `PHASES.md`. Nothing blocks using the app. |
+| Phase | **All 14 done. Sweeps scheduled.** |
+| Next | Two operator steps below, then use it. The rest is the deferred list in `PHASES.md`. |
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0014, live |
-| Deployed | no |
+| Migrations applied | 0001–0015, live |
+| Deployed | Vercel, `meridian-ay-za.vercel.app` |
 
 ### What runs today
 
@@ -83,8 +83,26 @@ irregular cycle is shown as a range rather than a date, and the border-
 restriction check links to the official page and never says whether anything is
 allowed.
 
-Typecheck, lint, 570 unit tests, 200 database assertions and a production build
+And 0015 made it run unattended: the three sweeps are on pg_cron, and the
+dashboard finally fills the stay-allowance slot it reserved back in phase 5.
+
+Typecheck, lint, 576 unit tests, 200 database assertions and a production build
 pass.
+
+### The two operator steps left
+
+1. **Vercel Deployment Protection answers 401** to every server-to-server call
+   — all three sweeps, and the GitHub Actions keep-alive that stops the free
+   Supabase project auto-pausing. Either turn protection off for production, or
+   issue a Protection Bypass token and store it as the `vercel_bypass_token`
+   Vault secret and the `VERCEL_BYPASS_TOKEN` repository secret. Both paths are
+   already supported in code.
+2. **`SUPABASE_SERVICE_ROLE_KEY` and `CRON_SECRET` on Vercel.** Without the
+   first, `/api/fx` throws and every foreign-currency expense saves unconverted
+   — quietly, since the client treats a failed lookup as a normal degraded
+   state. `CRON_SECRET` must equal the `cron_secret` Vault secret; read it with
+   `select decrypted_secret from vault.decrypted_secrets where name =
+   'cron_secret'`.
 
 Sign-in is now settled on the server: `src/app/(app)/layout.tsx` redirects an
 unauthenticated request before any app JavaScript ships. Pairing and profile
@@ -97,8 +115,8 @@ setup stay client-side gates, because they depend on the couple query.
   gallery can hold the file, but the expense form has no picker.
 - Per-week *budgets*. `period = 'week'` is modelled, constrained and indexed;
   only trip-period budgets can be set from the UI.
-- The FX backfill sweep has a route and a secret but no `pg_cron` schedule,
-  same as the flight and media sweeps.
+- All three sweeps are scheduled (0015) and fire, but the app answers 401
+  until Vercel Deployment Protection is resolved. See D73.
 - The blend narrows to a city by matching the trip title against the cities in
   the wishlist. It could read the chosen destination now that Module 4 exists;
   it does not yet.
@@ -921,6 +939,67 @@ whether a medication may be carried. The restriction helpers match a name,
 state that restrictions exist in that country, and hand back the official link.
 No data reads "not checked" — never "safe" — and that copy is asserted in a
 test, because the copy is the feature.
+
+### D73 — The sweeps had routes and no schedule, and one of them costs money
+
+Three cron routes existed and nothing ever called them. That is not a
+tidiness problem for the flight one: without `deactivate_finished_flights`
+firing, a flight whose landing was missed polls AeroDataBox until the month's
+600 units are gone. 0015 schedules all three with pg_cron, calling back into
+the app through pg_net.
+
+The base URL and the shared secret live in Vault, not in the migration — a
+migration is committed to a public repository and a shared secret in one is
+not a secret. `invoke_sweep()` reads them per call, so rotating is one
+`vault.update_secret` and no re-scheduling.
+
+**Firing one by hand immediately found something no test would have.** Vercel
+Deployment Protection answers 401 to any request without a browser session,
+which is every one of these calls *and* the GitHub Actions keep-alive that
+stops the free Supabase project auto-pausing. Both now optionally send
+`x-vercel-protection-bypass`, so either resolution — turning protection off
+for production, or issuing a bypass token — works.
+
+### D74 — pg_net's grants, and the limit of what could be closed
+
+Enabling pg_net creates a `net` schema whose functions Supabase grants to
+`anon` and `authenticated`. On paper that lets the key shipped in the browser
+bundle ask the database to make an HTTP request: SSRF with the database's
+network position.
+
+It could not be revoked. Those grants were made by `supabase_admin`, and a
+role can only revoke what it granted — running as `postgres`, the revoke
+silently no-ops. Worth recording precisely, because the first two attempts
+looked like they had worked until the privilege was re-checked.
+
+What keeps it closed is that PostgREST only routes schemas on the project's
+exposed list, which defaults to `public, graphql_public`. `net` is not on it.
+**The standing check:** Project Settings → API → Exposed schemas. If `net`
+ever appears, remove it; do not rely on the grants.
+
+This is the third time the same lesson has bitten in this codebase (0004,
+0012, and here): revoking from `anon` and `authenticated` does nothing while
+`PUBLIC` still holds the grant, and revoking anything does nothing if you did
+not grant it.
+
+### D75 — Priority 3 was reserved for two phases and never filled
+
+The dashboard has carried a `stay_allowance` alert kind and a priority slot
+since phase 5, and nothing ever built one. So the allowance module could
+compute — correctly, and with tests — that a planned trip would put somebody
+over a Schengen limit, and the screen people open most never mentioned it.
+Knowing something with real-world consequences and not saying it is worse
+than never having computed it.
+
+`allowanceAlert()` fills the slot. It returns null for `ok` *and* for
+`untracked`: there is no rule for that country, and inventing reassurance from
+an absence is what this module refuses to do everywhere else.
+
+It is built in a separate hook rather than added to the `dashboard()` payload,
+because it needs the allowance rules and the entry log — two more queries, for
+a warning that is usually absent. Adding the country to the RPC would have
+meant restating a hundred and forty lines of JSON construction in a second
+migration and maintaining both.
 
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 
