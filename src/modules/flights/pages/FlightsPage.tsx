@@ -13,21 +13,40 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { EmptyState, ErrorState, SkeletonList } from '@/components/common/states'
 import { useCouple } from '@/providers/CoupleProvider'
-import { AddFlightForm } from '../components/AddFlightForm'
+import { JourneyBuilder } from '../components/JourneyBuilder'
+import { JourneyCard } from '../components/JourneyCard'
 import { FlightCard } from '../components/FlightCard'
 import {
+  useDeleteJourney,
   useFlightRealtime,
   useFlightRefresh,
   useFlightStates,
   useFlights,
   useGroupedFlights,
+  useJourneys,
 } from '../hooks'
 import { GROUP_LABELS, type FlightGroup } from '../logic'
+import type { FlightRow } from '../types'
 
 export function FlightsPage() {
   const { coupleId, tzSelf } = useCouple()
   const flights = useFlights()
+  const journeys = useJourneys()
+  const deleteJourney = useDeleteJourney()
   const [adding, setAdding] = useState(false)
+
+  // Legs that belong to a booking are shown as that booking; anything added
+  // one-off still renders below, so nothing is hidden by the grouping.
+  const byJourney = useMemo(() => {
+    const map = new Map<string, FlightRow[]>()
+    for (const flight of flights.data ?? []) {
+      if (!flight.journey_id) continue
+      const bucket = map.get(flight.journey_id)
+      if (bucket) bucket.push(flight)
+      else map.set(flight.journey_id, [flight])
+    }
+    return map
+  }, [flights.data])
   useFlightRealtime(coupleId)
 
   const rows = useMemo(() => flights.data ?? [], [flights.data])
@@ -71,16 +90,32 @@ export function FlightsPage() {
       {adding && (
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle className="text-base">Add a flight</CardTitle>
+            <CardTitle className="text-base">Add a journey</CardTitle>
           </CardHeader>
           <CardContent>
-            <AddFlightForm onClose={() => setAdding(false)} />
+            <JourneyBuilder onClose={() => setAdding(false)} />
           </CardContent>
         </Card>
       )}
 
       {notices.length > 0 && (
         <p className="mb-4 text-xs text-muted-foreground">{notices.join(' ')}</p>
+      )}
+
+      {/* Bookings first, as bookings. A connection only means anything when
+          the legs either side of it are shown together. */}
+      {(journeys.data?.length ?? 0) > 0 && (
+        <section className="mb-8 space-y-3">
+          <h2 className="text-sm font-semibold text-muted-foreground">Bookings</h2>
+          {journeys.data!.map((journey) => (
+            <JourneyCard
+              key={journey.id}
+              journey={journey}
+              flights={byJourney.get(journey.id) ?? []}
+              onDelete={() => deleteJourney.mutate(journey.id)}
+            />
+          ))}
+        </section>
       )}
 
       {flights.isLoading ? (
@@ -91,7 +126,7 @@ export function FlightsPage() {
         <EmptyState
           icon={<Plane className="size-5" aria-hidden="true" />}
           title="No flights yet"
-          description="A flight number and a date is enough. Everything else fills itself in if it can, and you can type it if it can't."
+          description="A flight number and a date is enough. Add the airports and it draws the route; add a second leg and it checks the layover."
           action={<Button onClick={() => setAdding(true)}>Add the first one</Button>}
         />
       ) : (

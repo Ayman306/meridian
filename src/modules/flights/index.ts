@@ -4,6 +4,9 @@ export { FlightLivePage } from './pages/FlightLivePage'
 export { TripFlightsPage } from './pages/TripFlightsPage'
 export { FlightCard } from './components/FlightCard'
 export { HandoffCard } from './components/HandoffCard'
+export { JourneyBuilder } from './components/JourneyBuilder'
+export { JourneyCard } from './components/JourneyCard'
+export { AirportPicker } from './components/AirportPicker'
 export {
   useFlights,
   useFlight,
@@ -21,10 +24,16 @@ export {
   useLookupFlight,
   useReportWait,
   useQuotaUsage,
+  useJourneys,
+  useAddJourney,
+  useDeleteJourney,
 } from './hooks'
 export {
   ACTIVE_PHASES,
   GROUP_LABELS,
+  describeJourney,
+  nextLegIndex,
+  summariseJourney,
   PHASE_LABELS,
   airlineCode,
   bothFlying,

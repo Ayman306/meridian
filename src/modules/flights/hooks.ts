@@ -385,3 +385,35 @@ function invalidate(qc: ReturnType<typeof useQueryClient>) {
   void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'flights' })
   void qc.invalidateQueries({ queryKey: qk.dashboard })
 }
+
+export function useJourneys() {
+  const { coupleId } = useCouple()
+  return useQuery({
+    queryKey: ['journeys', coupleId ?? 'none'] as const,
+    queryFn: api.listJourneys,
+    enabled: Boolean(coupleId),
+  })
+}
+
+export function useAddJourney() {
+  const qc = useQueryClient()
+  const { coupleId } = useCouple()
+  return useMutation({
+    mutationFn: (input: api.JourneyInput) => api.saveJourney(coupleId!, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'flights' })
+      void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'journeys' })
+    },
+  })
+}
+
+export function useDeleteJourney() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: api.deleteJourney,
+    onSuccess: () => {
+      void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'flights' })
+      void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'journeys' })
+    },
+  })
+}

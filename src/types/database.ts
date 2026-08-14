@@ -4,7 +4,7 @@
  *   npm run db:types
  *   # supabase gen types typescript --project-id <ref> > src/types/database.ts
  *
- * Generated from the live project after migrations 0001-0014. The aliases at
+ * Generated from the live project after migrations 0001-0016. The aliases at
  * the bottom are the only hand-written part: they are what the modules import,
  * and they are re-added after each regeneration.
  */
@@ -98,6 +98,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      airports: {
+        Row: {
+          city: string
+          country_code: string
+          created_at: string
+          iata: string
+          icao: string | null
+          lat: number
+          lng: number
+          name: string
+          timezone: string
+        }
+        Insert: {
+          city: string
+          country_code: string
+          created_at?: string
+          iata: string
+          icao?: string | null
+          lat: number
+          lng: number
+          name: string
+          timezone: string
+        }
+        Update: {
+          city?: string
+          country_code?: string
+          created_at?: string
+          iata?: string
+          icao?: string | null
+          lat?: number
+          lng?: number
+          name?: string
+          timezone?: string
+        }
+        Relationships: []
       }
       album_media: {
         Row: {
@@ -2873,6 +2909,7 @@ export type Database = {
         Returns: boolean
       }
       health: { Args: never; Returns: Json }
+      invoke_sweep: { Args: { path: string }; Returns: number }
       is_couple_member: { Args: { target: string }; Returns: boolean }
       join_couple: { Args: { code: string }; Returns: string }
       leave_couple: { Args: never; Returns: undefined }
@@ -2899,6 +2936,7 @@ export type Database = {
         Returns: string
       }
       regenerate_invite_code: { Args: never; Returns: string }
+      schedule_sweeps: { Args: never; Returns: undefined }
       seed_categories: { Args: { target: string }; Returns: undefined }
       seed_document_types: { Args: { target: string }; Returns: undefined }
       seed_trip_statuses: { Args: { target: string }; Returns: undefined }

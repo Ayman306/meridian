@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  describeJourney,
+  nextLegIndex,
+  summariseJourney,
   bothFlying,
   computeFreshness,
   computePhase,
@@ -485,5 +488,111 @@ describe('bothFlying', () => {
 
   it('is not both when it is one person twice', () => {
     expect(bothFlying([state('me', 'LIS', at(100)), state('me', 'LIS', at(160))]).isBoth).toBe(false)
+  })
+})
+
+describe('journeys', () => {
+  const leg = (over: Partial<FlightRow> = {}): FlightRow =>
+    ({
+      id: 'f1',
+      couple_id: 'c1',
+      journey_id: 'j1',
+      trip_id: null,
+      traveler_id: 'u1',
+      leg_index: 1,
+      flight_number: '6E1468',
+      flight_date: '2026-11-03',
+      origin_iata: 'DXB',
+      dest_iata: 'IXE',
+      scheduled_departure: '2026-11-03T07:25:00Z',
+      scheduled_arrival: '2026-11-03T11:00:00Z',
+      estimated_arrival: null,
+      terminal: null,
+      deleted_at: null,
+      phase: 'scheduled',
+      ...over,
+    }) as FlightRow
+
+  it('reads a direct flight as direct', () => {
+    const summary = summariseJourney([leg()])
+    expect(summary.originIata).toBe('DXB')
+    expect(summary.destIata).toBe('IXE')
+    expect(summary.stops).toEqual([])
+    expect(describeJourney(summary)).toBe('DXB → IXE · direct')
+  })
+
+  it('takes the endpoints from the first and last leg, not the first row', () => {
+    const summary = summariseJourney([
+      leg({ id: 'b', leg_index: 2, origin_iata: 'BOM', dest_iata: 'IXE' }),
+      leg({ id: 'a', leg_index: 1, origin_iata: 'DXB', dest_iata: 'BOM' }),
+    ])
+    expect(summary.originIata).toBe('DXB')
+    expect(summary.destIata).toBe('IXE')
+    expect(summary.stops).toEqual(['BOM'])
+    expect(describeJourney(summary)).toBe('DXB → IXE · 1 stop (BOM)')
+  })
+
+  it('orders by leg index, so an untimed leg still sits in the right place', () => {
+    const summary = summariseJourney([
+      leg({ id: 'c', leg_index: 3, scheduled_departure: null }),
+      leg({ id: 'a', leg_index: 1 }),
+      leg({ id: 'b', leg_index: 2, scheduled_departure: null }),
+    ])
+    expect(summary.legs.map((l) => l.flight.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('flags a tight connection between consecutive legs', () => {
+    const summary = summariseJourney([
+      leg({ id: 'a', leg_index: 1, dest_iata: 'BOM', scheduled_arrival: '2026-11-03T11:00:00Z' }),
+      leg({
+        id: 'b',
+        leg_index: 2,
+        origin_iata: 'BOM',
+        // 50 minutes later, against a 90-minute international minimum.
+        scheduled_departure: '2026-11-03T11:50:00Z',
+      }),
+    ])
+    expect(summary.legs[0]!.connection).toBeNull()
+    expect(summary.legs[1]!.connection?.bufferMinutes).toBe(50)
+    expect(summary.worstRisk).toBe('high')
+  })
+
+  it('is content with a generous layover', () => {
+    const summary = summariseJourney([
+      leg({ id: 'a', leg_index: 1, scheduled_arrival: '2026-11-03T11:00:00Z' }),
+      leg({ id: 'b', leg_index: 2, scheduled_departure: '2026-11-03T14:00:00Z' }),
+    ])
+    expect(summary.worstRisk).toBe('ok')
+  })
+
+  it('has no risk to report on a direct flight', () => {
+    expect(summariseJourney([leg()]).worstRisk).toBeNull()
+  })
+
+  it('measures the whole journey door to door, layovers included', () => {
+    const summary = summariseJourney([
+      leg({ id: 'a', leg_index: 1, scheduled_departure: '2026-11-03T07:00:00Z', scheduled_arrival: '2026-11-03T10:00:00Z' }),
+      leg({ id: 'b', leg_index: 2, scheduled_departure: '2026-11-03T12:00:00Z', scheduled_arrival: '2026-11-03T14:00:00Z' }),
+    ])
+    expect(summary.totalMinutes).toBe(420)
+  })
+
+  it('ignores deleted legs', () => {
+    const summary = summariseJourney([
+      leg({ id: 'a', leg_index: 1 }),
+      leg({ id: 'b', leg_index: 2, deleted_at: '2026-01-01T00:00:00Z' }),
+    ])
+    expect(summary.legs).toHaveLength(1)
+    expect(summary.stops).toEqual([])
+  })
+
+  it('says so plainly when the route is not set yet', () => {
+    const summary = summariseJourney([leg({ origin_iata: null, dest_iata: null })])
+    expect(describeJourney(summary)).toBe('Route not set · direct')
+  })
+
+  it('picks a leg index that cannot collide after a removal', () => {
+    expect(nextLegIndex([])).toBe(1)
+    expect(nextLegIndex([leg({ leg_index: 1 }), leg({ leg_index: 3 })])).toBe(4)
   })
 })
