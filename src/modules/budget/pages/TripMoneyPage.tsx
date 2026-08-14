@@ -159,14 +159,14 @@ export function TripMoneyPage({
         </div>
       )}
 
-      <div className="flex gap-1 border-b border-border" role="tablist">
+      <div className="flex gap-1 overflow-x-auto border-b border-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="tablist">
         {(['expenses', 'summary', 'convert'] as Tab[]).map((name) => (
           <button
             key={name}
             role="tab"
             aria-selected={tab === name}
             className={cn(
-              '-mb-px border-b-2 px-4 py-2 text-sm capitalize',
+              '-mb-px shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm capitalize',
               tab === name
                 ? 'border-accent font-medium'
                 : 'border-transparent text-muted-foreground hover:text-foreground',

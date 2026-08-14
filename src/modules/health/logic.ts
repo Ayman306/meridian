@@ -10,15 +10,19 @@
  *   caller cannot accidentally render a confident date from thin data.
  * - **An irregular cycle is a range, not a date.** Above a standard deviation
  *   of seven days the app says so and shows the window.
- * - **No medical advice.** Nothing here computes fertility, ovulation or
- *   contraception, and nothing decides whether a medication may be carried.
- *   The restriction helpers match a name and hand back the official link.
+ * - **No medical advice.** The fertile window and ovulation day *are*
+ *   computed — see `predictFertility` — but as calendar arithmetic, labelled
+ *   as an estimate, and never as guidance. Nothing here says a day is safe,
+ *   mentions contraception, or advises on conceiving; nothing decides whether
+ *   a medication may be carried. The restriction helpers match a name and hand
+ *   back the official link.
  * - **"Not checked" is never "safe."** A substance with no restriction row
  *   returns `null`, and the copy for that state says the check was not done.
  */
 import { addDaysTo, daysBetween, type DateOnly } from '@/lib/dates'
 import type {
   CycleLog,
+  FertilityWindow,
   HealthRecord,
   MedicationRestriction,
   Prediction,
@@ -104,6 +108,113 @@ export function describePrediction(prediction: Prediction): string {
     prediction.variance === 1 ? 'day' : 'days'
   } — an estimate from the last ${prediction.basedOn} cycles.`
 }
+
+// ---------------------------------------------------------------------------
+// Fertile window and ovulation
+// ---------------------------------------------------------------------------
+
+/**
+ * The luteal phase — ovulation to the next period — assumed when nothing has
+ * been measured. It is the more stable half of the cycle, which is why the
+ * estimate is anchored to it rather than to "day 14", and 14 is the population
+ * median.
+ */
+export const DEFAULT_LUTEAL_DAYS = 14
+
+/**
+ * Sperm survive up to five days; an egg about one. So the window that matters
+ * runs from five days before ovulation to one day after.
+ */
+const FERTILE_BEFORE = 5
+const FERTILE_AFTER = 1
+
+/**
+ * The estimated fertile window and ovulation day for the next cycle.
+ *
+ * **What this is:** calendar arithmetic. Ovulation is placed a luteal phase
+ * before the next expected period, and the window spans the days either side
+ * on which conception is biologically possible.
+ *
+ * **What this is not:** a measurement, a contraceptive method, or advice of
+ * any kind. Ovulation is observed with basal temperature or an LH test — this
+ * function has neither. Spec 12.6 forbids fertility and contraception
+ * guidance, and nothing here gives any: it reports what the arithmetic says,
+ * with the same variance the period estimate carries, and stops.
+ *
+ * Returns null when there is no period prediction to anchor to, because an
+ * ovulation date derived from nothing would be worse than no date at all.
+ */
+export function predictFertility(
+  prediction: Prediction,
+  logs: CycleLog[],
+): FertilityWindow | null {
+  if (!prediction.available) return null
+
+  // What she has actually measured beats what we would have guessed. The most
+  // recent cycle carrying a real observation sets the luteal length.
+  const measured = [...logs]
+    .filter((l) => l.ovulation_on)
+    .sort((a, b) => a.started_on.localeCompare(b.started_on))
+    .pop()
+
+  const luteal =
+    measured?.luteal_days ??
+    (measured?.ovulation_on
+      ? // Derived from the observation itself: how long after that ovulation
+        // the following period arrived, if we have it.
+        lutealFromObservation(measured, logs) ?? DEFAULT_LUTEAL_DAYS
+      : DEFAULT_LUTEAL_DAYS)
+
+  const ovulation = addDaysTo(prediction.nextStart, -luteal)
+
+  return {
+    ovulation,
+    fertileFrom: addDaysTo(ovulation, -FERTILE_BEFORE),
+    fertileTo: addDaysTo(ovulation, FERTILE_AFTER),
+    // The window inherits the cycle prediction's uncertainty. A cycle that
+    // varies by nine days does not produce an ovulation date good to the day.
+    variance: prediction.variance,
+    basedOn: measured?.ovulation_on ? 'observed' : 'estimated',
+    lutealDays: luteal,
+    isEstimate: true,
+  }
+}
+
+/** Days between a recorded ovulation and the next period that followed it. */
+function lutealFromObservation(cycle: CycleLog, logs: CycleLog[]): number | null {
+  if (!cycle.ovulation_on) return null
+  const next = [...logs]
+    .filter((l) => l.started_on > cycle.started_on)
+    .sort((a, b) => a.started_on.localeCompare(b.started_on))[0]
+  if (!next) return null
+  const days = daysBetween(cycle.ovulation_on, next.started_on)
+  return days >= 7 && days <= 20 ? days : null
+}
+
+/**
+ * The sentence the fertile window is rendered as.
+ *
+ * Carries the estimate label and the variance in every branch, and says what
+ * the number came from — an observation or arithmetic — because those are not
+ * the same claim.
+ */
+export function describeFertility(window: FertilityWindow | null): string | null {
+  if (!window) return null
+
+  const source =
+    window.basedOn === 'observed'
+      ? 'from the ovulation you recorded'
+      : `estimated from a ${window.lutealDays}-day luteal phase`
+
+  if (window.variance > 6) {
+    return `Roughly ${window.fertileFrom} to ${window.fertileTo}, ${source}. Your cycles have varied a lot, so this is a wide estimate.`
+  }
+  return `Around ${window.fertileFrom} to ${window.fertileTo}, with ovulation near ${window.ovulation} — ${source}, give or take ${window.variance} ${window.variance === 1 ? 'day' : 'days'}.`
+}
+
+/** What the app will not say, stated once so every surface can repeat it. */
+export const FERTILITY_DISCLAIMER =
+  'These dates are worked out from the cycles you have logged. They are an estimate, not a measurement, and not a method of contraception or of planning a pregnancy. Record an ovulation date when you know one and the estimate uses that instead.'
 
 /** Length of each logged period, for the history list. */
 export function periodLength(log: CycleLog): number | null {
@@ -276,4 +387,32 @@ export function cycleDays(log: CycleLog): DateOnly[] {
   const end = log.ended_on ?? log.started_on
   const span = daysBetween(log.started_on, end)
   return Array.from({ length: span + 1 }, (_, i) => addDaysTo(log.started_on, i))
+}
+
+// ---------------------------------------------------------------------------
+// Who the cycle section is for
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether to show the cycle section to this person.
+ *
+ * Gender sets the default, because showing period tracking to someone who does
+ * not menstruate is noise. But gender is not the same question as "do you want
+ * to track this": a woman past menopause, on continuous contraception, or
+ * simply uninterested should be able to switch it off, and somebody the
+ * default would hide it from should be able to switch it on.
+ *
+ * So `tracks_cycle` is an override and always wins. Null means "follow the
+ * default", which is the only value a profile has until someone decides
+ * otherwise.
+ */
+export function showsCycle(profile: {
+  gender?: string | null
+  tracks_cycle?: boolean | null
+} | null): boolean {
+  if (!profile) return false
+  if (profile.tracks_cycle !== null && profile.tracks_cycle !== undefined) {
+    return profile.tracks_cycle
+  }
+  return profile.gender === 'female'
 }

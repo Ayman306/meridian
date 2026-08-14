@@ -14,6 +14,8 @@ import { INVITE_ALPHABET } from '@/lib/constants'
 import type { Profile } from '@/types/domain'
 
 const profile = (over: Partial<Profile> = {}): Profile => ({
+  gender: null,
+  tracks_cycle: null,
   id: 'u1',
   display_name: 'Sam',
   avatar_url: null,

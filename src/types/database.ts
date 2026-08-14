@@ -4,7 +4,7 @@
  *   npm run db:types
  *   # supabase gen types typescript --project-id <ref> > src/types/database.ts
  *
- * Generated from the live project after migrations 0001-0016. The aliases at
+ * Generated from the live project after migrations 0001-0017. The aliases at
  * the bottom are the only hand-written part: they are what the modules import,
  * and they are re-added after each regeneration.
  */
@@ -600,9 +600,12 @@ export type Database = {
         Row: {
           created_at: string
           ended_on: string | null
+          fertility_note: string | null
           flow: string | null
           id: string
+          luteal_days: number | null
           notes: string | null
+          ovulation_on: string | null
           owner_id: string
           started_on: string
           symptoms: string[] | null
@@ -611,9 +614,12 @@ export type Database = {
         Insert: {
           created_at?: string
           ended_on?: string | null
+          fertility_note?: string | null
           flow?: string | null
           id?: string
+          luteal_days?: number | null
           notes?: string | null
+          ovulation_on?: string | null
           owner_id: string
           started_on: string
           symptoms?: string[] | null
@@ -622,9 +628,12 @@ export type Database = {
         Update: {
           created_at?: string
           ended_on?: string | null
+          fertility_note?: string | null
           flow?: string | null
           id?: string
+          luteal_days?: number | null
           notes?: string | null
+          ovulation_on?: string | null
           owner_id?: string
           started_on?: string
           symptoms?: string[] | null
@@ -1959,6 +1968,7 @@ export type Database = {
           avatar_url: string | null
           created_at: string
           display_name: string | null
+          gender: string | null
           home_city: string | null
           home_country: string | null
           home_lat: number | null
@@ -1968,6 +1978,7 @@ export type Database = {
           onboarded_at: string | null
           second_nationality: string | null
           timezone: string
+          tracks_cycle: boolean | null
           updated_at: string
         }
         Insert: {
@@ -1975,6 +1986,7 @@ export type Database = {
           avatar_url?: string | null
           created_at?: string
           display_name?: string | null
+          gender?: string | null
           home_city?: string | null
           home_country?: string | null
           home_lat?: number | null
@@ -1984,6 +1996,7 @@ export type Database = {
           onboarded_at?: string | null
           second_nationality?: string | null
           timezone?: string
+          tracks_cycle?: boolean | null
           updated_at?: string
         }
         Update: {
@@ -1991,6 +2004,7 @@ export type Database = {
           avatar_url?: string | null
           created_at?: string
           display_name?: string | null
+          gender?: string | null
           home_city?: string | null
           home_country?: string | null
           home_lat?: number | null
@@ -2000,6 +2014,7 @@ export type Database = {
           onboarded_at?: string | null
           second_nationality?: string | null
           timezone?: string
+          tracks_cycle?: boolean | null
           updated_at?: string
         }
         Relationships: []
