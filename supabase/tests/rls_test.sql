@@ -1444,6 +1444,152 @@ select assert(
 
 -- ---------------------------------------------------------------------------
 \echo ''
+\echo '== health: consent is the gate, not the UI =='
+--
+-- Spec 12.8's acceptance criteria, verbatim: "Partner cannot read cycle_logs
+-- without consent (verify by direct query with partner JWT)" and "Revoking
+-- consent blocks reads immediately, no cache staleness". Both are checked by
+-- reading the table as the other person, which is the only check that means
+-- anything here.
+set request.jwt.claim.sub = :'ada_ada';
+
+insert into public.cycle_logs (owner_id, started_on, ended_on, flow)
+values (:'ada_ada', '2026-05-01', '2026-05-05', 'medium')
+returning id as cycle \gset ada_
+
+insert into public.health_records (owner_id, kind, label, dosage, doses_per_day, quantity_remaining)
+values (:'ada_ada', 'medication', 'Sertraline', '50mg', 1, 40)
+returning id as med \gset ada_
+
+insert into public.health_records (owner_id, kind, label)
+values (:'ada_ada', 'vaccination', 'Hepatitis A')
+returning id as vax \gset ada_
+
+select assert(
+  (select count(*) from public.cycle_logs) = 1,
+  'the owner reads their own cycle log'
+);
+
+-- Being in the couple grants nothing here. This is the whole module.
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.cycle_logs) = 0,
+  'the partner reads zero cycle logs without consent — couple membership is not access'
+);
+select assert(
+  (select count(*) from public.health_records) = 0,
+  'and zero health records'
+);
+select assert(
+  (select count(*) from public.health_consents) = 0,
+  'and cannot even enumerate what they have been granted'
+);
+
+-- The partner cannot grant themselves anything.
+select assert_raises(
+  format(
+    'insert into public.health_consents (owner_id, viewer_id, scope)
+       values (%L, %L, %L)',
+    :'ada_ada', :'bo_bo', 'cycle'
+  ),
+  'row-level security',
+  'nor grant themselves consent'
+);
+
+-- Ada shares the cycle, and only the cycle.
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.health_consents (owner_id, viewer_id, scope)
+values (:'ada_ada', :'bo_bo', 'cycle')
+returning id as consent \gset ada_
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.cycle_logs where id = :'ada_cycle') = 1,
+  'with consent, the partner reads the cycle log'
+);
+select assert(
+  (select count(*) from public.health_records) = 0,
+  'and still reads no medications — the scopes are separate because the decisions are'
+);
+
+-- Read-only by construction: there is no write policy for a viewer at all.
+update public.cycle_logs set flow = 'heavy' where id = :'ada_cycle';
+select assert(
+  (select count(*) from public.cycle_logs where id = :'ada_cycle' and flow = 'heavy') = 0,
+  'a viewer cannot edit what they were shown'
+);
+select assert_raises(
+  format(
+    'insert into public.cycle_logs (owner_id, started_on) values (%L, %L)',
+    :'ada_ada', '2026-07-01'
+  ),
+  'row-level security',
+  'nor add to it'
+);
+
+-- Per-kind scopes on health_records.
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.health_consents (owner_id, viewer_id, scope)
+values (:'ada_ada', :'bo_bo', 'vaccinations');
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.health_records where id = :'ada_vax') = 1,
+  'sharing vaccinations shows the vaccination'
+);
+select assert(
+  (select count(*) from public.health_records where id = :'ada_med') = 0,
+  'and does not show the medication'
+);
+
+-- Revocation is instant: checked in the policy, so the next query sees it.
+set request.jwt.claim.sub = :'ada_ada';
+update public.health_consents set revoked_at = now() where id = :'ada_consent';
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.cycle_logs) = 0,
+  'revoking blocks the read on the very next query — no cache, no sweep'
+);
+select assert(
+  (select count(*) from public.health_records where id = :'ada_vax') = 1,
+  'and revoking one scope leaves the others alone'
+);
+
+-- Hard delete, in one transaction. Spec 12.2 allows no soft-delete grace.
+set request.jwt.claim.sub = :'ada_ada';
+select public.delete_all_health_data();
+select assert(
+  (select count(*) from public.cycle_logs) = 0
+    and (select count(*) from public.health_records) = 0
+    and (select count(*) from public.health_consents) = 0,
+  'deleting removes every row, with no soft-delete residue'
+);
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.health_records) = 0,
+  'and the partner''s view empties with it'
+);
+
+-- Restrictions are reference data, and never assert a rule on their own.
+select assert(
+  (select count(*) from public.medication_restrictions where country_code = 'JP') >= 1,
+  'the restriction seed is readable by anyone signed in'
+);
+select assert(
+  (select count(*) from public.medication_restrictions where source_url is null) = 0,
+  'and every row carries the official source it points at'
+);
+select assert_raises(
+  'insert into public.medication_restrictions (country_code, substance, source_url)
+     values (''JP'', ''something'', ''https://example.com'')',
+  'row-level security',
+  'nobody adds a restriction through the API — these change by migration'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
 \echo '== leaving =='
 set request.jwt.claim.sub = :'bo_bo';
 select public.leave_couple();

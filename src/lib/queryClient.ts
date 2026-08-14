@@ -78,6 +78,11 @@ export const qk = {
   invites: (coupleId: string) => ['invites', coupleId] as const,
   myModules: ['my-modules'] as const,
 
+  healthConsents: ['health-consents'] as const,
+  cycles: (ownerId: string) => ['cycles', ownerId] as const,
+  healthRecords: (ownerId: string, kind: string) => ['health-records', ownerId, kind] as const,
+  restrictions: (countryCode: string) => ['restrictions', countryCode] as const,
+
   documents: (filter?: string) => ['documents', filter ?? 'all'] as const,
   signedUrl: (path: string) => ['signed-url', path] as const,
   document: (id: string) => ['document', id] as const,

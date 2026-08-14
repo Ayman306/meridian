@@ -4,7 +4,7 @@
  *   npm run db:types
  *   # supabase gen types typescript --project-id <ref> > src/types/database.ts
  *
- * Generated from the live project after migrations 0001-0013. The aliases at
+ * Generated from the live project after migrations 0001-0014. The aliases at
  * the bottom are the only hand-written part: they are what the modules import,
  * and they are re-added after each regeneration.
  */
@@ -559,6 +559,50 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      cycle_logs: {
+        Row: {
+          created_at: string
+          ended_on: string | null
+          flow: string | null
+          id: string
+          notes: string | null
+          owner_id: string
+          started_on: string
+          symptoms: string[] | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          ended_on?: string | null
+          flow?: string | null
+          id?: string
+          notes?: string | null
+          owner_id: string
+          started_on: string
+          symptoms?: string[] | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          ended_on?: string | null
+          flow?: string | null
+          id?: string
+          notes?: string | null
+          owner_id?: string
+          started_on?: string
+          symptoms?: string[] | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cycle_logs_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       daily_exchange: {
         Row: {
@@ -1333,6 +1377,120 @@ export type Database = {
         }
         Relationships: []
       }
+      health_consents: {
+        Row: {
+          created_at: string
+          granted_at: string
+          id: string
+          owner_id: string
+          revoked_at: string | null
+          scope: string
+          updated_at: string
+          viewer_id: string
+        }
+        Insert: {
+          created_at?: string
+          granted_at?: string
+          id?: string
+          owner_id: string
+          revoked_at?: string | null
+          scope: string
+          updated_at?: string
+          viewer_id: string
+        }
+        Update: {
+          created_at?: string
+          granted_at?: string
+          id?: string
+          owner_id?: string
+          revoked_at?: string | null
+          scope?: string
+          updated_at?: string
+          viewer_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "health_consents_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "health_consents_viewer_id_fkey"
+            columns: ["viewer_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      health_records: {
+        Row: {
+          created_at: string
+          detail: Json
+          document_id: string | null
+          dosage: string | null
+          doses_per_day: number | null
+          frequency: string | null
+          id: string
+          kind: string
+          label: string
+          owner_id: string
+          quantity_remaining: number | null
+          started_on: string | null
+          updated_at: string
+          valid_until: string | null
+        }
+        Insert: {
+          created_at?: string
+          detail?: Json
+          document_id?: string | null
+          dosage?: string | null
+          doses_per_day?: number | null
+          frequency?: string | null
+          id?: string
+          kind: string
+          label: string
+          owner_id: string
+          quantity_remaining?: number | null
+          started_on?: string | null
+          updated_at?: string
+          valid_until?: string | null
+        }
+        Update: {
+          created_at?: string
+          detail?: Json
+          document_id?: string | null
+          dosage?: string | null
+          doses_per_day?: number | null
+          frequency?: string | null
+          id?: string
+          kind?: string
+          label?: string
+          owner_id?: string
+          quantity_remaining?: number | null
+          started_on?: string | null
+          updated_at?: string
+          valid_until?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "health_records_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "health_records_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invites: {
         Row: {
           accepted_at: string | null
@@ -1728,6 +1886,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      medication_restrictions: {
+        Row: {
+          country_code: string
+          created_at: string
+          id: string
+          restriction: string | null
+          source_url: string
+          substance: string
+          verified_on: string | null
+        }
+        Insert: {
+          country_code: string
+          created_at?: string
+          id?: string
+          restriction?: string | null
+          source_url: string
+          substance: string
+          verified_on?: string | null
+        }
+        Update: {
+          country_code?: string
+          created_at?: string
+          id?: string
+          restriction?: string | null
+          source_url?: string
+          substance?: string
+          verified_on?: string | null
+        }
+        Relationships: []
       }
       profiles: {
         Row: {
@@ -2668,6 +2856,7 @@ export type Database = {
       }
       dashboard: { Args: never; Returns: Json }
       deactivate_finished_flights: { Args: never; Returns: number }
+      delete_all_health_data: { Args: never; Returns: undefined }
       ensure_trip_album: { Args: { target_trip: string }; Returns: string }
       expired_media: {
         Args: { grace_days?: number }
@@ -2679,6 +2868,10 @@ export type Database = {
         }[]
       }
       generate_invite_code: { Args: never; Returns: string }
+      has_health_consent: {
+        Args: { owner: string; scope_name: string }
+        Returns: boolean
+      }
       health: { Args: never; Returns: Json }
       is_couple_member: { Args: { target: string }; Returns: boolean }
       join_couple: { Args: { code: string }; Returns: string }

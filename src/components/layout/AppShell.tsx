@@ -12,6 +12,7 @@ import {
   Map as MapIcon,
   Plane,
   Settings as SettingsIcon,
+  HeartPulse,
   Timer,
   Wallet,
 } from 'lucide-react'
@@ -42,6 +43,7 @@ const NAV = [
   { href: '/documents', label: 'Docs', short: 'Docs', icon: FileText, exact: false, module: 'documents' },
   { href: '/allowance', label: 'Allowance', short: 'Stay', icon: Timer, exact: false, module: 'allowance' },
   { href: '/money', label: 'Money', short: 'Cash', icon: Wallet, exact: false, module: 'money' },
+  { href: '/health', label: 'Health', short: 'You+', icon: HeartPulse, exact: false, module: 'health' },
   { href: '/settings', label: 'Settings', short: 'You', icon: SettingsIcon, exact: false, module: null },
 ] as const
 

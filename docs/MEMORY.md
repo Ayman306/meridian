@@ -12,12 +12,12 @@ work up next — including a future session with no memory of this one.
 
 | | |
 | --- | --- |
-| Phase | 12 complete — the budget |
-| Next | Phase 13 — Settings (spec Module 14) |
+| Phase | **14 complete — all phases done** |
+| Next | The deferred list in `PHASES.md`. Nothing blocks using the app. |
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0012, live |
+| Migrations applied | 0001–0014, live |
 | Deployed | no |
 
 ### What runs today
@@ -67,7 +67,23 @@ actually ran, budgets where you set them, and — on stays of a fortnight or mor
 — a per-week view, because a month-long total is hard to reason about. It
 exports to CSV. There is no API key involved anywhere in it.
 
-Typecheck, lint, 516 unit tests, 156 database assertions and a production build
+And Phase 13, which decides who sees any of it. An invite is issued to an email
+address rather than being eight characters anyone can pass on, and membership
+carries a role and a list of modules — enforced in the database, so a friend
+without the money grant gets no rows rather than a hidden menu item. Documents,
+stay allowance and health can never be shared outside the couple at all.
+Settings collects the rest: shared preferences, personal ones, work hours,
+notification choices, and leaving.
+
+And Phase 14, health — the only module where being in the couple grants
+nothing. Everything is private until a scope is explicitly shared, revoking is
+one click and takes effect on the partner's next query, and deleting is
+immediate and permanent. The cycle estimate always carries its variance, an
+irregular cycle is shown as a range rather than a date, and the border-
+restriction check links to the official page and never says whether anything is
+allowed.
+
+Typecheck, lint, 570 unit tests, 200 database assertions and a production build
 pass.
 
 Sign-in is now settled on the server: `src/app/(app)/layout.tsx` redirects an
@@ -76,7 +92,7 @@ setup stay client-side gates, because they depend on the couple query.
 
 ### What is stubbed
 
-- One `Placeholder` route remains: `/settings` (Phase 13).
+- No `Placeholder` routes remain. Every route in the spec exists.
 - Receipt photos on an expense: `receipt_media_id` is on the row and the
   gallery can hold the file, but the expense form has no picker.
 - Per-week *budgets*. `period = 'week'` is modelled, constrained and indexed;
@@ -92,12 +108,11 @@ setup stay client-side gates, because they depend on the couple query.
 - `coarseTimezoneFromLongitude` in `lib/geocode.ts` is still a placeholder for
   `tz-lookup`. Choosing a destination sets the trip's timezone only when the
   candidate carries one, and the city search does not return zones.
-- The allowance override form is not built. `useUpsertRule` works and the
-  policies are proven; the seeded defaults cover the common cases until the
-  Settings surface arrives.
-- Flight notifications have nowhere to go. `flight_events` records every phase
-  change and the sweep that would send them runs, but push needs
-  `push_subscriptions` from Module 14.
+- The allowance override form is still not built. `useUpsertRule` works and the
+  policies are proven; the seeded defaults cover the common cases.
+- Flight notifications still have nowhere to go. `push_subscriptions` exists
+  now and the per-category toggles are in Settings, but there is no service
+  worker and nothing is sent.
 - No flight API keys are configured, so every flight is manual and the live
   view sits at degradation level 6. That is a supported state, not a broken
   one — `AERODATABOX_API_KEY` and the OpenSky pair in `.env.example` turn it on.
@@ -106,6 +121,10 @@ setup stay client-side gates, because they depend on the couple query.
 - Videos are refused by the uploader. The schema, the size cap and a
   poster-frame helper exist; the pipeline does not.
 - The daily-exchange strip has its table, logic and hooks but no surface yet.
+- Group spaces are expressible in the schema — `couples.kind`, roles, grants,
+  a partner-only size cap — but there is no way to create one and no switcher.
+- The health cycle calendar is a history list, not a month grid, and predicted
+  dates do not yet appear on the trip calendar.
 
 ---
 
@@ -810,6 +829,98 @@ Two subtleties that are easy to get wrong and are therefore tested:
 
 Validation rejects rather than rounds, as spec 13.3 requires, and the message
 names the shortfall — "that leaves 10.00 unaccounted for", not "invalid split".
+
+### D69 — An invite code was a bearer token, and is not any more
+
+Sign-in worked, so the hole was easy to miss: `join_couple(code)` admitted
+whoever presented eight valid characters. A code read aloud on a call, pasted
+into a chat, or left in a screenshot was a way into somebody's passport
+numbers.
+
+Invites are now rows issued to an email address, and `join_couple` compares
+that address against the one on the account actually signing in — read from
+`auth.users` under definer rights, never from anything the client can set. A
+valid, live, unexpired code presented by the wrong person raises
+`EMAIL_MISMATCH`, and the UI says exactly that rather than "wrong code", which
+would send somebody hunting for a typo that is not there.
+
+Two supporting properties: one live invite per address per space, superseded
+on re-invite so revoking cannot leave an older code working; and nobody can
+select an invite by code through the API — resolution happens inside the RPC,
+so a code cannot even be confirmed to exist by someone it was not sent to.
+
+### D70 — Module grants are RLS, not a hidden nav item
+
+A friend along for one trip has no business in the document vault. So
+`couple_members` carries a role and a grant list, and **every module-scoped
+policy was rebuilt on `can_see(couple_id, module)`**. A guest without `money`
+does not get an empty expenses screen; they get zero rows from the database
+however they ask. `AccessProvider` filters the nav from `my_modules()`, so the
+hidden link and the unreadable table answer to the same row.
+
+Documents, stay allowance and health are refused to any non-couple role
+outright, by one function called from both the invite path and the membership
+trigger — the mistake is caught while somebody is looking at it, *and* a
+hand-written row cannot get past the first check.
+
+Two bugs this turned up, both mine, both in the migration that introduced it:
+
+- **Creating a policy under a new name does not replace the old one.** Postgres
+  ORs every policy that applies, so a permissive `couple write` added beside
+  0007's `write own` would have handed every member edit rights over each
+  other's wishlist saves. Every policy now reuses its original name and keeps
+  whatever extra condition it already carried. This is the single easiest way
+  to loosen RLS while believing you tightened it.
+- **The two-person cap counted members, not partners**, so a couple plus one
+  friend was "full". It counts owning roles now, which is the rule D1's
+  guarantee actually rests on.
+
+The shape is deliberately more general than a couple — `couples.kind`, a
+partner-only size cap, one-*couple*-per-user rather than one-space-per-user —
+so trip groups can be added without rewriting every policy a third time.
+
+### D71 — Health is the one module where membership grants nothing
+
+Every other table in this app is couple-scoped: if you are in the couple, you
+can read it. `0014` has no policy keyed on `is_couple_member` and none keyed on
+`can_see` either. The owner reads their own rows; a partner reads a scope only
+while an unrevoked consent row says so.
+
+The module grant and the consent are independent on purpose: granting somebody
+the health module lets them open the screen, and gets them no data at all.
+
+Three consequences worth stating, all from spec 12.6:
+
+- **Revocation is instant**, because `revoked_at` is checked inside the policy.
+  There is no cache to expire and no job to run — the partner's very next query
+  returns nothing. Asserted directly in the RLS test.
+- **A viewer has no write policy at all.** Read-only by construction rather
+  than by convention.
+- **Deletion is hard.** No `deleted_at` exists anywhere in this module — the
+  one place the house rule about soft-deleting anything a user would regret
+  losing is deliberately reversed. Somebody deleting their health data means
+  it, and it happens in one RPC transaction so a partial failure cannot leave
+  them believing they erased something they had not.
+
+`health_consents` is readable only by its owner, which is why the partner view
+cannot tell "not shared" from "nothing logged" — and says so, rather than
+guessing. "What does my partner track?" is not a question this app answers.
+
+### D72 — A prediction that cannot be rendered without its caveat
+
+Spec 12.3 says never present a prediction without the variance and the estimate
+label. Making that a rule to remember would mean losing it the first time a
+component only wanted the date, so `Prediction` is a union: the "no" case
+carries a reason and no date at all, and the "yes" case carries `variance`,
+`earliest`, `latest` and an `isEstimate` that has no false branch. Rendering
+goes through `describePrediction`, which produces a range for an irregular
+cycle and never a day.
+
+Nothing in the module computes fertility or ovulation, and nothing decides
+whether a medication may be carried. The restriction helpers match a name,
+state that restrictions exist in that country, and hand back the official link.
+No data reads "not checked" — never "safe" — and that copy is asserted in a
+test, because the copy is the feature.
 
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 

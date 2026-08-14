@@ -22,10 +22,13 @@ records what changed.
 | 11 | 11 — Gallery | ✅ done | Largest module; free-tier storage drives its design |
 | 12 | 13 — Budget | ✅ done | Self-contained |
 | 13 | 14 — Settings | ✅ done | Grows throughout; formalised here |
-| 14 | 12 — Health | ⬜ next | Last. Consent-first. Design it together. |
+| 14 | 12 — Health | ✅ done | Last. Consent-first. Design it together. |
 
-Later parts of the spec (16 — Going Public, 17 — Licensing & Payments) are out of
-scope until the app is in real use.
+**All fourteen phases are done.** Later parts of the spec (16 — Going Public,
+17 — Licensing & Payments) remain out of scope until the app is in real use.
+What is left is the deferred list at the end of each phase below — none of it
+blocks using the app, and most of it is a screen for something whose schema,
+logic and policies already exist and are tested.
 
 ---
 
@@ -434,3 +437,48 @@ Spec: Module 14, plus two things the spec does not cover.
 - [ ] Vault idle re-auth — `vault_lock_minutes` is stored; the gate is not built
 - [ ] Group spaces have schema support but no UI: no way to create one, and no
       switcher
+
+---
+
+## Phase 14 — Health
+
+Spec: Module 12. Built last, as the spec instructs.
+
+- [x] `health_consents`, `cycle_logs`, `health_records`,
+      `medication_restrictions` + RLS
+- [x] **Owner-scoped, not couple-scoped** — the only module in the app where
+      being in the couple grants nothing. No policy here keys on
+      `is_couple_member`
+- [x] Consent enforced in the database per scope, checked by one
+      SECURITY DEFINER predicate
+- [x] **Revocation is instant** — `revoked_at` is read in the policy itself, so
+      the partner's next query returns nothing. No cache, no sweep
+- [x] A viewer has no write policy at all: read-only by construction, not by
+      convention
+- [x] Per-kind scopes: sharing vaccinations does not share medications
+- [x] **Hard delete**, in one RPC transaction. No `deleted_at` anywhere in this
+      module — the one place the soft-delete house rule is deliberately
+      reversed
+- [x] Prediction is a union whose "no" case carries a reason, so a confident
+      date cannot be rendered from thin data. Under 3 cycles: no prediction.
+      Over sd 7: a range, never a day. `isEstimate` has no false branch
+- [x] Medication supply check, which refuses to guess when the numbers are
+      absent
+- [x] Border restrictions that **link and never assert** — a match produces the
+      spec's exact sentence plus the official URL, and no data reads "not
+      checked", never "safe"
+- [x] Partner view is visibly limited: it lists what is *not* shared rather
+      than quietly rendering a shorter page, and never says whether an empty
+      section means "not shared" or "nothing logged"
+- [x] JSON export, and delete-everything behind a type-to-confirm
+- [x] No analytics or error-reporting SDK on any route — there is none in the
+      project at all
+- [x] 29 unit tests, 18 new RLS assertions covering every acceptance criterion
+      in spec 12.8
+- [ ] Cycle calendar view — the history list and `cycleDays()` exist; the month
+      grid does not
+- [ ] Predicted dates on the trip calendar, behind `cycle_predictions` consent
+- [ ] Linking a vaccination or prescription to a document — `document_id` is on
+      the row, no picker
+- [ ] The restriction seed is eleven rows across six countries. It is a
+      starting point with sources attached, not a dataset
