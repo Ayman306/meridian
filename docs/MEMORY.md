@@ -86,7 +86,7 @@ allowed.
 And 0015 made it run unattended: the three sweeps are on pg_cron, and the
 dashboard finally fills the stay-allowance slot it reserved back in phase 5.
 
-Typecheck, lint, 606 unit tests, 200 database assertions and a production build
+Typecheck, lint, 611 unit tests, 200 database assertions and a production build
 pass.
 
 ### The two operator steps left
@@ -1100,6 +1100,38 @@ key-shaped or on any `NEXT_PUBLIC_` variable whose name implies a secret. The
 pattern is verified against a real key shape so it cannot pass vacuously. A
 key committed once is in every clone and every branch forever, and `git rm`
 does not remove it from history.
+
+### D80 — `SIGNED_IN` does not mean somebody signed in
+
+Switching tabs, or away to another app and back, made the whole app appear to
+reload: every screen dropped to its skeleton and refetched. It was blamed on
+Vercel, which is worth recording because it was entirely client-side and
+reproduced on `npm run dev`.
+
+`AuthProvider` cleared the TanStack cache on the event name:
+
+```ts
+if (event === 'SIGNED_OUT' || event === 'SIGNED_IN') queryClient.clear()
+```
+
+That reads correctly and is wrong, because `SIGNED_IN` is not the event
+supabase-js's name suggests. `_onVisibilityChanged` calls `_recoverAndRefresh`
+on every `visibilitychange`, and its ordinary path — session present, nowhere
+near expiry — ends in `_notifyAllSubscribers('SIGNED_IN', currentSession)`.
+It is re-broadcast to sibling tabs over a BroadcastChannel too. So every tab
+focus emptied the entire cache, `CoupleProvider.isLoading` and
+`AccessProvider.isLoading` went true, and the shell blanked with them.
+
+The cache is stale when the *identity* behind it changes, so `identityChanged`
+compares user ids held in a ref. Sign-in, sign-out and switching accounts still
+clear; a focus, a token refresh and a cross-tab echo do not. The provider also
+holds the previous `Session` object when the id and access token both match, so
+a focus no longer re-renders every `useAuth` consumer.
+
+`refetchOnWindowFocus: true` stays on — it is wanted, and it is not what caused
+this. A background refetch keeps `data`, so `isLoading` stays false and nothing
+flashes. It was the `clear()` that removed the data underneath it, and no
+component gates a skeleton on `isFetching`.
 
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 

@@ -84,6 +84,29 @@ export function accentCollides(self: Profile | null, partner: Profile | null): b
 }
 
 /**
+ * Whether an auth event means the cached data belongs to somebody else.
+ *
+ * The tempting test is the event name — clear on `SIGNED_IN` and `SIGNED_OUT`.
+ * It is wrong, and expensively so. supabase-js emits `SIGNED_IN` every time the
+ * tab becomes visible: `_onVisibilityChanged` calls `_recoverAndRefresh`, whose
+ * ordinary path — session present, not near expiry — ends in
+ * `_notifyAllSubscribers('SIGNED_IN', currentSession)`. It also rebroadcasts
+ * `SIGNED_IN` across tabs over a BroadcastChannel. Nobody signed in on any of
+ * those; the same person came back to the tab.
+ *
+ * What actually makes a cache stale is the identity behind it changing, so that
+ * is what this compares. Sign-in, sign-out and switching accounts all move the
+ * id and all clear. A focus, a token refresh and a cross-tab echo all leave it
+ * alone.
+ */
+export function identityChanged(
+  previousUserId: string | null,
+  nextUserId: string | null,
+): boolean {
+  return previousUserId !== nextUserId
+}
+
+/**
  * Where to send someone after the OAuth exchange.
  *
  * Only ever a path on our own origin. `startsWith('/')` alone is not enough:
