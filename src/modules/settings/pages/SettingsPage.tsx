@@ -22,6 +22,7 @@ import { useTheme } from '@/providers/ThemeProvider'
 import { CurrencyPicker } from '@/modules/budget'
 import { useLeaveCouple, useUpdateProfile } from '@/modules/auth'
 import { AccessPanel } from '../components/AccessPanel'
+import { AssistantsPanel } from '../components/AssistantsPanel'
 import { useCoupleSettings, useUpdateCoupleSettings, useUpdateUserSettings, useUserSettings } from '../hooks'
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -68,6 +69,17 @@ export function SettingsPage() {
         ) : (
           <AccessPanel canManage={isOwning} />
         )}
+      </section>
+
+      {/* ----------------------------------------------------------------
+          Tokens are personal rather than shared, so this sits outside the
+          solo/paired branch above: they belong to whoever is signed in, and
+          a partner cannot see or revoke them.                             */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Connected assistants
+        </h2>
+        <AssistantsPanel />
       </section>
 
       {/* ---------------------------------------------------------------- */}

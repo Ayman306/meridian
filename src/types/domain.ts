@@ -46,8 +46,13 @@ export type Severity = 'ok' | 'info' | 'warning' | 'blocking'
  * the structure is written down — parse defensively when reading it back.
  */
 export interface TrayDraftItem {
-  /** Where it came from, so accepting twice can be detected. */
-  wishlist_id: string
+  /**
+   * Where it came from, so accepting twice can be detected. Null when nothing
+   * saved proposed it — an assistant suggesting a place none of you had bookmarked
+   * has no wishlist row to point at, and inventing one would claim an origin
+   * that does not exist.
+   */
+  wishlist_id: string | null
   title: string
   place_name: string | null
   lat: number | null

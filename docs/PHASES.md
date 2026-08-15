@@ -513,3 +513,15 @@ Everything below came from actually running the app rather than from the spec.
       make it exact.
 - [ ] Nobody has paired on the live project yet, so the two-account isolation
       the spec gates on is proven in the harness and not in production.
+- [x] **An MCP server** (`mcp/`), so an assistant can read the plan and propose
+      changes to it from outside the app. Personal access tokens in Settings,
+      exchanged for ten-minute user JWTs so RLS still decides. Itinerary writes
+      go to the suggestion tray; health and documents are unreachable. See D81
+      and D82.
+- [ ] Remote HTTP connector for the MCP server, so it works from the Claude
+      phone app rather than only a laptop. The tools are already
+      transport-agnostic; what is missing is OAuth 2.1 with dynamic client
+      registration, and a Deployment Protection bypass for the endpoint.
+- [ ] No flight-booking write tool. A booking is legs, directions and times in
+      the airport's own zone, all copied off a confirmation — `JourneyBuilder`
+      parses a pasted email, which is both faster and honest about the source.

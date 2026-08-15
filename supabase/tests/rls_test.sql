@@ -1590,6 +1590,57 @@ select assert_raises(
 
 -- ---------------------------------------------------------------------------
 \echo ''
+\echo '== access tokens =='
+
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.access_tokens (user_id, name, token_hash, prefix, modules)
+  values (:'ada_ada', 'Ada laptop', 'hash-ada', 'mrd_aaaa', array['trips']);
+
+select assert(
+  (select count(*) from public.access_tokens) = 1,
+  'a token is visible to the person who made it'
+);
+
+-- The partner is the closest thing to a trusted other party in this app, and
+-- still has no business listing somebody else's credentials.
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.access_tokens) = 0,
+  'and to nobody else, partner included'
+);
+-- Note the shape of this one. RLS filters rows out of an UPDATE rather than
+-- refusing it, so the statement below succeeds and touches nothing. The proof
+-- is not an error, it is that the token is still live afterwards.
+update public.access_tokens set revoked_at = now();
+
+-- The hash is the one column even the owner may not read back. Anything that
+-- can select it can take it offline, and no screen has ever needed it.
+set request.jwt.claim.sub = :'ada_ada';
+select assert(
+  (select count(*) from public.access_tokens where revoked_at is null) = 1,
+  'a partner''s revoke attempt silently touches nothing'
+);
+
+select assert_raises(
+  'select token_hash from public.access_tokens',
+  'permission denied',
+  'not even the owner can read a token hash back'
+);
+
+select assert(
+  (select count(*) from public.access_tokens where prefix = 'mrd_aaaa') = 1,
+  'though the identifying prefix is readable, which is what the list shows'
+);
+
+-- Revoking is an update the owner may make, and is how a token dies.
+update public.access_tokens set revoked_at = now() where prefix = 'mrd_aaaa';
+select assert(
+  (select count(*) from public.access_tokens where revoked_at is not null) = 1,
+  'the owner can revoke their own token'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
 \echo '== leaving =='
 set request.jwt.claim.sub = :'bo_bo';
 select public.leave_couple();

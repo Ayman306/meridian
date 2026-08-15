@@ -17,7 +17,7 @@ work up next — including a future session with no memory of this one.
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0018, live |
+| Migrations applied | 0001–0019, 0019 not yet applied live |
 | Deployed | Vercel, `meridian-ay-za.vercel.app` |
 
 ### What runs today
@@ -86,7 +86,7 @@ allowed.
 And 0015 made it run unattended: the three sweeps are on pg_cron, and the
 dashboard finally fills the stay-allowance slot it reserved back in phase 5.
 
-Typecheck, lint, 611 unit tests, 200 database assertions and a production build
+Typecheck, lint, 641 unit tests, 206 database assertions and a production build
 pass.
 
 ### The two operator steps left
@@ -1132,6 +1132,60 @@ a focus no longer re-renders every `useAuth` consumer.
 this. A background refetch keeps `data`, so `isLoading` stays false and nothing
 flashes. It was the `clear()` that removed the data underneath it, and no
 component gates a skeleton on `isFetching`.
+
+### D81 — An assistant gets a credential of its own, and RLS still decides
+
+The MCP server runs outside the browser and has to act as one person. Three
+ways that could have gone:
+
+1. **Hand it the service-role key.** Bypasses RLS, which would make application
+   code the only thing between a prompt-injected instruction in a pasted
+   itinerary and every couple's rows. Refused outright — non-negotiable #1.
+2. **Copy a browser refresh token out of devtools.** Works, and it is the whole
+   session: no scope, no name, no expiry anybody can see, and revoking it means
+   signing out everywhere.
+3. **A personal access token, exchanged for a short-lived user JWT.** What was
+   built, on the user's own suggestion.
+
+`access_tokens` (0019) holds a name, a scope, and the SHA-256 of a token —
+never the token. `/api/mcp/token` verifies a presented one and returns a
+**ten-minute JWT** with that user's `sub` and the ordinary `authenticated`
+role, signed with `SUPABASE_JWT_SECRET`. Everything after that is a normal
+PostgREST request under the normal policies. The service role appears once, in
+that handler, to answer *which user is this* — and it returns a JWT, never
+data. A test asserts it is not reachable from anywhere under `src/mcp`.
+
+Two things the database enforces rather than the UI. The `token_hash` column is
+unreadable: `revoke select` had to be **table-level** with the safe columns
+granted back by name, because default privileges hand `authenticated` a
+table-wide SELECT and a column-level revoke against that is silently useless —
+the RLS suite caught this. And a partner cannot revoke somebody's token; the
+test for it asserts the token survives rather than expecting an error, because
+RLS filters rows out of an UPDATE instead of refusing it.
+
+### D82 — The tray is the write path, and health is not a scope
+
+`suggest_itinerary` writes to `suggestion_tray` with `source: 'ai'` — the value
+0003 reserved and nothing had ever used. It does not touch `itinerary_items`,
+and a test greps the tool sources to keep it that way. The tool description
+tells the model in as many words that the plan was *not* changed, because a
+model that thinks it wrote will report back that it did, and the person finds
+out later.
+
+`add_wishlist_item` and `log_expense` write directly. The line is who is
+deciding: a generated day-plan is the assistant's proposal and belongs in the
+tray; "add the ramen place my sister mentioned" is the person dictating, and
+routing their own sentence through a review queue is ceremony.
+
+Health and documents are not merely off by default — `FORBIDDEN_MODULES`
+refuses them, no tool declares them, and two tests fail if that changes: one on
+the declared module, one grepping for `cycle_logs` and friends in case a tool
+is mislabelled. Allowance is sensitive too but is somebody's immigration
+history rather than a secret, so it can be scoped to on purpose.
+
+Ten tools, five modules. No LLM key is needed anywhere in Meridian for this —
+the intelligence is the client's — so `NEXT_PUBLIC_ENABLE_AI=false` remains
+true and non-negotiable #8 holds for free.
 
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 

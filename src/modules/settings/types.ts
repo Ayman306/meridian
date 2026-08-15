@@ -35,3 +35,19 @@ export interface InviteInput {
   grants: ModuleName[] | null
   validDays?: number
 }
+
+/**
+ * A personal access token, as the owner sees it.
+ *
+ * No `token_hash` — the column is revoked from `authenticated` at the database
+ * level (0019), so it is not merely omitted from this type, it cannot be
+ * selected. The raw token exists once, in the browser that made it.
+ */
+export type AccessToken = Omit<Tables<'access_tokens'>, 'token_hash' | 'user_id'>
+
+export interface AccessTokenInput {
+  name: string
+  modules: ModuleName[]
+  /** Null means it does not expire on its own; revoking is then the only end. */
+  expiresInDays: number | null
+}
