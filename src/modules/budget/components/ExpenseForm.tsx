@@ -125,8 +125,8 @@ export function ExpenseForm({
         <FieldError message={form.formState.errors.description?.message} />
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
-        <div className="col-span-2 space-y-1">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="space-y-1 sm:col-span-2">
           <label htmlFor="amount" className="text-sm font-medium">
             Amount
           </label>

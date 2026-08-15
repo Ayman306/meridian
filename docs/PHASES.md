@@ -484,3 +484,44 @@ Spec: Module 12. Built last, as the spec instructs.
       the row, no picker
 - [ ] The restriction seed is eleven rows across six countries. It is a
       starting point with sources attached, not a dataset
+
+---
+
+## After the phases — what real use turned up
+
+Everything below came from actually running the app rather than from the spec.
+
+- [x] **Vercel Deployment Protection** was answering 401 to every
+      server-to-server call — the three sweeps, the keep-alive that stops the
+      free Supabase project auto-pausing, and eventually anyone who is not on
+      the Vercel team. Both paths now support a bypass token.
+- [x] **Airports** (0016). The flight form could not name one, so every flight
+      saved as `??? → ???`. See D76.
+- [x] **Journeys** — connecting legs, return trips, and the layover warning
+      that had been written since phase 10 and never rendered. See D77.
+- [x] **Overflow.** The trip page had eight tabs in a non-scrolling flex row,
+      about 480px on a 360px screen, which pushed the whole page sideways.
+      Every tab strip scrolls now, with items that keep their width.
+- [x] **Cycle tracking** is gated on gender with an explicit override, and
+      predicts the fertile window as labelled arithmetic. See D78.
+- [x] **The AeroDataBox cap** is an explicit 550, reconciled against the
+      provider's real balance, with a secret scanner in the test suite. D79.
+- [ ] Airport list is ~135 rows. An unlisted airport saves but carries no
+      coordinates, so the map cannot draw that leg.
+- [ ] Domestic connections take the international 90-minute minimum, because
+      the flight row has no country. An `airports.country_code` join would
+      make it exact.
+- [ ] Nobody has paired on the live project yet, so the two-account isolation
+      the spec gates on is proven in the harness and not in production.
+- [x] **An MCP server** (`mcp/`), so an assistant can read the plan and propose
+      changes to it from outside the app. Personal access tokens in Settings,
+      exchanged for ten-minute user JWTs so RLS still decides. Itinerary writes
+      go to the suggestion tray; health and documents are unreachable. See D81
+      and D82.
+- [ ] Remote HTTP connector for the MCP server, so it works from the Claude
+      phone app rather than only a laptop. The tools are already
+      transport-agnostic; what is missing is OAuth 2.1 with dynamic client
+      registration, and a Deployment Protection bypass for the endpoint.
+- [ ] No flight-booking write tool. A booking is legs, directions and times in
+      the airport's own zone, all copied off a confirmation — `JourneyBuilder`
+      parses a pasted email, which is both faster and honest about the source.

@@ -4,7 +4,10 @@
 import { supabase } from '@/lib/supabase/client'
 import { toAppError, unwrap, unwrapList, unwrapMaybe } from '@/lib/errors'
 import type { UpdateDto } from '@/types/database'
+import { generateToken, hashToken, tokenPrefix } from '@/lib/tokens'
 import type {
+  AccessToken,
+  AccessTokenInput,
   CoupleSettings,
   Invite,
   InviteInput,
@@ -156,4 +159,72 @@ export async function acceptInvite(code: string): Promise<string> {
   const { data, error } = await supabase.rpc('join_couple', { code })
   if (error) throw toAppError(error)
   return data as string
+}
+
+// ---------------------------------------------------------------------------
+// Personal access tokens — credentials for an assistant, not a session to share
+// ---------------------------------------------------------------------------
+
+const TOKEN_COLUMNS = 'id, name, prefix, modules, created_at, last_used_at, expires_at, revoked_at'
+
+export async function listAccessTokens(): Promise<AccessToken[]> {
+  // RLS narrows this to the caller's own rows; `token_hash` is not in the
+  // column list and could not be selected even if it were.
+  return unwrapList(
+    await supabase
+      .from('access_tokens')
+      .select(TOKEN_COLUMNS)
+      .is('revoked_at', null)
+      .order('created_at', { ascending: false }),
+  )
+}
+
+/**
+ * Mint a token.
+ *
+ * The raw value is generated here, in the browser, and only its hash is sent.
+ * That is why this returns it: the caller has the one copy that will ever
+ * exist, and if it is not shown to the person now it is gone.
+ */
+export async function createAccessToken(
+  input: AccessTokenInput,
+  userId: string,
+): Promise<{ token: AccessToken; raw: string }> {
+  const raw = generateToken()
+
+  const expiresAt = input.expiresInDays
+    ? new Date(Date.now() + input.expiresInDays * 86_400_000).toISOString()
+    : null
+
+  const token = unwrap(
+    await supabase
+      .from('access_tokens')
+      .insert({
+        user_id: userId,
+        name: input.name.trim(),
+        token_hash: await hashToken(raw),
+        prefix: tokenPrefix(raw),
+        modules: input.modules,
+        expires_at: expiresAt,
+      })
+      .select(TOKEN_COLUMNS)
+      .single(),
+  )
+
+  return { token, raw }
+}
+
+/**
+ * Revoke, rather than delete.
+ *
+ * The row stays so `last_used_at` stays: someone revoking a token they think
+ * was copied wants to see whether it was used, and deleting the evidence at
+ * the moment of suspicion is the wrong instinct.
+ */
+export async function revokeAccessToken(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('access_tokens')
+    .update({ revoked_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw toAppError(error)
 }

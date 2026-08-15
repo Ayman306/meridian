@@ -20,8 +20,15 @@ import { EmptyState, ErrorState, SkeletonList } from '@/components/common/states
 import { formatInZone, todayIn } from '@/lib/dates'
 import { cn } from '@/lib/utils'
 import { useCouple } from '@/providers/CoupleProvider'
-import { describePrediction, cycleLengths, periodLength } from '../logic'
-import { useCycles, useDeleteCycle, useLogCycle, usePrediction } from '../hooks'
+import {
+  FERTILITY_DISCLAIMER,
+  cycleLengths,
+  describeFertility,
+  describePrediction,
+  periodLength,
+  predictFertility,
+} from '../logic'
+import { useCycles, useDeleteCycle, useLogCycle, usePrediction, useUpdateCycle } from '../hooks'
 import type { Flow } from '../types'
 
 const FLOWS: Flow[] = ['light', 'medium', 'heavy']
@@ -38,6 +45,7 @@ export function CyclePanel({
   const cycles = useCycles(ownerId)
   const prediction = usePrediction(ownerId)
   const log = useLogCycle()
+  const update = useUpdateCycle()
   const remove = useDeleteCycle()
 
   const [adding, setAdding] = useState(false)
@@ -50,6 +58,8 @@ export function CyclePanel({
 
   const rows = cycles.data ?? []
   const lengths = cycleLengths(rows)
+  const fertility = predictFertility(prediction, rows)
+  const latest = rows[0] ?? null
 
   return (
     <div className="space-y-4">
@@ -64,10 +74,45 @@ export function CyclePanel({
           </p>
         )}
         <p className="pt-1 text-xs text-muted-foreground">
-          An estimate from what has been logged. It is not medical advice, and it says nothing
-          about fertility.
+          An estimate from what has been logged, not medical advice.
         </p>
       </Card>
+
+      {/* The fertile window. Calendar arithmetic, labelled as such in every
+          branch, and never framed as contraception or as advice on conceiving
+          — those are regulated claims and this app does not make them. */}
+      {fertility && (
+        <Card className="space-y-2 p-5">
+          <h3 className="text-sm font-medium">Fertile window</h3>
+          <p className="text-sm text-muted-foreground">{describeFertility(fertility)}</p>
+
+          {!readOnly && latest && (
+            <div className="space-y-1 border-t border-border pt-3">
+              <label htmlFor="ovulation-on" className="text-sm">
+                Recorded ovulation for the cycle starting {latest.started_on}
+              </label>
+              <Input
+                id="ovulation-on"
+                type="date"
+                min={latest.started_on}
+                defaultValue={latest.ovulation_on ?? ''}
+                onBlur={(e) => {
+                  const value = e.target.value || null
+                  if (value !== (latest.ovulation_on ?? null)) {
+                    update.mutate({ id: latest.id, patch: { ovulation_on: value } })
+                  }
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                If you tested or took your temperature, put the day here. What you record replaces
+                what the app worked out, and the next estimate learns from it.
+              </p>
+            </div>
+          )}
+
+          <p className="pt-1 text-xs text-muted-foreground">{FERTILITY_DISCLAIMER}</p>
+        </Card>
+      )}
 
       {!readOnly && (
         <>

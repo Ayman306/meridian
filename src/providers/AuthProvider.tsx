@@ -5,12 +5,14 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase/client'
 import { queryClient } from '@/lib/queryClient'
+import { identityChanged } from '@/modules/auth/logic'
 import * as authApi from '@/modules/auth/api'
 
 interface AuthContextValue {
@@ -27,22 +29,40 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  // Who the cache currently belongs to. A ref rather than state because it is
+  // read and written inside the subscription callback and must not schedule a
+  // render of its own.
+  const cachedUserId = useRef<string | null>(null)
 
   useEffect(() => {
     let active = true
 
     supabase.auth.getSession().then(({ data }) => {
       if (!active) return
+      cachedUserId.current = data.session?.user.id ?? null
       setSession(data.session)
       setIsLoading(false)
     })
 
-    const { data: sub } = supabase.auth.onAuthStateChange((event, next) => {
-      setSession(next)
-      // A different user signing in must never see the previous user's cache.
-      if (event === 'SIGNED_OUT' || event === 'SIGNED_IN') {
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
+      const nextUserId = next?.user.id ?? null
+
+      // A different user must never see the previous user's cache. Keyed on the
+      // identity rather than the event name — see `identityChanged`, and note
+      // that supabase-js fires SIGNED_IN on every tab focus. Clearing on the
+      // event emptied the whole cache each time the tab was switched away from
+      // and back, which put every screen into its loading state and read as the
+      // app spontaneously reloading.
+      if (identityChanged(cachedUserId.current, nextUserId)) {
+        cachedUserId.current = nextUserId
         queryClient.clear()
       }
+
+      // Hold the previous object when nothing material moved, so a focus event
+      // does not re-render every consumer of this context for no reason.
+      setSession((prev) =>
+        prev?.user.id === nextUserId && prev?.access_token === next?.access_token ? prev : next,
+      )
     })
 
     return () => {

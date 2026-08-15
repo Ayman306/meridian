@@ -1,9 +1,12 @@
 /** Public surface of the settings module. Other modules import only from here. */
 export { SettingsPage } from './pages/SettingsPage'
 export { AccessPanel } from './components/AccessPanel'
+export { AssistantsPanel } from './components/AssistantsPanel'
 export {
+  useAccessTokens,
   useAcceptInvite,
   useCoupleSettings,
+  useCreateAccessToken,
   useCreateInvite,
   useInvites,
   useMyAccess,
@@ -26,4 +29,12 @@ export {
   normaliseGrants,
   visibleModules,
 } from './logic'
-export type { MemberRole, ModuleName, Member, CoupleSettings, UserSettings } from './types'
+export type {
+  AccessToken,
+  AccessTokenInput,
+  MemberRole,
+  ModuleName,
+  Member,
+  CoupleSettings,
+  UserSettings,
+} from './types'

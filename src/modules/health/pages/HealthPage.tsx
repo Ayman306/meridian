@@ -24,7 +24,7 @@ import { CyclePanel } from '../components/CyclePanel'
 import { MedicationsPanel } from '../components/MedicationsPanel'
 import { SharingPanel } from '../components/SharingPanel'
 import { PartnerView } from '../components/PartnerView'
-import { HEALTH_DISCLAIMER } from '../logic'
+import { HEALTH_DISCLAIMER, showsCycle } from '../logic'
 import { useDeleteAllHealthData } from '../hooks'
 import * as api from '../api'
 
@@ -39,10 +39,16 @@ const TABS: { value: Tab; label: string }[] = [
 
 export function HealthPage() {
   const { user } = useAuth()
-  const { partnerRef, isSolo } = useCouple()
+  const { self, partnerRef, isSolo } = useCouple()
   const deleteAll = useDeleteAllHealthData()
 
-  const [tab, setTab] = useState<Tab>('cycle')
+  // Cycle tracking is shown by default to someone who said female, and either
+  // way an explicit choice in Settings wins. Showing period tracking to
+  // somebody who does not menstruate is noise; hiding it from somebody who
+  // wants it is worse, so it is a default rather than a rule.
+  const cycle = showsCycle(self)
+
+  const [tab, setTab] = useState<Tab>(cycle ? 'cycle' : 'records')
   const [confirming, setConfirming] = useState(false)
 
   if (!user) return <EmptyState title="Sign in to see this" />
@@ -64,8 +70,12 @@ export function HealthPage() {
         description="Yours. Nothing here is shared until you share it."
       />
 
-      <div className="flex gap-1 overflow-x-auto border-b border-border" role="tablist">
-        {TABS.filter((t) => t.value !== 'partner' || (!isSolo && partnerRef)).map((option) => (
+      <div className="flex gap-1 overflow-x-auto border-b border-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="tablist">
+        {TABS.filter(
+          (t) =>
+            (t.value !== 'partner' || (!isSolo && partnerRef)) &&
+            (t.value !== 'cycle' || cycle),
+        ).map((option) => (
           <button
             key={option.value}
             role="tab"
@@ -83,7 +93,7 @@ export function HealthPage() {
         ))}
       </div>
 
-      {tab === 'cycle' && <CyclePanel ownerId={user.id} />}
+      {tab === 'cycle' && cycle && <CyclePanel ownerId={user.id} />}
       {tab === 'records' && <MedicationsPanel ownerId={user.id} />}
       {tab === 'sharing' && <SharingPanel />}
       {tab === 'partner' && partnerRef && <PartnerView partnerId={partnerRef.id} name={partnerRef.displayName} />}

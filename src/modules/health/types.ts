@@ -50,3 +50,24 @@ export interface SupplyCheck {
   /** False when the record carries no numbers to work from. */
   computable: boolean
 }
+
+/**
+ * An estimated fertile window. Always an estimate — there is no branch of
+ * `predictFertility` that returns a measurement, because the app has no way to
+ * measure ovulation.
+ */
+export interface FertilityWindow {
+  ovulation: DateOnly
+  fertileFrom: DateOnly
+  fertileTo: DateOnly
+  /** Inherited from the cycle prediction. A wide cycle means a wide window. */
+  variance: number
+  /** Whether the luteal length came from a recorded ovulation or the default. */
+  basedOn: 'observed' | 'estimated'
+  lutealDays: number
+  /** Always true. */
+  isEstimate: true
+}
+
+/** Whether the cycle section applies to this person. */
+export type CycleVisibility = 'shown' | 'hidden'

@@ -20,15 +20,16 @@ import { useAuth } from '@/providers/AuthProvider'
 import { useAccess } from '@/providers/AccessProvider'
 import { useTheme } from '@/providers/ThemeProvider'
 import { CurrencyPicker } from '@/modules/budget'
-import { useLeaveCouple } from '@/modules/auth'
+import { useLeaveCouple, useUpdateProfile } from '@/modules/auth'
 import { AccessPanel } from '../components/AccessPanel'
+import { AssistantsPanel } from '../components/AssistantsPanel'
 import { useCoupleSettings, useUpdateCoupleSettings, useUpdateUserSettings, useUserSettings } from '../hooks'
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 export function SettingsPage() {
   const router = useRouter()
-  const { couple, selfRef, partnerRef, isSolo } = useCouple()
+  const { couple, self, selfRef, partnerRef, isSolo } = useCouple()
   const { signOut } = useAuth()
   const { isOwning } = useAccess()
   const { theme, setTheme } = useTheme()
@@ -38,6 +39,7 @@ export function SettingsPage() {
   const updateCouple = useUpdateCoupleSettings()
   const updateUser = useUpdateUserSettings()
   const leave = useLeaveCouple()
+  const updateProfile = useUpdateProfile()
 
   const [leaving, setLeaving] = useState(false)
 
@@ -67,6 +69,17 @@ export function SettingsPage() {
         ) : (
           <AccessPanel canManage={isOwning} />
         )}
+      </section>
+
+      {/* ----------------------------------------------------------------
+          Tokens are personal rather than shared, so this sits outside the
+          solo/paired branch above: they belong to whoever is signed in, and
+          a partner cannot see or revoke them.                             */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Connected assistants
+        </h2>
+        <AssistantsPanel />
       </section>
 
       {/* ---------------------------------------------------------------- */}
@@ -174,6 +187,45 @@ export function SettingsPage() {
           Yours only
         </h2>
         <Card className="space-y-4 p-5">
+          <Row
+            label="Gender"
+            hint="Sets whether cycle tracking appears. You can override that below either way."
+          >
+            <select
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              value={self?.gender ?? ''}
+              aria-label="Gender"
+              onChange={(e) =>
+                updateProfile.mutate({ gender: e.target.value || null })
+              }
+            >
+              <option value="">Not said</option>
+              <option value="female">Female</option>
+              <option value="male">Male</option>
+              <option value="other">Other</option>
+              <option value="prefer_not_to_say">Prefer not to say</option>
+            </select>
+          </Row>
+
+          <Row
+            label="Track my cycle"
+            hint="On by default if you said female. Your choice here always wins — nobody should have this decided for them."
+          >
+            <Choice
+              value={self?.tracks_cycle === null || self?.tracks_cycle === undefined ? 'default' : self.tracks_cycle ? 'on' : 'off'}
+              options={[
+                { value: 'default', label: 'Default' },
+                { value: 'on', label: 'On' },
+                { value: 'off', label: 'Off' },
+              ]}
+              onChange={(v) =>
+                updateProfile.mutate({
+                  tracks_cycle: v === 'default' ? null : v === 'on',
+                })
+              }
+            />
+          </Row>
+
           <Row label="Theme">
             <Choice
               value={theme}

@@ -128,14 +128,14 @@ export function MedicationsPanel({
         </Card>
       )}
 
-      <div className="flex gap-1 border-b border-border" role="tablist">
+      <div className="flex gap-1 overflow-x-auto border-b border-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="tablist">
         {KINDS.map((option) => (
           <button
             key={option.value}
             role="tab"
             aria-selected={kind === option.value}
             className={cn(
-              '-mb-px border-b-2 px-3 py-2 text-sm',
+              '-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm',
               kind === option.value
                 ? 'border-accent font-medium'
                 : 'border-transparent text-muted-foreground hover:text-foreground',

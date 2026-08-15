@@ -22,6 +22,9 @@
 --   supabase/migrations/0014_health.sql
 --   supabase/migrations/0015_scheduling.sql
 --   supabase/migrations/0016_airports.sql
+--   supabase/migrations/0017_cycle_tracking.sql
+--   supabase/migrations/0018_provider_quota.sql
+--   supabase/migrations/0019_access_tokens.sql
 --
 -- Safe to re-run: every statement is idempotent or uses "or replace".
 -- =============================================================================
@@ -4439,4 +4442,225 @@ insert into public.airports (iata, icao, name, city, country_code, lat, lng, tim
   ('PER','YPPH','Perth','Perth','AU',-31.9403,115.9670,'Australia/Perth'),
   ('AKL','NZAA','Auckland','Auckland','NZ',-37.0082,174.7850,'Pacific/Auckland')
 on conflict (iata) do nothing;
+
+
+-- ===========================================================================
+-- 0017_cycle_tracking.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0017_cycle_tracking — who sees the cycle section, and what it can predict.
+--
+-- Two changes, and the second one needs stating carefully.
+--
+-- **Who sees it.** The cycle section was shown to everybody, which is noise
+-- for anyone who does not menstruate. `profiles.gender` decides the default.
+-- But gender is not the same question as "do you want to track this" — a woman
+-- past menopause, on continuous contraception, or simply uninterested should be
+-- able to turn it off, and somebody the default would hide it from should be
+-- able to turn it on. So `tracks_cycle` is a nullable override: null means
+-- "follow the default", and an explicit true or false always wins.
+--
+-- **What it predicts.** Spec 12.2 rules out fertility guidance, and this does
+-- not add any. What it adds is the *estimated* fertile window and ovulation
+-- day that every mainstream cycle app shows, computed as calendar arithmetic
+-- from logged cycles and labelled as an estimate everywhere it appears.
+--
+-- The distinction the code holds to:
+--   - It never says a day is safe, and never mentions contraception.
+--   - It never says a day is good for conceiving.
+--   - It reports what the arithmetic says, with its variance, and stops.
+--
+-- Calendar arithmetic is not a measurement of ovulation. Ovulation is observed
+-- with basal temperature or an LH test, which is why `ovulation_on` exists on
+-- the log: when she knows, what she knows replaces what the app guessed, for
+-- that cycle and as evidence for the next prediction.
+-- =============================================================================
+
+alter table public.profiles
+  add column if not exists gender       text,
+  add column if not exists tracks_cycle boolean;
+
+alter table public.profiles drop constraint if exists valid_gender;
+alter table public.profiles add constraint valid_gender
+  check (gender is null or gender in ('female', 'male', 'other', 'prefer_not_to_say'));
+
+comment on column public.profiles.tracks_cycle is
+  'Null follows the gender default. True or false is an explicit choice and always wins.';
+
+-- =============================================================================
+-- Observations on a cycle.
+--
+-- `ovulation_on` is the day ovulation was actually observed — a temperature
+-- shift, a positive test — as opposed to the day the arithmetic guessed. When
+-- present it replaces the estimate for that cycle, and it is what the next
+-- estimate learns its luteal length from.
+--
+-- `luteal_days` is per-cycle rather than per-person because it varies, and
+-- because a person who has measured it once should not have that number
+-- silently applied to a cycle it did not come from.
+-- =============================================================================
+alter table public.cycle_logs
+  add column if not exists ovulation_on date,
+  add column if not exists luteal_days  int,
+  -- Free text she writes, kept separate from `notes` so the notes field stays
+  -- what it was and this can be shown beside the fertile window.
+  add column if not exists fertility_note text;
+
+alter table public.cycle_logs drop constraint if exists valid_luteal;
+alter table public.cycle_logs add constraint valid_luteal
+  check (luteal_days is null or luteal_days between 7 and 20);
+
+-- Ovulation belongs to the cycle that started on `started_on`, so it cannot
+-- precede it. The upper bound is generous on purpose: long and irregular
+-- cycles are exactly the ones this has to keep working for.
+alter table public.cycle_logs drop constraint if exists valid_ovulation;
+alter table public.cycle_logs add constraint valid_ovulation
+  check (
+    ovulation_on is null
+    or (ovulation_on >= started_on and ovulation_on <= started_on + 90)
+  );
+
+
+-- ===========================================================================
+-- 0018_provider_quota.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0018_provider_quota — the provider's own count, not just ours.
+--
+-- `api_usage` records every call this app makes, and the budget has been
+-- enforced from it since 0010. That is a good counter and it is not the same
+-- as the truth: it misses a call that reached AeroDataBox and then failed on
+-- our side before it was recorded, it misses anything the key is used for
+-- outside this app, and it starts at zero if the table is ever cleared.
+--
+-- AeroDataBox publishes what is actually left at `/subscriptions/balance`.
+-- This table caches that answer so the guard can use the authoritative number
+-- while calling for it rarely.
+--
+-- Rarely matters. The balance endpoint may itself count against the
+-- subscription — the documentation does not promise otherwise — so it is
+-- checked only when our own counter says we are near the ceiling, and the
+-- answer is cached for six hours. In normal operation that is zero extra calls
+-- a month; at worst it is about four a day, and only in the days where the
+-- allowance is nearly gone anyway.
+-- =============================================================================
+create table if not exists public.provider_quota (
+  provider     text primary key,
+  -- What the provider says is left. Null when never successfully read.
+  remaining    int,
+  -- What the provider says the total is, in case the plan changes under us.
+  total        int,
+  checked_at   timestamptz not null default now(),
+  -- The last error, so a silently failing balance check is visible rather than
+  -- looking like an absent one.
+  last_error   text,
+  constraint valid_provider check (provider in ('aerodatabox', 'opensky'))
+);
+
+alter table public.provider_quota enable row level security;
+
+-- Read-only to signed-in users so the settings screen can show what is left.
+-- Written only by the service role, from the Route Handlers.
+drop policy if exists "signed in read" on public.provider_quota;
+create policy "signed in read" on public.provider_quota
+  for select using (auth.uid() is not null);
+
+insert into public.provider_quota (provider, remaining, total)
+values ('aerodatabox', null, null), ('opensky', null, null)
+on conflict (provider) do nothing;
+
+
+-- ===========================================================================
+-- 0019_access_tokens.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0019_access_tokens — personal access tokens, so an AI assistant can hold a
+-- credential of its own instead of borrowing a browser session.
+--
+-- The shape of the problem: an MCP server runs outside the browser and needs to
+-- act as one person, against their data, with RLS still doing the enforcing.
+-- Three ways that could have gone, and why this is the one:
+--
+--   1. Hand it the service-role key. Bypasses RLS entirely, which would make
+--      application code the only thing standing between a prompt-injected
+--      instruction and every couple's rows. Refused — non-negotiable #1.
+--   2. Copy a browser refresh token out of devtools. Works, but it is the full
+--      session: everything the person can do, no scope, no expiry anyone can
+--      see, and revoking it means signing out everywhere.
+--   3. This. A token minted on purpose, named, scoped to a subset of modules,
+--      revocable on its own, and exchanged for a *short-lived user JWT* that
+--      PostgREST evaluates under the ordinary policies.
+--
+-- The exchange is the important part. This table never grants data access. It
+-- answers one question — "which user is this token, and what may it see" — and
+-- the answer becomes a ten-minute JWT with that user's `sub`. Every subsequent
+-- read is the same query the browser would make, judged by the same policy. A
+-- token cannot reach another couple's trips because `is_couple_member` says so,
+-- not because a Route Handler remembered to filter.
+--
+-- Only the SHA-256 of a token is stored, so a leak of this table is not a leak
+-- of anybody's credentials — the same reason password tables hold hashes. The
+-- raw token is shown once, at creation, and is unrecoverable afterwards.
+-- =============================================================================
+create table if not exists public.access_tokens (
+  id           uuid primary key default gen_random_uuid(),
+  user_id      uuid not null references auth.users(id) on delete cascade,
+  -- What it is for, in the owner's words: "Claude on my laptop".
+  name         text not null,
+  -- SHA-256 hex of the raw token. Never the token.
+  token_hash   text not null unique,
+  -- The first few characters, so a list of tokens is distinguishable without
+  -- being usable. Displayed as `mrd_3f8a…`.
+  prefix       text not null,
+  -- Which modules this token may reach. A subset of `all_modules()`; the
+  -- server refuses to build tools outside it. Narrower than the person's own
+  -- access, never wider — a token cannot grant what its owner does not have,
+  -- because RLS still answers to the owner's id.
+  modules      text[] not null default '{}',
+  created_at   timestamptz not null default now(),
+  -- Set on every successful exchange, so an unused token is visibly unused and
+  -- a stolen one shows activity its owner did not cause.
+  last_used_at timestamptz,
+  expires_at   timestamptz,
+  revoked_at   timestamptz,
+  constraint name_not_blank check (length(btrim(name)) > 0)
+);
+
+create index if not exists access_tokens_user_idx
+  on public.access_tokens (user_id)
+  where revoked_at is null;
+
+alter table public.access_tokens enable row level security;
+
+-- Owner-scoped, like health. A partner has no business listing the credentials
+-- on somebody else's account, and there is no consent path that would change
+-- that: this is not shared data, it is somebody's keys.
+drop policy if exists "owner only" on public.access_tokens;
+create policy "owner only" on public.access_tokens
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Column-level enforcement, not a convention the next screen has to remember.
+-- The owner may list their tokens; the owner may not read the hashes back.
+-- Brute-forcing a 256-bit random token from its SHA-256 is not a practical
+-- attack, but a hash nobody needs to read is a hash nobody should be handed.
+--
+-- The table-level grant has to go first. `revoke select (token_hash)` on its
+-- own is silently useless here: default privileges (and Supabase's own grants)
+-- hand `authenticated` a table-wide SELECT, and a table-level privilege covers
+-- every column regardless of what was revoked column-by-column. So the whole
+-- grant is withdrawn and the readable columns are given back by name.
+--
+-- INSERT stays table-wide on purpose — the browser has to write `token_hash`,
+-- it just may never read one back.
+revoke select on public.access_tokens from authenticated;
+grant select (
+  id, user_id, name, prefix, modules, created_at, last_used_at, expires_at, revoked_at
+) on public.access_tokens to authenticated;
+
+-- The exchange endpoint verifies a presented token with the service role, which
+-- is the one sanctioned use of it: establishing who is calling, before any data
+-- is touched. Everything after that runs as the user.
 

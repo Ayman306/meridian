@@ -168,7 +168,10 @@ export function TripDetailPage({ children }: { children: React.ReactNode }) {
         to={trip.date_precision === 'exact' ? trip.end_date : null}
       />
 
-      <nav className="flex gap-1 border-b border-border" aria-label="Trip sections">
+      <nav
+        className="flex gap-1 overflow-x-auto border-b border-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        aria-label="Trip sections"
+      >
         {TABS.map((tab) => {
           const href = `/trips/${id}/${tab.segment}`
           const active = pathname === href
@@ -178,7 +181,7 @@ export function TripDetailPage({ children }: { children: React.ReactNode }) {
               href={href}
               aria-current={active ? 'page' : undefined}
               className={cn(
-                '-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors',
+                '-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors',
                 active
                   ? 'border-foreground text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground',

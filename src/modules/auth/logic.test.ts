@@ -3,6 +3,7 @@ import {
   accentCollides,
   describeInviteExpiry,
   generateInviteCode,
+  identityChanged,
   isInviteExpired,
   isPlausibleInviteCode,
   needsProfileSetup,
@@ -14,6 +15,8 @@ import { INVITE_ALPHABET } from '@/lib/constants'
 import type { Profile } from '@/types/domain'
 
 const profile = (over: Partial<Profile> = {}): Profile => ({
+  gender: null,
+  tracks_cycle: null,
   id: 'u1',
   display_name: 'Sam',
   avatar_url: null,
@@ -129,5 +132,31 @@ describe('post-sign-in redirect target', () => {
     expect(safeRedirectPath('//evil.example')).toBe('/')
     expect(safeRedirectPath('/\\evil.example')).toBe('/')
     expect(safeRedirectPath('trips')).toBe('/')
+  })
+})
+
+describe('when the query cache belongs to somebody else', () => {
+  it('holds the cache when the same person comes back to the tab', () => {
+    // The regression this exists for: supabase-js emits SIGNED_IN from
+    // `_recoverAndRefresh` on every visibilitychange, and again over its
+    // cross-tab BroadcastChannel. Clearing on the event wiped every query each
+    // time the tab was switched, which looked like the app reloading itself.
+    expect(identityChanged('user-a', 'user-a')).toBe(false)
+  })
+
+  it('holds the cache while signed out and staying signed out', () => {
+    expect(identityChanged(null, null)).toBe(false)
+  })
+
+  it('clears when somebody signs in', () => {
+    expect(identityChanged(null, 'user-a')).toBe(true)
+  })
+
+  it('clears when somebody signs out', () => {
+    expect(identityChanged('user-a', null)).toBe(true)
+  })
+
+  it('clears when a different account takes over the tab', () => {
+    expect(identityChanged('user-a', 'user-b')).toBe(true)
   })
 })

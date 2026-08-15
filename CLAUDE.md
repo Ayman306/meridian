@@ -10,6 +10,7 @@ Travel planning for long-distance couples. Next.js 16 (App Router) + Supabase, f
 | `docs/SETUP.md` | How to stand up Supabase and Google sign-in. |
 | `docs/MEMORY.md` | Application memory: phase status, decisions, deviations, open questions. Update it every phase. |
 | `docs/PHASES.md` | The phase plan and what "done" means for each. |
+| `mcp/README.md` | The MCP server: how a personal access token works, and what a tool may never reach. |
 
 ## The rules that are not negotiable
 
@@ -55,6 +56,7 @@ These come from the spec (Part 15, "Non-negotiables") and apply to every change:
 
 ```bash
 npm run dev         # next dev
+npm run mcp         # the MCP server, over stdio
 npm run typecheck   # tsc --noEmit
 npm run lint
 npm run test:run    # vitest, single pass
