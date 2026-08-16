@@ -78,6 +78,7 @@ export const qk = {
   invites: (coupleId: string) => ['invites', coupleId] as const,
   myModules: ['my-modules'] as const,
   accessTokens: (userId: string) => ['access-tokens', userId] as const,
+  pushState: (userId: string) => ['push-state', userId] as const,
 
   healthConsents: ['health-consents'] as const,
   cycles: (ownerId: string) => ['cycles', ownerId] as const,

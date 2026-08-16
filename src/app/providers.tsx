@@ -7,6 +7,7 @@ import { CoupleProvider } from '@/providers/CoupleProvider'
 import { AccessProvider } from '@/providers/AccessProvider'
 import { ThemeProvider } from '@/providers/ThemeProvider'
 import { ErrorBoundary } from '@/components/common/ErrorBoundary'
+import { PwaProvider } from '@/providers/PwaProvider'
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
@@ -15,7 +16,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <ThemeProvider>
           <AuthProvider>
             <CoupleProvider>
-              <AccessProvider>{children}</AccessProvider>
+              <AccessProvider>
+                <PwaProvider>{children}</PwaProvider>
+              </AccessProvider>
             </CoupleProvider>
           </AuthProvider>
         </ThemeProvider>

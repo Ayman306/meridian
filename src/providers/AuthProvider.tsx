@@ -13,6 +13,7 @@ import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase/client'
 import { queryClient } from '@/lib/queryClient'
 import { identityChanged } from '@/modules/auth/logic'
+import { clearServiceWorkerCaches } from '@/lib/pwa/register'
 import * as authApi from '@/modules/auth/api'
 
 interface AuthContextValue {
@@ -80,6 +81,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut: async () => {
         await authApi.signOut()
         queryClient.clear()
+        // Nothing user-specific is in the service worker's caches by design,
+        // but a device changing hands should not keep even a shell. Failing
+        // here must not block the sign-out itself.
+        void clearServiceWorkerCaches().catch(() => {})
       },
     }),
     [session, isLoading],

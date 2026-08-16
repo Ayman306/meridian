@@ -5,6 +5,12 @@ import { qk } from '@/lib/queryClient'
 import { useAuth } from '@/providers/AuthProvider'
 import { useCouple } from '@/providers/CoupleProvider'
 import type { UpdateDto } from '@/types/database'
+import {
+  currentSubscription,
+  pushAvailability,
+  subscribeToPush,
+  unsubscribeFromPush,
+} from '@/lib/push/client'
 import * as api from './api'
 import type { AccessTokenInput, InviteInput, MemberRole, ModuleName } from './types'
 
@@ -172,6 +178,62 @@ export function useRevokeAccessToken() {
     mutationFn: (id: string) => api.revokeAccessToken(id),
     onSuccess: () => {
       void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'access-tokens' })
+    },
+  })
+}
+
+/**
+ * This browser's push registration.
+ *
+ * Two sources have to agree: what the browser thinks it is subscribed to, and
+ * what the database has stored. They drift — a browser can silently drop a
+ * subscription, and a row can outlive the browser that made it — so the hook
+ * reports the browser as the truth and reconciles the row on change.
+ */
+export function usePushState() {
+  const { user } = useAuth()
+  return useQuery({
+    queryKey: qk.pushState(user?.id ?? 'anon'),
+    queryFn: async () => ({
+      availability: pushAvailability(),
+      subscription: await currentSubscription(),
+      devices: await api.countPushSubscriptions(),
+    }),
+    enabled: Boolean(user?.id),
+    // Permission can be changed in browser settings while the tab is open, and
+    // nothing notifies us when it is.
+    staleTime: 0,
+  })
+}
+
+export function useEnablePush() {
+  const qc = useQueryClient()
+  const { user } = useAuth()
+  return useMutation({
+    mutationFn: async () => {
+      const subscription = await subscribeToPush()
+      // Null means they declined the browser prompt. Not an error — just no.
+      if (!subscription) return false
+      await api.savePushSubscription(subscription, user!.id)
+      return true
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'push-state' })
+    },
+  })
+}
+
+export function useDisablePush() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      const endpoint = await unsubscribeFromPush()
+      // Delete the row even when the browser had nothing to unsubscribe: the
+      // row is the thing that causes sends, so it is the one that must go.
+      if (endpoint) await api.deletePushSubscription(endpoint)
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'push-state' })
     },
   })
 }

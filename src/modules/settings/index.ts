@@ -2,6 +2,7 @@
 export { SettingsPage } from './pages/SettingsPage'
 export { AccessPanel } from './components/AccessPanel'
 export { AssistantsPanel } from './components/AssistantsPanel'
+export { PushPanel } from './components/PushPanel'
 export {
   useAccessTokens,
   useAcceptInvite,

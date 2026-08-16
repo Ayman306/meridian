@@ -62,6 +62,7 @@ npm run lint
 npm run test:run    # vitest, single pass
 npm run db:test     # migrations + RLS assertions against a scratch Postgres
 npm run db:bundle   # regenerate supabase/setup.sql
+node scripts/build-icons.mjs  # regenerate the PWA icon set from one SVG
 npm run build
 ```
 

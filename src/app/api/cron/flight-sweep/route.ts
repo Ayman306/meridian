@@ -18,6 +18,8 @@ import { NextResponse } from 'next/server'
 import { createAdminSupabase } from '@/lib/supabase/server'
 import { assertCronRequest } from '@/lib/cron'
 import { refreshFlight } from '@/lib/flights/orchestrator'
+import { flightNotification } from '@/lib/flights/notify'
+import { sendPushTo } from '@/lib/push/server'
 import { toAppError } from '@/lib/errors'
 import type { FlightRow } from '@/modules/flights/types'
 
@@ -79,6 +81,11 @@ export async function POST(request: Request) {
     if (outcome.value.calls.position) positionCalls++
   }
 
+  // Notifications are sent after the sweep rather than inside `refreshFlight`,
+  // which stays a pure-ish data operation. A push that fails must never make a
+  // flight look un-refreshed.
+  const notified = await notifyOnChanges(admin, flights, outcomes)
+
   return NextResponse.json({
     ok: true,
     deactivated: deactivated ?? 0,
@@ -86,5 +93,61 @@ export async function POST(request: Request) {
     statusCalls,
     positionCalls,
     failed,
+    notified,
   })
+}
+
+/**
+ * Tell both people when a flight actually did something.
+ *
+ * Both, not just the traveller: the entire point of this app is that somebody
+ * in another time zone wants to know the other one is on the ground. Whether
+ * each of them wanted a flight notification is decided inside `sendPushTo`
+ * against their own `notify_flights`, so this does not need to ask.
+ */
+async function notifyOnChanges(
+  admin: ReturnType<typeof createAdminSupabase>,
+  before: FlightRow[],
+  outcomes: PromiseSettledResult<Awaited<ReturnType<typeof refreshFlight>>>[],
+): Promise<number> {
+  const messages: { coupleId: string; message: NonNullable<ReturnType<typeof flightNotification>> }[] = []
+
+  for (const [index, outcome] of outcomes.entries()) {
+    if (outcome.status !== 'fulfilled') continue
+    const previous = before[index]
+    if (!previous) continue
+
+    const message = flightNotification(previous, outcome.value.flight as FlightRow)
+    if (message) messages.push({ coupleId: previous.couple_id, message })
+  }
+
+  if (messages.length === 0) return 0
+
+  // One lookup for every couple involved rather than one per flight.
+  const coupleIds = [...new Set(messages.map((m) => m.coupleId))]
+  const { data: members } = await admin
+    .from('couple_members')
+    .select('couple_id, user_id')
+    .in('couple_id', coupleIds)
+
+  const byCouple = new Map<string, string[]>()
+  for (const member of members ?? []) {
+    const list = byCouple.get(member.couple_id) ?? []
+    list.push(member.user_id)
+    byCouple.set(member.couple_id, list)
+  }
+
+  let sent = 0
+  await Promise.all(
+    messages.flatMap(({ coupleId, message }) =>
+      (byCouple.get(coupleId) ?? []).map(async (userId) => {
+        // A push failure is logged inside sendPushTo and never thrown; the
+        // sweep's job is the data, and it has already succeeded by here.
+        const result = await sendPushTo(userId, 'flights', message)
+        sent += result.sent
+      }),
+    ),
+  )
+
+  return sent
 }
