@@ -86,7 +86,7 @@ allowed.
 And 0015 made it run unattended: the three sweeps are on pg_cron, and the
 dashboard finally fills the stay-allowance slot it reserved back in phase 5.
 
-Typecheck, lint, 641 unit tests, 206 database assertions and a production build
+Typecheck, lint, 689 unit tests, 206 database assertions and a production build
 pass.
 
 ### The two operator steps left
@@ -1186,6 +1186,99 @@ history rather than a secret, so it can be scoped to on purpose.
 Ten tools, five modules. No LLM key is needed anywhere in Meridian for this —
 the intelligence is the client's — so `NEXT_PUBLIC_ENABLE_AI=false` remains
 true and non-negotiable #8 holds for free.
+
+### D83 — The service worker caches shared bytes and nothing else
+
+Making this a PWA meant deciding what may live on a device, and the honest
+answer turned out to be narrower than the obvious one.
+
+**HTML pages are not cached.** Tempting, and wrong here: `/trips/[id]/money` is
+a Server Component that reads the trip server-side, so a page can carry one
+person's data in its markup. A Cache Storage bucket is per-origin, not
+per-account, so a cached page can outlive a sign-out and be served to whoever
+signs in next on a shared device. Navigations go to the network and fall back
+to `/offline` — which says the connection is gone rather than showing a plan
+that may have changed.
+
+Cached: `/_next/static/*` (content-hashed, so a URL never changes meaning),
+the icons, the manifest, the offline page. Never cached: anything on the
+Supabase host, `/api/*`, any URL carrying a `token`/signature parameter — those
+are the 300-second signed URLs from non-negotiable #3, and caching one keeps a
+credential alive past its window — any request with an `Authorization` header,
+and every non-GET.
+
+`sw.test.ts` loads the real `public/sw.js` in a VM and exercises its actual
+predicates, rather than re-implementing the deny-list in a test that would pass
+forever while the shipped worker drifted. A live Playwright run then asserted
+the same thing from the other end: after loading the app on three device
+profiles, no Supabase or `/api` entry existed in any cache.
+
+So offline is deliberately shallow. Real offline reads would need a per-account
+encrypted store, which is a different feature with different risks.
+
+### D84 — Installing is three cases, not a boolean
+
+There is no cross-browser way to offer an install. Chromium fires
+`beforeinstallprompt` and hands over a `prompt()`; Safari fires nothing and has
+no API, so installing means the user finding Share → Add to Home Screen; desktop
+Firefox does not install web apps at all. `installOffer` therefore returns
+`prompt`, `manual` or `hidden`, and the banner renders a button, instructions,
+or nothing.
+
+Shown once. Dismissal is remembered, but `installed` is checked first and wins,
+because the two can disagree — somebody who installed from the browser's own
+menu never touched our banner, and `appinstalled` is what catches that.
+
+Two detections that are easy to get wrong and are pinned by tests: an iPad has
+reported a desktop Safari UA since iPadOS 13, so without a touch-point check
+every iPad is told it cannot install; and Chrome and Firefox on iOS are WebKit
+underneath but their share sheets have no Add to Home Screen, so the
+instructions are shown only to Safari proper.
+
+### D85 — Installing the app exposed two layout bugs that a browser tab hid
+
+Neither was caused by this work; both would have shipped as "the installed app
+is broken".
+
+The mobile tab bar sat at `bottom-0` with no `env(safe-area-inset-bottom)`, so
+its last row rendered underneath the home indicator on any modern iPhone. In a
+browser tab the toolbar absorbs that strip, which is exactly why nobody had
+noticed — in standalone mode there is no toolbar.
+
+And `appleWebApp.statusBarStyle` was set to `black-translucent`, which hands the
+page the strip under the clock and requires every sticky header to add its own
+top inset. The header had none. Changed to `default`, which has iOS reserve the
+space — same result, nothing to get wrong.
+
+Also: Next 16 emits only the standardised `mobile-web-app-capable`, which Apple
+did not originally implement, so `apple-mobile-web-app-capable` is emitted
+alongside it via `metadata.other`. Without it an older iPhone opens the
+installed icon in a Safari window with the address bar still showing.
+
+The install banner is pinned above the tab bar via a `--bottom-nav-height`
+custom property that AppShell sets on `<html>` while mounted, rather than a
+hard-coded `4rem` — sign-in and the offline page have no tab bar, and a banner
+hovering over a phantom one looks broken.
+
+### D86 — A notification has to be worth the interruption
+
+Push finally has somewhere to go: `push_subscriptions` has existed since 0013
+with nothing sending to it. Consent is enforced inside `sendPushTo` against the
+`notify_*` columns rather than at each call site, so the only way to send
+something unwanted is to delete that check.
+
+The bar for sending is high on purpose. This app exists because two people are
+in different places, so a notification often arrives at four in the morning for
+one of them. `flightNotification` fires only on take-off, landing, diversion,
+cancellation, or a departure time moving by fifteen minutes or more — and it
+compares against what we previously believed rather than the schedule, so a
+flight already known to be an hour late does not re-notify for another two
+minutes. Everything else is visible in the app.
+
+Every message is tagged with the flight id, so three slips leave one
+notification showing the current answer rather than a history of the slippage.
+Endpoints returning 404 or 410 are deleted: the push service is saying that
+browser is gone, and retrying forever against it is the alternative.
 
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 

@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase/client'
 import { toAppError, unwrap, unwrapList, unwrapMaybe } from '@/lib/errors'
 import type { UpdateDto } from '@/types/database'
 import { generateToken, hashToken, tokenPrefix } from '@/lib/tokens'
+import type { StoredSubscription } from '@/lib/push/client'
 import type {
   AccessToken,
   AccessTokenInput,
@@ -227,4 +228,45 @@ export async function revokeAccessToken(id: string): Promise<void> {
     .update({ revoked_at: new Date().toISOString() })
     .eq('id', id)
   if (error) throw toAppError(error)
+}
+
+// ---------------------------------------------------------------------------
+// Push subscriptions — one row per browser, owned by the person using it
+// ---------------------------------------------------------------------------
+
+/**
+ * Register this browser for push.
+ *
+ * Upsert on `endpoint`, which is the table's unique key: re-subscribing the
+ * same browser must refresh the keys rather than collide, and a browser that
+ * rotated its subscription arrives with a new endpoint and gets a new row.
+ */
+export async function savePushSubscription(
+  subscription: StoredSubscription,
+  userId: string,
+): Promise<void> {
+  const { error } = await supabase.from('push_subscriptions').upsert(
+    {
+      user_id: userId,
+      endpoint: subscription.endpoint,
+      keys: subscription.keys,
+      user_agent: subscription.userAgent,
+    },
+    { onConflict: 'endpoint' },
+  )
+  if (error) throw toAppError(error)
+}
+
+export async function deletePushSubscription(endpoint: string): Promise<void> {
+  const { error } = await supabase.from('push_subscriptions').delete().eq('endpoint', endpoint)
+  if (error) throw toAppError(error)
+}
+
+/** How many browsers this person has registered. Shown in Settings. */
+export async function countPushSubscriptions(): Promise<number> {
+  const { count, error } = await supabase
+    .from('push_subscriptions')
+    .select('id', { count: 'exact', head: true })
+  if (error) throw toAppError(error)
+  return count ?? 0
 }

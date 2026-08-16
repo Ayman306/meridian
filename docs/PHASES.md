@@ -525,3 +525,13 @@ Everything below came from actually running the app rather than from the spec.
 - [ ] No flight-booking write tool. A booking is legs, directions and times in
       the airport's own zone, all copied off a confirmation — `JourneyBuilder`
       parses a pasted email, which is both faster and honest about the source.
+- [x] **Installable PWA** — manifest, icons, a service worker that caches only
+      shared bytes, an offline page, and an install banner shown once that
+      adapts to Chromium, iOS Safari and everything else. See D83–D85.
+- [x] **Web push**, wired to the flight sweep and gated on the `notify_*`
+      toggles that had been recorded since phase 13 with nothing reading them.
+      See D86.
+- [ ] Offline reads of the plan. Would need a per-account encrypted store —
+      a different feature with different risks than caching the shell.
+- [ ] Background Sync for writes made offline. Chromium only, so the app would
+      still need a fallback path.

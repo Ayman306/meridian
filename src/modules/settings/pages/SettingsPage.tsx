@@ -23,6 +23,7 @@ import { CurrencyPicker } from '@/modules/budget'
 import { useLeaveCouple, useUpdateProfile } from '@/modules/auth'
 import { AccessPanel } from '../components/AccessPanel'
 import { AssistantsPanel } from '../components/AssistantsPanel'
+import { PushPanel } from '../components/PushPanel'
 import { useCoupleSettings, useUpdateCoupleSettings, useUpdateUserSettings, useUserSettings } from '../hooks'
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -308,10 +309,7 @@ export function SettingsPage() {
               checked={us?.notify_daily_exchange ?? false}
               onChange={(v) => updateUser.mutate({ notify_daily_exchange: v })}
             />
-            <p className="pt-1 text-xs text-muted-foreground">
-              Nothing is sent yet — there is no push channel wired up. These are recorded so they
-              are yours from the day there is.
-            </p>
+            <PushPanel />
           </div>
         </Card>
       </section>

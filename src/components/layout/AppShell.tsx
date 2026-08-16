@@ -68,8 +68,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     activeRef.current?.scrollIntoView({ block: 'nearest', inline: 'center' })
   }, [pathname])
 
+  // Tells anything pinned to the bottom of the viewport that there is a tab
+  // bar in the way. Set on <html> rather than passed down, because the install
+  // banner is rendered by PwaProvider and is a sibling of this tree, not a
+  // descendant — a CSS variable on an ancestor would never reach it.
+  useEffect(() => {
+    document.documentElement.classList.add('has-bottom-nav')
+    return () => document.documentElement.classList.remove('has-bottom-nav')
+  }, [])
+
   return (
-    <div className="min-h-dvh pb-16 md:pb-0">
+    <div className="min-h-dvh pb-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom))]">
       <header className="sticky top-0 z-20 border-b border-border bg-background/85 backdrop-blur">
         <div className="container flex h-16 items-center justify-between gap-4">
           <div className="flex items-center gap-6">
@@ -110,8 +119,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <main className="container py-6">{children}</main>
 
+      {/* `env(safe-area-inset-bottom)` is not decoration: with viewport-fit set
+          to cover, the bar's last row otherwise sits underneath the home
+          indicator on any iPhone without a physical button. Invisible in a
+          browser tab, where the toolbar absorbs it, and obvious the moment the
+          app is installed and that toolbar is gone. */}
       <nav
-        className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
         aria-label="Main"
       >
         <div className="flex snap-x overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">

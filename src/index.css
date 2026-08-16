@@ -82,3 +82,30 @@
     font-variant-numeric: tabular-nums;
   }
 }
+
+@layer base {
+  /*
+   * How much the mobile tab bar occupies at the bottom of the viewport.
+   *
+   * Zero by default, because most of the app's chrome-less routes — sign in,
+   * pairing, the offline page — have no tab bar. AppShell sets
+   * `has-bottom-nav` on <html> while it is mounted, and anything that pins
+   * itself to the bottom (the install banner) reads this instead of hard-coding
+   * an offset it cannot know is right.
+   */
+  :root {
+    --bottom-nav-height: 0px;
+  }
+
+  html.has-bottom-nav {
+    --bottom-nav-height: 4rem;
+  }
+
+  /* The bar itself is `md:hidden`, so above that breakpoint there is nothing
+     to clear even on a route that renders AppShell. */
+  @media (min-width: 768px) {
+    html.has-bottom-nav {
+      --bottom-nav-height: 0px;
+    }
+  }
+}
