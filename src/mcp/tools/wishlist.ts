@@ -102,4 +102,68 @@ const addWishlistItem = defineTool({
   },
 })
 
-export const wishlistTools: AnyTool[] = [listWishlist, addWishlistItem]
+
+
+const voteOnWishlistItem = defineTool({
+  name: 'vote_on_wishlist_item',
+  module: 'wishlist',
+  title: 'Record your verdict on a saved place',
+  description:
+    'Record how keen YOU are on a saved place — yes, no or maybe. This is your own vote and can never be cast for your partner; the point of the two verdicts is that they are two people’s.',
+  readOnly: false,
+  inputSchema: z.object({
+    wishlist_id: z.string().uuid().describe('From list_wishlist.'),
+    verdict: z.enum(['yes', 'no', 'maybe']).describe('Only what the person actually said.'),
+  }),
+  async handler(ctx, input) {
+    requireCouple(ctx)
+
+    const { error } = await ctx.supabase.from('wishlist_verdicts').upsert(
+      {
+        wishlist_id: input.wishlist_id,
+        // Always the caller. A partner id here would let one person answer for
+        // both, which empties the feature of its meaning.
+        user_id: ctx.userId,
+        verdict: input.verdict,
+      },
+      { onConflict: 'wishlist_id,user_id' },
+    )
+    if (error) throw new Error(error.message)
+
+    return `Recorded your verdict: ${input.verdict}.`
+  },
+})
+
+const removeWishlistItem = defineTool({
+  name: 'remove_wishlist_item',
+  module: 'wishlist',
+  title: 'Remove a saved place',
+  description:
+    'Take a place off the wishlist. Soft-deleted, so it is recoverable in the app for thirty days.',
+  readOnly: false,
+  inputSchema: z.object({
+    wishlist_id: z.string().uuid().describe('From list_wishlist.'),
+  }),
+  async handler(ctx, input) {
+    requireCouple(ctx)
+
+    const { data, error } = await ctx.supabase
+      .from('wishlist_items')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', input.wishlist_id)
+      .is('deleted_at', null)
+      .select('title')
+      .maybeSingle()
+    if (error) throw new Error(error.message)
+    if (!data) return 'No saved place with that id, or it was already removed.'
+
+    return `Removed "${data.title}". Recoverable in the app for thirty days.`
+  },
+})
+
+export const wishlistTools: AnyTool[] = [
+  listWishlist,
+  addWishlistItem,
+  voteOnWishlistItem,
+  removeWishlistItem,
+]

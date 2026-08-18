@@ -182,16 +182,20 @@ describe('the registry itself', () => {
       'add_wishlist_item',
       'choose_destination',
       'create_trip',
+      'dismiss_suggestion',
       'log_cycle',
       'log_expense',
       'record_settlement',
       'remove_flight',
       'remove_itinerary_item',
+      'remove_wishlist_item',
+      'set_budget',
       'set_trip_day',
       'suggest_itinerary',
       'update_flight',
       'update_itinerary_item',
       'update_trip',
+      'vote_on_wishlist_item',
     ])
     expect(reads).toContain('list_trips')
   })

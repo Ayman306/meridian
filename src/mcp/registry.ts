@@ -42,6 +42,9 @@ import { destinationTools } from './tools/destinations'
 import { allowanceTools } from './tools/allowance'
 import { healthTools } from './tools/health'
 import { documentTools } from './tools/documents'
+import { galleryTools } from './tools/gallery'
+import { trayTools } from './tools/tray'
+import { dashboardTools } from './tools/dashboard'
 
 /**
  * Modules a token may reach only when its owner ticked them on purpose.
@@ -66,6 +69,9 @@ export const ALL_TOOLS: AnyTool[] = [
   ...flightTools,
   ...destinationTools,
   ...allowanceTools,
+  ...galleryTools,
+  ...trayTools,
+  ...dashboardTools,
   // Sensitive. Present in the registry, but never in a default scope — see
   // SENSITIVE_TOKEN_MODULES above.
   ...healthTools,

@@ -226,9 +226,88 @@ const recordSettlement = defineTool({
   },
 })
 
+
+
+const setBudget = defineTool({
+  name: 'set_budget',
+  module: 'money',
+  title: 'Set a budget',
+  description:
+    'Set a spending target for a trip, either for the whole trip or per week. Replaces any existing budget for the same trip, period and category.',
+  readOnly: false,
+  inputSchema: z.object({
+    trip_id: z.string().uuid().describe('From list_trips.'),
+    amount: z.number().positive().describe('In major units — 1500.00, not 150000.'),
+    currency: z.string().length(3).describe('ISO 4217, uppercase. Ask rather than assuming.'),
+    period: z
+      .enum(['trip', 'week'])
+      .default('trip')
+      .describe('`trip` is a total for the whole thing; `week` is a weekly rate.'),
+  }),
+  async handler(ctx, input) {
+    const coupleId = requireCouple(ctx)
+
+    // Replace rather than accumulate: setting a budget twice should leave one
+    // budget, not two that quietly sum.
+    const { error: clearError } = await ctx.supabase
+      .from('budgets')
+      .delete()
+      .eq('trip_id', input.trip_id)
+      .eq('period', input.period)
+      .is('category_id', null)
+    if (clearError) throw new Error(clearError.message)
+
+    const { data, error } = await ctx.supabase
+      .from('budgets')
+      .insert({
+        couple_id: coupleId,
+        trip_id: input.trip_id,
+        amount: input.amount,
+        currency: input.currency.toUpperCase(),
+        period: input.period,
+        created_by: ctx.userId,
+      })
+      .select('id')
+      .single()
+    if (error) throw new Error(error.message)
+
+    return `Set a ${input.period} budget of ${input.currency.toUpperCase()} ${input.amount.toFixed(2)} (${data.id}).`
+  },
+})
+
+const getBudgets = defineTool({
+  name: 'get_budgets',
+  module: 'money',
+  title: 'Get budgets',
+  description:
+    'The spending targets set for a trip. Compare against get_budget for what has actually been spent — this tool does not do that comparison, because the two can be in different currencies.',
+  readOnly: true,
+  inputSchema: z.object({
+    trip_id: z.string().uuid().describe('From list_trips.'),
+  }),
+  async handler(ctx, input) {
+    requireCouple(ctx)
+
+    const { data, error } = await ctx.supabase
+      .from('budgets')
+      .select('id, amount, currency, period, category_id')
+      .eq('trip_id', input.trip_id)
+    if (error) throw new Error(error.message)
+
+    const rows = data ?? []
+    if (rows.length === 0) return 'No budget set for this trip.'
+
+    return rows
+      .map((row) => `- ${row.period}: ${row.currency} ${Number(row.amount).toFixed(2)}`)
+      .join('\n')
+  },
+})
+
 export const budgetTools: AnyTool[] = [
   getBudget,
   logExpense,
   listSettlements,
   recordSettlement,
+  setBudget,
+  getBudgets,
 ]

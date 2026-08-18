@@ -46,18 +46,22 @@ If you would rather not put the token in a config file, write it to
 
 ## What it can do
 
-Thirty tools across eight modules.
+Thirty-nine tools across nine modules — every module the app has.
 
 | Module | Tools | Writes |
 | --- | --- | --- |
-| **trips** | `list_trips`, `get_trip`, `create_trip`, `update_trip`, `set_trip_day`, `get_itinerary`, `suggest_itinerary`, `add_itinerary_item`, `update_itinerary_item`, `remove_itinerary_item` | 7 of 10 |
-| **wishlist** | `list_wishlist`, `add_wishlist_item` | 1 of 2 |
-| **money** | `get_budget`, `log_expense`, `list_settlements`, `record_settlement` | 2 of 4 |
+| **trips** | `get_overview`, `list_trips`, `get_trip`, `create_trip`, `update_trip`, `set_trip_day`, `get_itinerary`, `suggest_itinerary`, `add_itinerary_item`, `update_itinerary_item`, `remove_itinerary_item`, `list_suggestions`, `dismiss_suggestion` | 8 of 13 |
+| **money** | `get_budget`, `log_expense`, `list_settlements`, `record_settlement`, `set_budget`, `get_budgets` | 3 of 6 |
 | **flights** | `list_flights`, `add_journey`, `update_flight`, `remove_flight` | 3 of 4 |
+| **wishlist** | `list_wishlist`, `add_wishlist_item`, `vote_on_wishlist_item`, `remove_wishlist_item` | 3 of 4 |
 | **destinations** | `list_destinations`, `add_destination`, `choose_destination` | 2 of 3 |
+| **photos** | `list_photos`, `list_albums` | read-only |
 | **allowance** | `list_allowance_rules`, `list_entries` | read-only |
 | **health** *(opt-in)* | `list_cycles`, `log_cycle`, `list_health_records`, `add_health_record` | 2 of 4 |
 | **documents** *(opt-in)* | `list_documents` | read-only |
+
+Start with `get_overview` for open questions — it answers in one call what
+otherwise takes four.
 
 ### A generated plan is not a dictated one
 
@@ -72,7 +76,19 @@ thing the person already decided, so `add_itinerary_item` writes it straight
 through. Looping that call to build a day is evading the rule, and the tool
 description says so.
 
+### No accept tool, on purpose
+
+`list_suggestions` shows what is waiting in the tray and `dismiss_suggestion`
+clears one out, but nothing accepts. An assistant that could both write a draft
+and accept it has a direct write to the itinerary with two extra steps — worse
+than an honest direct write, because it looks reviewed. Accepting happens in the
+app, by a person, looking at it.
+
 ### Read-only on purpose
+
+**Photos** are metadata only — captions, dates, favourites. Never the image and
+never a link: `path_original` is a key into a private bucket reached by signed
+URLs that expire in 300 seconds.
 
 **Allowance** rules are copied from official sources with a `verified_on` date.
 A Schengen rule rewritten from a model's memory is the confident, plausible,

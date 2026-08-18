@@ -1334,6 +1334,27 @@ trusted with. And there is no health delete tool at all —
 `delete_all_health_data()` is irreversible by design, and a tool for it would
 put total erasure one hallucinated call away.
 
+### D89 — Complete coverage, and the one tool deliberately still missing
+
+Thirty-nine tools over nine modules — every module the app has. The last gaps
+closed were photos, the suggestion tray from the reading side, wishlist
+verdicts, budgets, and a `get_overview` that leans on the same `dashboard()`
+RPC the home screen uses, so the assistant and the screen cannot drift about
+what is next.
+
+**There is no accept tool, and there will not be one.** `list_suggestions`
+shows what is waiting and `dismiss_suggestion` clears one out, but accepting is
+absent on purpose. A server that could both write a draft and accept it has a
+direct write to the itinerary with two extra steps — which is worse than an
+honest direct write, because the result looks reviewed. Dismissing is fine: the
+worst case is a suggestion nobody wanted going away, and it changes no plan.
+
+Two more deliberate omissions, for the same family of reason. `vote_on_wishlist_item`
+always votes as the caller and takes no user id — two verdicts exist precisely
+because they are two people's, and one that could answer for both empties the
+feature. And photos return captions and dates but never `path_original` or a
+signed URL, on the same 300-second argument as documents.
+
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 
 Supabase's linter, run against the live project, showed every helper and
