@@ -14,7 +14,7 @@ import { ALL_MODULES } from '@/modules/settings/logic'
 import {
   ALL_TOOLS,
   DEFAULT_TOKEN_MODULES,
-  FORBIDDEN_MODULES,
+  SENSITIVE_TOKEN_MODULES,
   GRANTABLE_MODULES,
   toolsFor,
 } from './registry'
@@ -27,59 +27,109 @@ function toolSources(): { file: string; source: string }[] {
     .map((file) => ({ file, source: readFileSync(join(TOOLS_DIR, file), 'utf8') }))
 }
 
-describe('what a token can never reach', () => {
-  it('registers no tool in a forbidden module', () => {
-    const offenders = ALL_TOOLS.filter((tool) =>
-      (FORBIDDEN_MODULES as string[]).includes(tool.module),
-    )
-    expect(offenders.map((t) => t.name)).toEqual([])
-  })
-
-  it('keeps health and documents forbidden', () => {
-    // Named explicitly rather than derived, so widening the list is a visible
-    // edit to this assertion and not a silent consequence of another change.
-    expect(FORBIDDEN_MODULES).toContain('health')
-    expect(FORBIDDEN_MODULES).toContain('documents')
-  })
-
-  it('never offers a forbidden module as grantable', () => {
-    for (const forbidden of FORBIDDEN_MODULES) {
-      expect(GRANTABLE_MODULES).not.toContain(forbidden)
-      expect(DEFAULT_TOKEN_MODULES).not.toContain(forbidden)
+describe('the sensitive modules', () => {
+  it('never puts health or documents in a default scope', () => {
+    // Named explicitly rather than derived, so widening this is a visible edit
+    // here and not a silent consequence of some other change.
+    expect(SENSITIVE_TOKEN_MODULES).toContain('health')
+    expect(SENSITIVE_TOKEN_MODULES).toContain('documents')
+    for (const sensitive of SENSITIVE_TOKEN_MODULES) {
+      expect(DEFAULT_TOKEN_MODULES).not.toContain(sensitive)
     }
   })
 
-  it('drops a forbidden module even when a token row somehow carries one', () => {
-    // Tokens outlive code. A row granting `health` must produce no health
-    // tools rather than an error that breaks every other call the token makes.
-    const tools = toolsFor(['trips', 'health', 'documents'])
-    expect(tools.every((t) => !(FORBIDDEN_MODULES as string[]).includes(t.module))).toBe(true)
-    expect(tools.length).toBeGreaterThan(0)
+  it('offers them only to a token that asked for them', () => {
+    expect(toolsFor(DEFAULT_TOKEN_MODULES).some((t) => t.module === 'health')).toBe(false)
+    expect(toolsFor(['trips']).some((t) => t.module === 'health')).toBe(false)
+    expect(toolsFor(['health']).length).toBeGreaterThan(0)
   })
 
-  it('names no health table anywhere in the tool layer', () => {
-    // The registry check above relies on tools declaring their module
-    // honestly. This one does not: a tool mislabelled `trips` that queried
-    // `cycle_logs` would pass every assertion above and fail this one.
-    for (const { file, source } of toolSources()) {
-      for (const table of ['cycle_logs', 'health_records', 'health_consents', 'documents']) {
-        expect(`${file}:${source.includes(table)}`).toBe(`${file}:false`)
+  it('ignores a module the code no longer knows about', () => {
+    // Tokens outlive code. A row naming something removed later should offer
+    // nothing for it rather than break every call the token makes.
+    const tools = toolsFor(['trips', 'not-a-module'])
+    expect(tools.length).toBeGreaterThan(0)
+    expect(tools.every((t) => t.module === 'trips')).toBe(true)
+  })
+
+  it('reads health only for the token owner, never a consented partner', () => {
+    // This is the guarantee that goes beyond RLS. 0014 lets a partner read a
+    // scope they were granted consent for, which is right in the app and wrong
+    // here — consent was given so a person could look with their own eyes, not
+    // so an assistant could sweep up what they were trusted with. Every query
+    // in the health tools therefore pins owner_id to the caller.
+    const source = readFileSync(join(TOOLS_DIR, 'health.ts'), 'utf8')
+    const queries = source.match(/\.from\('(?:cycle_logs|health_records)'\)/g) ?? []
+    expect(queries.length).toBeGreaterThan(0)
+    // One owner filter per query, at least.
+    const filters = source.match(/owner_id['"]?[,:]?\s*(?:ctx\.userId|['"]?, ctx\.userId)/g) ?? []
+    expect(filters.length).toBeGreaterThanOrEqual(queries.length)
+  })
+
+  it('never exposes a document file, link or number', () => {
+    // The column list in the query is the boundary. `storage_path` would invite
+    // a fetch; a signed URL outliving its 300 seconds in a model's context
+    // defeats the point of signing it; four digits of a passport number is
+    // nothing any question here needs.
+    const source = readFileSync(join(TOOLS_DIR, 'documents.ts'), 'utf8')
+    const selects = source.match(/\.select\([^)]*\)/gs) ?? []
+    for (const select of selects) {
+      for (const forbidden of ['storage_path', 'number_last4', 'file_name', 'mime_type']) {
+        expect(`${forbidden}:${select.includes(forbidden)}`).toBe(`${forbidden}:false`)
       }
+    }
+    expect(source).not.toContain('createSignedUrl')
+  })
+
+  it('cannot delete health data', () => {
+    // The wipe RPC is irreversible by design — there is no thirty-day bin for
+    // health data. A tool for it would put total erasure one hallucinated call
+    // away. Matched as a call rather than as a string, so the comment in
+    // health.ts explaining this omission does not trip its own assertion.
+    for (const { file, source } of toolSources()) {
+      const calls = /\.rpc\(\s*['"]delete_all_health_data/.test(source)
+      expect(`${file}:${calls}`).toBe(`${file}:false`)
+    }
+    expect(ALL_TOOLS.some((t) => t.module === 'health' && /delete|remove/.test(t.name))).toBe(false)
+  })
+
+  it('still lists them as grantable, since they are opt-in and not banned', () => {
+    for (const sensitive of SENSITIVE_TOKEN_MODULES) {
+      expect(GRANTABLE_MODULES).toContain(sensitive)
     }
   })
 })
 
 describe('nothing auto-inserts', () => {
-  it('never inserts into itinerary_items', () => {
-    // Non-negotiable #5. Reading the itinerary is fine and `get_itinerary`
-    // does; writing to it from here is not, and `suggest_itinerary` goes to
-    // `suggestion_tray` instead. A future tool that skipped the tray would
-    // almost certainly do it with `.from('itinerary_items').insert(`.
+  it('writes itinerary items from one module only', () => {
+    // Direct writes are allowed now — a dictated "dinner at 8 on Tuesday" is
+    // not generated content. But they belong in the itinerary module, where
+    // the tray rule is stated and enforced. A write appearing in some other
+    // tool file is how the rule gets routed around.
     for (const { file, source } of toolSources()) {
-      const writesDirectly = /from\(\s*'itinerary_items'\s*\)[\s\S]{0,200}?\.(insert|upsert|update|delete)\(/.test(
-        source,
-      )
-      expect(`${file}:${writesDirectly}`).toBe(`${file}:false`)
+      if (file === 'itinerary.ts') continue
+      const writes = /from\(\s*'itinerary_items'\s*\)[\s\S]{0,200}?\.(insert|upsert)\(/.test(source)
+      expect(`${file}:${writes}`).toBe(`${file}:false`)
+    }
+  })
+
+  it('lets no tool create more than one itinerary item at a time', () => {
+    // This is the invariant that actually carries #5 now. Bulk means generated,
+    // and generated means the tray. A direct-write tool that accepted an array
+    // of plan items would be `suggest_itinerary` with the review step removed.
+    //
+    // Scoped to the trips module deliberately. Elsewhere a list is the right
+    // shape — `add_journey` takes its legs together because a connection is one
+    // booking, and splitting it would allow half a journey to exist.
+    for (const tool of ALL_TOOLS) {
+      if (tool.readOnly || tool.module !== 'trips' || tool.name === 'suggest_itinerary') continue
+      const schema = zodToJsonSchema(tool.inputSchema, { $refStrategy: 'none' }) as {
+        properties?: Record<string, { type?: string }>
+      }
+      const arrays = Object.entries(schema.properties ?? {})
+        .filter(([, value]) => value.type === 'array')
+        .map(([key]) => key)
+      expect(`${tool.name}:${arrays.join(',')}`).toBe(`${tool.name}:`)
     }
   })
 
@@ -122,7 +172,27 @@ describe('the registry itself', () => {
     // mislabelled read-only is worse than no annotation at all.
     const reads = ALL_TOOLS.filter((t) => t.readOnly).map((t) => t.name)
     const writes = ALL_TOOLS.filter((t) => !t.readOnly).map((t) => t.name)
-    expect(writes.sort()).toEqual(['add_wishlist_item', 'log_expense', 'suggest_itinerary'])
+    // Listed explicitly rather than counted: adding a write tool should be a
+    // visible edit here, not something that slips in under a length check.
+    expect(writes.sort()).toEqual([
+      'add_destination',
+      'add_health_record',
+      'add_itinerary_item',
+      'add_journey',
+      'add_wishlist_item',
+      'choose_destination',
+      'create_trip',
+      'log_cycle',
+      'log_expense',
+      'record_settlement',
+      'remove_flight',
+      'remove_itinerary_item',
+      'set_trip_day',
+      'suggest_itinerary',
+      'update_flight',
+      'update_itinerary_item',
+      'update_trip',
+    ])
     expect(reads).toContain('list_trips')
   })
 

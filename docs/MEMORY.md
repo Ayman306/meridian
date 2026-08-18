@@ -86,7 +86,7 @@ allowed.
 And 0015 made it run unattended: the three sweeps are on pg_cron, and the
 dashboard finally fills the stay-allowance slot it reserved back in phase 5.
 
-Typecheck, lint, 689 unit tests, 206 database assertions and a production build
+Typecheck, lint, 704 unit tests, 206 database assertions and a production build
 pass.
 
 ### The two operator steps left
@@ -1279,6 +1279,60 @@ Every message is tagged with the flight id, so three slips leave one
 notification showing the current answer rather than a history of the slippage.
 Endpoints returning 404 or 410 are deleted: the push service is saying that
 browser is gone, and retrying forever against it is the alternative.
+
+### D87 — The MCP server covers the app, and the tray rule got sharper
+
+The first cut was ten tools over five modules, mostly reads — against 175 api
+functions over fourteen. Trips could be listed but not created, the itinerary
+could be read but not edited, flights had no writes at all, and destinations,
+allowance, health and documents had nothing. Thirty tools over eight modules
+now.
+
+Expanding it forced the tray rule to be stated more precisely than "nothing
+auto-inserts". The rule was never about inserts — it is about *generated*
+content. A model that invents a week and writes it into a shared plan produces
+a trip nobody agreed to; "put dinner at Cafe Younes on the Tuesday" is one
+thing the person already decided, and routing their own sentence through a
+review queue is ceremony.
+
+So the invariant changed shape. It used to be "no tool inserts into
+`itinerary_items`". It is now two: only the itinerary module may write them at
+all, and **no direct-write trips tool may accept a list of items** — bulk means
+generated, and generated means the tray. `add_journey` still takes its legs as
+an array, because a connection is one booking and splitting it would let half a
+journey exist, which is why that invariant is scoped to the trips module rather
+than applied to every array anywhere.
+
+Two modules are read-only on purpose rather than unfinished. Allowance rules
+carry a `verified_on` date and a source URL because they change without notice,
+and a Schengen rule rewritten from a model's memory is the confident, plausible,
+wrong answer that gets somebody stopped at a border. Documents return metadata
+only — never `storage_path`, never a signed URL, never `number_last4`. Signed
+URLs live 300 seconds precisely so they cannot outlive the moment they were
+needed; minting one into a model's context defeats the mechanism entirely.
+
+### D88 — Health is the owner's to give, so it became opt-in rather than banned
+
+`FORBIDDEN_MODULES` hard-blocked health and documents. That was the right first
+move and the wrong permanent one, and the argument that changed it is simple: a
+personal access token *is* its owner. RLS restricts health to
+`owner_id = auth.uid()`, so the only person whose cycle logs a token can reach
+is the person who created the token. Refusing that was not protecting a partner
+— it was overriding somebody's choice about their own data.
+
+`SENSITIVE_TOKEN_MODULES` replaces it. Never in a default scope, always
+tickable, and the Settings copy says at the moment of ticking that the data will
+reach whichever AI service the token is plugged into — because that, not the
+database boundary, is what actually changes.
+
+Two guarantees got *stronger* in the process, and both are tested. Health
+queries pin `owner_id` to the caller in the query itself, not only through RLS:
+0014 lets a partner read a scope they were granted consent for, which is right
+in the app and wrong here, since consent was given so a person could look with
+their own eyes rather than so an assistant could sweep up what they were
+trusted with. And there is no health delete tool at all —
+`delete_all_health_data()` is irreversible by design, and a tool for it would
+put total erasure one hallucinated call away.
 
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 
