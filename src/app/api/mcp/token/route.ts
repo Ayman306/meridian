@@ -23,14 +23,11 @@
  * instantly when revoked.
  */
 import { NextResponse } from 'next/server'
-import { SignJWT } from 'jose'
 import { createAdminSupabase } from '@/lib/supabase/server'
 import { bearerToken, hashToken, isPlausibleToken, isTokenUsable } from '@/lib/tokens'
+import { TTL_SECONDS, mintUserJwt, preflight } from '@/lib/mcp-jwt'
 
 export const dynamic = 'force-dynamic'
-
-/** Long enough for a burst of tool calls, short enough to be unattractive. */
-const TTL_SECONDS = 600
 
 /**
  * One shape of failure for every way a token can be unacceptable — malformed,
@@ -77,14 +74,21 @@ export async function POST(request: Request) {
     .eq('id', row.id)
   if (touched.error) console.warn('could not record token use', touched.error.message)
 
-  const accessToken = await new SignJWT({ role: 'authenticated' })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setSubject(row.user_id)
-    .setAudience('authenticated')
-    .setIssuer(`${supabaseUrl}/auth/v1`)
-    .setIssuedAt()
-    .setExpirationTime(`${TTL_SECONDS}s`)
-    .sign(new TextEncoder().encode(secret))
+  // Prove the signature will be believed before handing one out. Without this
+  // a wrong secret — or a project on asymmetric signing keys, where nothing
+  // outside Supabase can mint a session — returns a valid-looking token whose
+  // every subsequent query 401s, and the cause is invisible from the client.
+  // Cached, so this costs one request every ten minutes at worst.
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (anonKey) {
+    const check = await preflight(row.user_id, secret, supabaseUrl, anonKey)
+    if (!check.ok) {
+      console.error('MCP token exchange preflight failed:', check.reason)
+      return NextResponse.json({ error: check.reason }, { status: 503 })
+    }
+  }
+
+  const { token: accessToken } = await mintUserJwt(row.user_id, secret, supabaseUrl)
 
   return NextResponse.json({
     access_token: accessToken,
