@@ -20,6 +20,18 @@
     --accent-foreground: 222 40% 12%;
     --destructive: 0 72% 48%;
     --destructive-foreground: 0 0% 100%;
+
+    /*
+     * The cycle calendar. Separate tokens rather than reusing --accent or
+     * --destructive: those two already mean "the thing you picked" and
+     * "this will destroy something", and a period is neither. Muted on
+     * purpose — spec 12.6 rules out anything celebratory or alarming on a
+     * health surface, so these read as legible, not as a verdict.
+     */
+    --cycle-period: 347 60% 52%;
+    --cycle-period-foreground: 0 0% 100%;
+    --cycle-fertile: 187 45% 42%;
+    --cycle-ovulation: 262 45% 52%;
     --border: 40 12% 88%;
     --input: 40 12% 88%;
     --ring: 38 92% 50%;
@@ -47,6 +59,12 @@
     --accent-foreground: 222 40% 10%;
     --destructive: 0 62% 52%;
     --destructive-foreground: 0 0% 100%;
+
+    /* Lifted and desaturated for a dark ground, same meanings. */
+    --cycle-period: 347 55% 58%;
+    --cycle-period-foreground: 0 0% 100%;
+    --cycle-fertile: 187 40% 52%;
+    --cycle-ovulation: 262 48% 66%;
     --border: 222 18% 20%;
     --input: 222 18% 20%;
     --ring: 38 92% 55%;

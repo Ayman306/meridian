@@ -86,7 +86,7 @@ allowed.
 And 0015 made it run unattended: the three sweeps are on pg_cron, and the
 dashboard finally fills the stay-allowance slot it reserved back in phase 5.
 
-Typecheck, lint, 704 unit tests, 206 database assertions and a production build
+Typecheck, lint, 731 unit tests, 206 database assertions and a production build
 pass.
 
 ### The two operator steps left
@@ -1354,6 +1354,45 @@ always votes as the caller and takes no user id — two verdicts exist precisely
 because they are two people's, and one that could answer for both empties the
 feature. And photos return captions and dates but never `path_original` or a
 signed URL, on the same 300-second argument as documents.
+
+### D90 — The cycle is a calendar, and an estimate is drawn as an estimate
+
+The cycle screen was a list of dates and one sentence. It answered "when is the
+next one" in prose and nothing else — which is the wrong shape for a question
+whose answer is a set of days.
+
+Now a month grid. Four things are drawn and they are deliberately not
+interchangeable: a **logged** period is solid, a **projected** one is outlined
+and dashed, the fertile window is a wash behind the day, and ovulation is a dot
+— filled when she recorded it, hollow when the app worked it out.
+
+Solid versus dashed is carrying spec 12.7. On a calendar, "never render an
+estimate as a fact" is mostly a statement about borders: a filled square and an
+outlined one read as different kinds of claim before any legend is consulted,
+which is what a glance needs. `calendarMarks` writes projections first and logs
+second so a fact always overwrites a guess on the same square — a period logged
+where one was predicted must read as logged, and getting that ordering backwards
+would show somebody a prediction for a period they already had.
+
+**The variance grows with distance, which is the honest part.** Cycle three's
+start is three cycle lengths summed, so it carries three errors, not one. For
+independent errors that is `spread × √n`, and drawing cycle six as confidently
+as cycle one would be a lie the calendar could trivially avoid. Six is the cap
+for the same reason: past that the window is wider than the cycle and the
+drawing says nothing. Projections already overtaken by the calendar are dropped,
+so somebody who stopped logging does not open the app to a prediction for last
+spring.
+
+Editing lives on the calendar rather than in a separate form, because the
+calendar is where the mistake is noticed. Tapping the day a period actually
+started is more direct than finding a date field, and — the point — correcting a
+projection is the *same gesture* as logging a new one. A correction is not a
+special case; it is the truth arriving later. Everything downstream is derived,
+so a corrected start moves every estimate after it with no extra machinery.
+
+One wording fix worth recording: a perfectly regular logger produces a variance
+of zero, and "give or take 0 days" reads as a guarantee. No estimate from six
+data points is one, so the phrase is dropped rather than printed with a zero.
 
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 
