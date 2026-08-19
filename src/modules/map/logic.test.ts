@@ -149,6 +149,18 @@ describe('formatDistance', () => {
     expect(formatDistance(3.14)).toBe('3.1 km')
     expect(formatDistance(42.4)).toBe('42 km')
   })
+
+  it('renders miles when that is what the couple chose', () => {
+    // The setting has existed since Phase 13 and was read by nothing, so every
+    // distance in the app was kilometres regardless of the choice — a control
+    // that did nothing.
+    expect(formatDistance(1.609344, 'mi')).toBe('1.0 mi')
+    expect(formatDistance(80.4672, 'mi')).toBe('50 mi')
+  })
+
+  it('drops to feet where metric drops to metres', () => {
+    expect(formatDistance(0.1, 'mi')).toBe('328 ft')
+  })
 })
 
 describe('daysWithPins', () => {

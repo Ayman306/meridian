@@ -4,7 +4,7 @@
 import { supabase } from '@/lib/supabase/client'
 import { toAppError, unwrap, unwrapList } from '@/lib/errors'
 import type { InsertDto, UpdateDto } from '@/types/database'
-import { PAGE_SIZE, SIGNED_URL_TTL_SECONDS, mediaPath } from './logic'
+import { PAGE_SIZE, SIGNED_URL_TTL_SECONDS, extensionFor, mediaPath } from './logic'
 import type {
   Album,
   Media,
@@ -109,6 +109,16 @@ export async function listPhashes(coupleId: string): Promise<Media[]> {
 export interface UploadInput {
   display: Blob
   thumb: Blob
+  /**
+   * What the display object actually is.
+   *
+   * A photo's display variant is a re-encoded JPEG. A video's *is the video* —
+   * there is no browser-side transcode worth doing, so the file is stored as
+   * uploaded and the thumb slot holds a poster frame. Hard-coding image/jpeg
+   * here would serve an mp4 with the wrong Content-Type and browsers would
+   * refuse to play it.
+   */
+  displayContentType?: string
   meta: Omit<InsertDto<'media'>, 'couple_id' | 'uploader_id' | 'path_display' | 'path_thumb' | 'id'>
 }
 
@@ -129,21 +139,31 @@ export async function uploadMedia(
 ): Promise<Media> {
   // Minted client-side so both paths are known before either upload starts.
   const mediaId = crypto.randomUUID()
-  const displayPath = mediaPath(coupleId, mediaId, 'display')
+  const displayPath = mediaPath(
+    coupleId,
+    mediaId,
+    'display',
+    extensionFor(input.displayContentType),
+  )
   const thumbPath = mediaPath(coupleId, mediaId, 'thumb')
 
   const options = {
-    contentType: 'image/jpeg',
     // Content-addressed paths never change, so the variant can be cached for
     // a year. This is most of the egress discipline in spec 11.4.
     cacheControl: '31536000',
     upsert: false,
   }
 
-  const display = await supabase.storage.from(BUCKET).upload(displayPath, input.display, options)
+  const display = await supabase.storage.from(BUCKET).upload(displayPath, input.display, {
+    ...options,
+    contentType: input.displayContentType ?? 'image/jpeg',
+  })
   if (display.error) throw toAppError(display.error)
 
-  const thumb = await supabase.storage.from(BUCKET).upload(thumbPath, input.thumb, options)
+  // The poster frame is always a JPEG, even for a video.
+  const thumb = await supabase.storage
+    .from(BUCKET)
+    .upload(thumbPath, input.thumb, { ...options, contentType: 'image/jpeg' })
   if (thumb.error) {
     await supabase.storage.from(BUCKET).remove([displayPath])
     throw toAppError(thumb.error)

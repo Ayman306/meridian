@@ -16,6 +16,7 @@ import { formatInZone, parseDateOnly } from '@/lib/dates'
 import { pluralise } from '@/lib/utils'
 import { useCategories, useCreateItem, useMoveItem } from '@/modules/itinerary'
 import { useTrip } from '@/modules/trips'
+import { useDistanceUnit } from '@/modules/settings'
 import { MapControls } from '../components/MapControls'
 import { useMapData, usePinPeople, useReverseGeocode } from '../hooks'
 import {
@@ -39,6 +40,7 @@ export function TripMapPage({ tripId }: { tripId: string }) {
   const { data: trip } = useTrip(tripId)
   const categories = useCategories()
   const { people, colorFor, nameFor } = usePinPeople()
+  const distanceUnit = useDistanceUnit()
   const move = useMoveItem(tripId)
   const create = useCreateItem(tripId)
 
@@ -117,7 +119,7 @@ export function TripMapPage({ tripId }: { tripId: string }) {
         <span>{pluralise(visible.length, 'place')} shown</span>
         {route.length > 1 && (
           <span>
-            {formatDistance(routeDistanceKm(route))} across the day — straight lines, not walking
+            {formatDistance(routeDistanceKm(route), distanceUnit)} across the day — straight lines, not walking
             distance
           </span>
         )}

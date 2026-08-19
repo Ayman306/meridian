@@ -117,10 +117,26 @@ export function routeDistanceKm(pins: readonly MapPin[]): number {
   return total
 }
 
-export function formatDistance(km: number): string {
+export function formatDistance(km: number, unit: DistanceUnit = 'km'): string {
+  if (unit === 'mi') {
+    const miles = km / 1.609344
+    // Under a tenth of a mile, feet are what somebody would say. The switch
+    // point mirrors the metric one: below it, the larger unit reads as zero.
+    if (miles < 0.1) return `${Math.round(miles * 5280)} ft`
+    return `${miles < 10 ? miles.toFixed(1) : Math.round(miles)} mi`
+  }
   if (km < 1) return `${Math.round(km * 1000)} m`
   return `${km < 10 ? km.toFixed(1) : Math.round(km)} km`
 }
+
+/**
+ * Which units to render a distance in.
+ *
+ * Stored on `couple_settings` since Phase 13 and, until now, read by nothing —
+ * every distance in the app was kilometres regardless of what was chosen,
+ * which made the setting a control that did nothing.
+ */
+export type DistanceUnit = 'km' | 'mi'
 
 /** Every day that has at least one pin, in order. Drives the day filter. */
 export function daysWithPins(pins: readonly MapPin[]): DateOnly[] {

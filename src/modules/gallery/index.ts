@@ -7,6 +7,8 @@ export { Thumb, useThumbhash } from './components/Thumb'
 export { Uploader } from './components/Uploader'
 export { Lightbox } from './components/Lightbox'
 export { ShareDialog } from './components/ShareDialog'
+export { ExchangeStrip } from './components/ExchangeStrip'
+export { TripRecap } from './components/TripRecap'
 export {
   useMediaPages,
   useMedia,
@@ -28,6 +30,7 @@ export {
   useRevokeShare,
   useExchange,
   usePostExchange,
+  useBulkDownload,
   useUploadQueue,
   useGalleryRealtime,
 } from './hooks'

@@ -16,18 +16,23 @@ import { PageHeader } from '@/components/layout/PageHeader'
 import { EmptyState, ErrorState, Skeleton } from '@/components/common/states'
 import { pluralise } from '@/lib/utils'
 import { useCouple } from '@/providers/CoupleProvider'
+import { useDistanceUnit } from '@/modules/settings'
 import { Lightbox } from '../components/Lightbox'
 import { ShareDialog } from '../components/ShareDialog'
 import { Thumb } from '../components/Thumb'
 import { Uploader } from '../components/Uploader'
 import {
+  useBulkDownload,
   useDeleteMedia,
   useGalleryRealtime,
+  useInfiniteScroll,
   useMediaPages,
   useMediaUrls,
   useUploadQueue,
   useUsage,
 } from '../hooks'
+import { ExchangeStrip } from '../components/ExchangeStrip'
+import { TripRecap } from '../components/TripRecap'
 import { STORAGE_BUDGET_BYTES, formatBytes, groupByDay, photosRemaining } from '../logic'
 import type { Media, MediaFilters } from '../types'
 
@@ -51,6 +56,13 @@ export function GalleryPage({ tripId }: { tripId?: string } = {}) {
   const urls = useMediaUrls(media, 'thumb')
   const groups = useMemo(() => groupByDay(media, tzSelf), [media, tzSelf])
 
+  const sentinel = useInfiniteScroll(
+    () => void pages.fetchNextPage(),
+    Boolean(pages.hasNextPage) && !pages.isFetchingNextPage,
+  )
+  const download = useBulkDownload()
+  const distanceUnit = useDistanceUnit()
+
   const index = open ? media.findIndex((m) => m.id === open.id) : -1
   const neighbours = {
     previous: index > 0 ? (media[index - 1] ?? null) : null,
@@ -69,6 +81,24 @@ export function GalleryPage({ tripId }: { tripId?: string } = {}) {
 
   return (
     <div>
+      {/* The daily exchange belongs to the days between trips, so it sits on
+          the whole-gallery view and not inside one trip. A habit that needs
+          navigating to is a habit that stops. */}
+      {!tripId && <div className="mb-6"><ExchangeStrip /></div>}
+
+      {/* And the recap belongs to one trip, afterwards. buildRecap has been
+          tested since Phase 11 and rendered nowhere. */}
+      {tripId && media.length > 0 && (
+        <div className="mb-6">
+          <TripRecap
+            media={media}
+            distanceUnit={distanceUnit}
+            downloading={download.progress}
+            onDownloadAll={() => void download.run(media)}
+          />
+        </div>
+      )}
+
       {!tripId && (
         <PageHeader
           title="Photos"
@@ -225,7 +255,10 @@ export function GalleryPage({ tripId }: { tripId?: string } = {}) {
           ))}
 
           {pages.hasNextPage && (
-            <div className="flex justify-center">
+            <div ref={sentinel} className="flex justify-center py-4">
+              {/* The button stays as the fallback. An IntersectionObserver that
+                  never fires — a browser without it, a container that does not
+                  scroll — must not strand somebody halfway through a library. */}
               <Button
                 variant="outline"
                 disabled={pages.isFetchingNextPage}

@@ -350,8 +350,22 @@ export function formatBytes(bytes: number): string {
  * segment. Content-addressed by media id, so a variant's path never changes
  * and it can be cached immutably (spec 11.4's egress discipline).
  */
-export function mediaPath(coupleId: string, mediaId: string, variant: string): string {
-  return `${coupleId}/${mediaId}/${variant}.jpg`
+export function mediaPath(coupleId: string, mediaId: string, variant: string, ext = 'jpg'): string {
+  return `${coupleId}/${mediaId}/${variant}.${ext}`
+}
+
+/**
+ * The file extension for a stored object.
+ *
+ * Thumbs are always JPEG — a poster frame is a JPEG even when it came from an
+ * mp4. Only a video's *display* object keeps its own container, and only so the
+ * path is not actively lying about what is at the end of it; the Content-Type
+ * header is what a browser actually reads.
+ */
+export function extensionFor(mimeType: string | null | undefined): string {
+  if (!mimeType?.startsWith('video/')) return 'jpg'
+  const subtype = mimeType.split('/')[1]?.split(';')[0] ?? 'mp4'
+  return subtype === 'quicktime' ? 'mov' : subtype
 }
 
 /** Signed URLs live this long. Long enough to scroll, short enough to expire. */

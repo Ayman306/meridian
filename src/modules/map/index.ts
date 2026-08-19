@@ -27,4 +27,5 @@ export {
   paddedBounds,
   routeDistanceKm,
 } from './logic'
+export type { DistanceUnit } from './logic'
 export type { Bounds, GeocodeHit, MapData, MapFilters, MapPin, PinLayer } from './types'

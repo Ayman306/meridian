@@ -28,7 +28,11 @@ export function Uploader({ queue, compact = false }: { queue: UploadQueue; compa
 
   const pick = (files: FileList | null) => {
     if (!files || files.length === 0) return
-    queue.add([...files].filter((file) => file.type.startsWith('image/') || isHeic(file)))
+    queue.add(
+      [...files].filter(
+        (file) => file.type.startsWith('image/') || file.type.startsWith('video/') || isHeic(file),
+      ),
+    )
   }
 
   const slowHeic = state.items.length > 5 && [...state.items].some((i) => /hei[cf]/i.test(i.name))
@@ -52,15 +56,15 @@ export function Uploader({ queue, compact = false }: { queue: UploadQueue; compa
         )}
       >
         <ImagePlus className="mx-auto size-5 text-muted-foreground" aria-hidden="true" />
-        <p className="mt-2 text-sm">Drop photos here, or</p>
+        <p className="mt-2 text-sm">Drop photos or videos here, or</p>
         <Button variant="outline" className="mt-2" onClick={() => input.current?.click()}>
-          Choose photos
+          Choose files
         </Button>
         <input
           ref={input}
           type="file"
           multiple
-          accept="image/*,.heic,.heif"
+          accept="image/*,video/*,.heic,.heif"
           className="sr-only"
           onChange={(e) => {
             pick(e.target.files)
