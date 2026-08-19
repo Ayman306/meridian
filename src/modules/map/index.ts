@@ -2,7 +2,14 @@
 export { TripMapPage } from './pages/TripMapPage'
 export { AllMapPage } from './pages/AllMapPage'
 export { PlaceSearch } from './components/PlaceSearch'
-export { useMapData, usePlaceSearch, usePinPeople, useDebounced } from './hooks'
+export { PlacePicker } from './components/PlacePicker'
+export {
+  useMapData,
+  usePlaceSearch,
+  usePinPeople,
+  useDebounced,
+  useResolvePlace,
+} from './hooks'
 export {
   CLUSTER_MAX_ZOOM,
   MAX_ZOOM,

@@ -156,3 +156,60 @@ export function coarseTimezoneFromLongitude(lng: number): string {
   // Etc/GMT zones are sign-inverted: Etc/GMT-5 is UTC+5.
   return `Etc/GMT${hours > 0 ? '-' : '+'}${Math.abs(hours)}`
 }
+
+/**
+ * Coordinates to a street address.
+ *
+ * The other direction from `searchPlaces`, and the half a pasted map link
+ * needs: Google's URL carries a pin and at best a place name, never the
+ * address, so "read the complete address" means asking somebody else.
+ *
+ * `zoom=18` asks Nominatim for building-level detail. Lower and it answers with
+ * a suburb, which is not an address; higher is not a thing.
+ *
+ * Returns null rather than throwing when there is nothing there — a pin in the
+ * sea has no address, and that is an answer, not a failure.
+ */
+export async function reverseGeocode(
+  lat: number,
+  lng: number,
+  signal?: AbortSignal,
+): Promise<PlaceResult | null> {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null
+
+  return throttled(async () => {
+    const url = new URL(`${NOMINATIM_BASE}/reverse`)
+    url.searchParams.set('lat', String(lat))
+    url.searchParams.set('lon', String(lng))
+    url.searchParams.set('format', 'jsonv2')
+    url.searchParams.set('addressdetails', '1')
+    url.searchParams.set('zoom', '18')
+
+    const res = await fetch(url, {
+      signal: signal ?? null,
+      headers: { Accept: 'application/json', 'Accept-Language': 'en' },
+    })
+    if (!res.ok) {
+      throw new AppError('Could not look up that address.', {
+        kind: res.status === 429 ? 'rate_limit' : 'upstream',
+        retryable: true,
+      })
+    }
+
+    const place = (await res.json()) as NominatimPlace & { error?: string }
+    // Nominatim answers a miss with 200 and an `error` field rather than a 404.
+    if (place.error || !place.display_name) return null
+
+    const parts = place.display_name.split(',').map((s) => s.trim())
+    return {
+      name: place.name || parts[0] || place.display_name,
+      displayName: place.display_name,
+      city: place.address?.city ?? place.address?.town ?? place.address?.village ?? null,
+      countryCode: place.address?.country_code?.toUpperCase() ?? null,
+      kind: place.type ?? place.category ?? null,
+      lat: Number(place.lat),
+      lng: Number(place.lon),
+    }
+  })
+}

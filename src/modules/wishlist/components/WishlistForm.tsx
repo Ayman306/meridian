@@ -7,7 +7,8 @@ import { Link2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Field, Input, Select, Textarea } from '@/components/ui/input'
 import { userMessage } from '@/lib/errors'
-import { PlaceSearch } from '@/modules/map'
+import { PlacePicker, PlaceSearch, useResolvePlace } from '@/modules/map'
+import { describeParseSource, isGoogleMapsLink, parseGoogleMapsLink } from '@/lib/maps/googleMaps'
 import type { Category } from '@/modules/itinerary'
 import { useAddWishlistItem, useExtractFromUrl, useUpdateWishlistItem } from '../hooks'
 import { wishlistSchema, type WishlistFormValues } from '../schemas'
@@ -41,7 +42,9 @@ export function WishlistForm({
   const add = useAddWishlistItem()
   const update = useUpdateWishlistItem()
   const extract = useExtractFromUrl()
+  const resolvePlace = useResolvePlace()
   const [extracted, setExtracted] = useState<string | null>(null)
+  const [pinNote, setPinNote] = useState<string | null>(null)
 
   const form = useForm<WishlistFormValues>({
     resolver: zodResolver(wishlistSchema),
@@ -67,8 +70,15 @@ export function WishlistForm({
    * that stops people saving things.
    */
   const onPasteLink = async (url: string) => {
-    if (!url.trim()) return
-    const result = await extract.mutateAsync(url.trim())
+    const trimmed = url.trim()
+    if (!trimmed) return
+
+    // One field, two behaviours, decided by what was actually pasted. A maps
+    // link and a restaurant's Instagram post are both "a link somebody copied",
+    // and asking which box it goes in is friction for no benefit.
+    if (isGoogleMapsLink(trimmed)) return onPasteMapsLink(trimmed)
+
+    const result = await extract.mutateAsync(trimmed)
     if (!result) {
       setExtracted('That link did not give up a title — type one in.')
       return
@@ -76,6 +86,38 @@ export function WishlistForm({
     if (result.title && !form.getValues('title')) form.setValue('title', result.title)
     if (result.image) form.setValue('image_url', result.image)
     setExtracted(result.title ? `Read “${result.title}” from ${result.siteName ?? 'the page'}.` : null)
+  }
+
+  /**
+   * A Google Maps link, which carries the one thing an OpenGraph read cannot:
+   * where the place actually is.
+   */
+  const onPasteMapsLink = async (url: string) => {
+    const place = await resolvePlace.mutateAsync(url).catch(() => null)
+
+    if (!place || (place.lat === null && !place.name)) {
+      setExtracted('That map link could not be read — search for the place below instead.')
+      return
+    }
+
+    if (place.name && !form.getValues('title')) form.setValue('title', place.name)
+    if (place.name) form.setValue('place_name', place.name)
+    if (place.lat !== null) form.setValue('lat', place.lat)
+    if (place.lng !== null) form.setValue('lng', place.lng)
+    if (place.address) form.setValue('address', place.address)
+    if (place.city) form.setValue('city', place.city)
+    if (place.countryCode) form.setValue('country_code', place.countryCode)
+    // The canonical link, rebuilt from the coordinates we settled on rather
+    // than the one pasted — a corrected pin should not keep opening the old spot.
+    if (place.mapsUrl) form.setValue('maps_url', place.mapsUrl)
+
+    setExtracted(
+      place.address
+        ? `Found ${place.name ?? 'the place'} — ${place.address}`
+        : `Found ${place.name ?? 'the place'}.`,
+    )
+    // A camera-derived pin is approximate, and the person needs telling.
+    setPinNote(describeParseSource(parseGoogleMapsLink(url)))
   }
 
   const pending = add.isPending || update.isPending
@@ -123,9 +165,38 @@ export function WishlistForm({
             if (place.city) form.setValue('city', place.city)
             if (place.countryCode) form.setValue('country_code', place.countryCode)
             if (!form.getValues('title')) form.setValue('title', place.name)
+            setPinNote(null)
           }}
         />
       </Field>
+
+      {/* Seeing the pin is the check that matters. A link copied after panning
+          carries the camera position rather than the place, so the name and
+          address can look right while the coordinates are a street off — which
+          a map shows instantly and two decimal numbers never do. */}
+      <PlacePicker
+        lat={form.watch('lat') ?? null}
+        lng={form.watch('lng') ?? null}
+        title={form.watch('title') ?? ''}
+        address={form.watch('address') ?? null}
+        note={pinNote}
+        onMove={(at) => {
+          form.setValue('lat', at.lat)
+          form.setValue('lng', at.lng)
+          // The address described the old coordinates. Keeping it would make it
+          // a claim about somewhere else.
+          form.setValue('address', null)
+          form.setValue('maps_url', null)
+          setPinNote('Pin moved by hand. The address will be looked up again when you save.')
+        }}
+        onClear={() => {
+          form.setValue('lat', null)
+          form.setValue('lng', null)
+          form.setValue('address', null)
+          form.setValue('maps_url', null)
+          setPinNote(null)
+        }}
+      />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="City" error={form.formState.errors.city?.message} htmlFor="wish-city">

@@ -86,7 +86,7 @@ allowed.
 And 0015 made it run unattended: the three sweeps are on pg_cron, and the
 dashboard finally fills the stay-allowance slot it reserved back in phase 5.
 
-Typecheck, lint, 731 unit tests, 206 database assertions and a production build
+Typecheck, lint, 771 unit tests, 206 database assertions and a production build
 pass.
 
 ### The two operator steps left
@@ -1393,6 +1393,73 @@ so a corrected start moves every estimate after it with no extra machinery.
 One wording fix worth recording: a perfectly regular logger produces a variance
 of zero, and "give or take 0 days" reads as a guarantee. No estimate from six
 data points is one, so the phrase is dropped rather than printed with a zero.
+
+### D91 — A Google Maps link carries two coordinate pairs, and the obvious one is wrong
+
+Saving a place meant typing a name and hoping the geocoder found it. Now a
+pasted Google Maps link fills the name, the full address and the pin.
+
+The parser is the substance, because Google emits at least six URL shapes and
+the differences are not cosmetic. In `/maps/place/…/@12.95,74.85,17z/data=…`
+there are **two** coordinate pairs: `@lat,lng` is where the camera was pointing
+when the link was copied, and `!3d…!4d…` inside the opaque data payload is the
+place. Pan the map before copying and they differ by a suburb. Reading the
+first — which is the one that looks obvious — pins the wrong spot while the name
+and address look perfectly correct. The `!3d!4d` pair wins, a camera-derived pin
+is labelled `camera` so the UI can caveat it, and a test pins the precedence.
+
+Coordinates are validated rather than parsed: `Number()` is happy with a
+longitude of 700, and 0,0 is refused outright because null island is what a
+broken parse produces far more often than a real pin.
+
+**The address needs a second service.** The link never carries one, so
+`reverseGeocode` asks Nominatim at `zoom=18` — lower and it answers with a
+suburb, which is not an address. A miss comes back as HTTP 200 with an `error`
+field rather than a 404, which is worth knowing: reading that as a hit saves a
+place whose address is the string "Unable to geocode".
+
+Short links (`maps.app.goo.gl`) are opaque — even the path is an id — so they
+are *recognised*, never guessed at, and resolved server-side where a redirect
+can be followed.
+
+### D92 — Two bugs found by testing the round trip rather than the code
+
+Both were invisible to unit tests that looked at the pieces separately.
+
+**The links this app saves could not be read back.** `googleMapsUrlFor` emits
+`?query=12.87,74.84(Cafe Younes)` — Google's own documented labelled form — and
+the parser's coordinate regex demanded the parameter be *only* a pair. The
+round-trip test that existed used the *unlabelled* form and passed. So a saved
+place would silently lose its pin the next time it was opened. Found by
+generating a URL and feeding it straight back in.
+
+**An SSRF bypass in the shared guard**, inherited from `/api/extract` when it
+was extracted for reuse. The IPv6 check looked for a trailing dotted quad to
+catch IPv4-mapped addresses — but WHATWG `URL` *normalises*
+`::ffff:127.0.0.1` into `::ffff:7f00:1`, hex, no dots. The regex matched
+nothing and loopback went straight through. Now the hextets are decoded back to
+an address. The extraction is what surfaced it: writing tests for a guard that
+had been sitting untested in a route handler.
+
+### D93 — Itinerary items could hold a location and had no way to get one
+
+`itinerary_items` has carried `lat`, `lng`, `address` and `maps_url` since
+phase 3, and `ItemEditor` had a single free-text `place_name` box. So an item
+added by hand was permanently invisible on the map — the columns existed, the
+form could not fill them, and nothing said so.
+
+Both forms now take a pasted map link, offer a name search, and show the pin on
+a small map that can be long-pressed to correct it. Seeing the pin is the check
+that matters: a camera-derived coordinate looks right in every field except the
+one nobody can read, and a map shows it instantly.
+
+Moving a pin by hand clears the address, because an address that described the
+old coordinates has become a claim about somewhere else.
+
+The MCP `add_wishlist_item` tool takes a map link too, and reads coordinates
+only out of it — never from the model. A model asked where somewhere is will
+produce a plausible latitude, and a pin confidently in the wrong suburb is worse
+than no pin at all.
 
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 
