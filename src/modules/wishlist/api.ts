@@ -4,6 +4,7 @@
 import { supabase } from '@/lib/supabase/client'
 import { AppError, toAppError, unwrap, unwrapList } from '@/lib/errors'
 import { keyBetween } from '@/lib/fractional'
+import type { DateOnly } from '@/lib/dates'
 import type { InsertDto, UpdateDto } from '@/types/database'
 import type { TrayDraft } from '@/types/domain'
 import { extractResponseSchema, type ExtractResult } from './schemas'
@@ -103,7 +104,14 @@ export async function clearVerdict(wishlistId: string, userId: string): Promise<
 }
 
 /**
- * Push saves into a trip's idea pool.
+ * Push saves into a trip's plan.
+ *
+ * With no date they land in the idea pool, which is what the blend screen
+ * wants. With one they land on that day already scheduled, which is what the
+ * journey screen wants — a place the couple already saved, near where they are
+ * already going, on a day they are already looking at, is a plan they have
+ * made in everything but the typing. Asking them to push it to a pool and then
+ * drag it onto a day would be asking twice for one decision.
  *
  * Returns which ones were skipped as duplicates so the caller can say so —
  * spec 7.6 asks for a warning, not a silent second copy. Keys are generated
@@ -114,6 +122,7 @@ export async function clearVerdict(wishlistId: string, userId: string): Promise<
 export async function pushToItinerary(
   itemIds: readonly string[],
   tripId: string,
+  date: DateOnly | null = null,
 ): Promise<{ pushed: string[]; skipped: string[] }> {
   const tail = unwrapList(
     await supabase
@@ -129,6 +138,7 @@ export async function pushToItinerary(
   let previous = tail[0]?.sort_key ?? null
   const pushed: string[] = []
   const skipped: string[] = []
+  const created: string[] = []
 
   for (const id of itemIds) {
     const sortKey = keyBetween(previous, null)
@@ -141,11 +151,23 @@ export async function pushToItinerary(
 
     if (data) {
       pushed.push(id)
+      created.push(data)
       previous = sortKey
     } else {
       // Already in the pool. Not an error — just nothing to do.
       skipped.push(id)
     }
+  }
+
+  // The RPC always inserts unscheduled, because the pool is the safe landing
+  // place and the function is shared. Dating them is a second statement rather
+  // than a second argument to the RPC, so the migration keeps one signature.
+  if (date && created.length > 0) {
+    const { error } = await supabase
+      .from('itinerary_items')
+      .update({ scheduled_date: date })
+      .in('id', created)
+    if (error) throw toAppError(error)
   }
 
   return { pushed, skipped }

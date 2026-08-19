@@ -2,6 +2,7 @@
 export { TripListPage } from './pages/TripListPage'
 export { NewTripPage } from './pages/NewTripPage'
 export { TripDetailPage } from './pages/TripDetailPage'
+export { TripJourneyPage } from './pages/TripJourneyPage'
 export {
   useTrip,
   useTrips,
@@ -29,6 +30,14 @@ export {
   tripGroup,
   GROUP_LABELS,
 } from './logic'
+export {
+  buildJourney,
+  describeTripJourney,
+  focusDay,
+  journeyCentre,
+  nearbyWishlist,
+} from './journey'
+export type { TripJourney, JourneyDay, JourneyEntry, JourneyInput } from './journey'
 export type {
   DatePrecision,
   DayType,

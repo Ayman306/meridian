@@ -38,6 +38,12 @@ model — that waits in the tray until somebody keeps it. And a map: every place
 with coordinates, filterable by day, person, category and state, with the
 selected day's route drawn between its stops.
 
+Opening a trip now shows the trip rather than a form: a map with the route it
+traces, a strip of every day with its flights, its density and — for whoever is
+looking — their own cycle marks, and one day's detail in a panel that does not
+push the page down. Saved places near the trip are offered on the day already
+in view, one tap to add. See D96–D100.
+
 And Phases 8 and 9, which answer the two questions that come before planning
 anything: *where* and *for how long*. The destination board puts candidate
 cities side by side — flight hours each, who travels further, what the visa
@@ -1583,6 +1589,103 @@ SSR, and the obvious fix — read it in an effect — sets state synchronously a
 cascades a render. `useStoredPreference` treats localStorage as what it is, an
 external store: the server render sees the fallback, and a change in another
 tab is picked up for free.
+
+### D96 — The trip's front page is the trip, not a form
+
+Opening a trip used to redirect straight to the plan, so the first thing the app
+showed about a trip was a list to fill in. Everything that makes a trip a trip —
+the flights, the days, the chosen city, the places already saved — was spread
+across eight tabs, each fine for editing and none of them able to answer *what
+does this look like?* Answering that meant reading four screens and holding
+them in your head.
+
+`src/modules/trips/journey.ts` merges them into one ordered timeline and one
+drawable route. It is pure and tested, because every visual decision on the new
+screen reads from it. Two rules in it are easy to get wrong and are pinned by
+tests:
+
+- **Flights bracket a day; they do not sit inside it.** An arrival at 06:00
+  comes before everything planned that day and a departure at 21:00 after,
+  regardless of whether anything else has a time. Sorting flights in with items
+  by time would be right by accident and wrong whenever an item has none.
+- **`rest` and `open` stay distinct.** A day left blank on a long stay is the
+  point of the trip (non-negotiable #6); a day nobody has reached yet is not.
+  The model keeps them apart so the screen can, and so the MCP can say
+  "kept clear on purpose — do not fill this" rather than offering to fill it.
+
+### D97 — One screen that does not grow
+
+The obvious build for "the whole trip at once" is one card per day down the
+page. It is also wrong: a fortnight becomes a page nobody scrolls to the end
+of, and the shape of the trip — where the flights are, where the empty stretch
+is — is the first casualty.
+
+So the layout is three fixed regions: a map, a horizontally scrolling strip of
+day chips, and one day's detail in a panel with a ceiling and its own scroll.
+Tapping through fourteen days moves nothing. The map stays an overview
+deliberately — it does not re-fit when the selected day changes, because a map
+that resets your pan every time you tap is the most annoying thing a map can
+do while you are looking at it.
+
+Each chip carries the date and at most three marks: a plane for a travel day, a
+moon for a day kept clear, dots for how much is planned, and — for the
+signed-in person only — a dot for a period day. Anything more is a tap away.
+The marks are also spoken: each chip's `aria-label` says "travel day",
+"2 planned", "period expected", so nothing is available only as a colour.
+
+### D98 — The view asks for almost nothing, because almost nothing is unknown
+
+The brief was to reduce manual entry, so every part of this screen is derived:
+
+| Shown | Derived from |
+| --- | --- |
+| The days | `trip_days`, or the trip's own dates when no rows exist yet |
+| Which days are travel | The flights pointed at the trip |
+| Where the trip is that day | The chosen `trip_destinations` and their date range |
+| Which day to open on | Today if the trip is running; the first flight if it has not started; the last day if it is over |
+| What to offer adding | Saved places within 60 km of the trip that are not already on the plan |
+| The cycle marks | Predictions the health module was already making |
+
+The only input is a tap. Adding a nearby saved place takes one more, and it
+lands on the day already in view — dated, placed, attributed — because all of
+that was known before the tap. `pushToItinerary` grew an optional date for
+exactly this: with none, saves land in the idea pool as the blend screen wants;
+with one, they land on that day. Making somebody push to a pool and then drag
+onto a day is asking twice for one decision.
+
+Two things are deliberately withheld on a day that is blank on a long stay: the
+"nothing planned" line, and the nearby-places offer. Non-negotiable #6 says a
+`RestfulEmpty` and nothing else, and an invitation to fill the day would undo
+the only thing it is there for.
+
+### D99 — The cycle on a shared screen is the viewer's own, by construction
+
+The journey is a screen both partners look at, and the health module already
+supports a partner reading a consented scope. Passing an owner id into a trip
+view would eventually be passed the partner's, and consent given so a person
+could look with their own eyes is not consent to have it drawn onto a shared
+planning surface.
+
+So `useCycleWindow` takes a date range and no owner: it reads the signed-in
+person's logs and nobody else's. RLS would refuse without consent anyway; this
+makes the refusal unnecessary by never asking. The section is hidden entirely
+for anyone whose profile does not track a cycle, and the words stay the
+calendar's own — "period expected", "in the estimated fertile window" — because
+`describeDayMark` is now shared between the two screens rather than duplicated.
+
+### D100 — `get_trip_journey`, so the assistant sees the same trip the screen does
+
+The MCP could already assemble this: `get_trip`, `list_flights`,
+`list_itinerary`, `list_destinations`, then merge. Four calls, plus the two
+ordering rules from D96 that the model would have to reimplement correctly
+every time.
+
+`get_trip_journey` calls `buildJourney` — the same function the screen calls —
+and renders it as text, including the saved places near the trip that are not
+yet planned. One call, and the assistant and the couple are demonstrably
+looking at the same trip. It is read-only, and the nearby list ends with a line
+saying nothing is added on its own, because non-negotiable #5 is a rule the
+model has to be told about rather than one it can infer.
 
 ---
 

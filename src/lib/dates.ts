@@ -18,6 +18,7 @@ import {
   differenceInCalendarDays,
   differenceInMonths,
   eachDayOfInterval,
+  format,
   isValid,
   parseISO,
   startOfDay,
@@ -89,6 +90,18 @@ export function dateRange(start: DateOnly, end: DateOnly): DateOnly[] {
 
 export function addDaysTo(date: DateOnly, amount: number): DateOnly {
   return toDateOnly(addDays(parseDateOnly(date), amount))
+}
+
+/**
+ * Render a calendar date for reading.
+ *
+ * No timezone is involved and none may be: a `date` is not a moment, so
+ * converting it into one to format it is exactly the bug rule 2 above exists to
+ * prevent. It formats the local-midnight Date that `parseDateOnly` builds, which
+ * is the only reason that Date exists.
+ */
+export function formatDateOnly(date: DateOnly, pattern: string): string {
+  return format(parseDateOnly(date), pattern)
 }
 
 /** Whole months from `from` until `to`. Used by the passport 6/9-month rules. */

@@ -46,14 +46,14 @@ If you would rather not put the token in a config file, write it to
 
 ## What it can do
 
-Thirty-nine tools across nine modules — every module the app has.
+Forty-one tools across nine modules — every module the app has.
 
 | Module | Tools | Writes |
 | --- | --- | --- |
-| **trips** | `get_overview`, `list_trips`, `get_trip`, `create_trip`, `update_trip`, `set_trip_day`, `get_itinerary`, `suggest_itinerary`, `add_itinerary_item`, `update_itinerary_item`, `remove_itinerary_item`, `list_suggestions`, `dismiss_suggestion` | 8 of 13 |
+| **trips** | `get_overview`, `list_trips`, `get_trip`, `get_trip_journey`, `create_trip`, `update_trip`, `set_trip_day`, `get_itinerary`, `suggest_itinerary`, `add_itinerary_item`, `update_itinerary_item`, `remove_itinerary_item`, `list_suggestions`, `dismiss_suggestion` | 8 of 14 |
 | **money** | `get_budget`, `log_expense`, `list_settlements`, `record_settlement`, `set_budget`, `get_budgets` | 3 of 6 |
 | **flights** | `list_flights`, `add_journey`, `update_flight`, `remove_flight` | 3 of 4 |
-| **wishlist** | `list_wishlist`, `add_wishlist_item`, `vote_on_wishlist_item`, `remove_wishlist_item` | 3 of 4 |
+| **wishlist** | `list_wishlist`, `find_place`, `add_wishlist_item`, `vote_on_wishlist_item`, `remove_wishlist_item` | 3 of 5 |
 | **destinations** | `list_destinations`, `add_destination`, `choose_destination` | 2 of 3 |
 | **photos** | `list_photos`, `list_albums` | read-only |
 | **allowance** | `list_allowance_rules`, `list_entries` | read-only |
@@ -61,7 +61,11 @@ Thirty-nine tools across nine modules — every module the app has.
 | **documents** *(opt-in)* | `list_documents` | read-only |
 
 Start with `get_overview` for open questions — it answers in one call what
-otherwise takes four.
+otherwise takes four. For one trip, start with `get_trip_journey`: it returns
+every day in order with its flights, planned items and destination, marks the
+days that were deliberately left blank, and lists saved places near the trip
+that are not on the plan yet. It is the same assembly the app's own journey
+screen draws, so the assistant and the couple are looking at the same trip.
 
 ### A generated plan is not a dictated one
 

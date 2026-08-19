@@ -4,6 +4,7 @@ export { MedicationsPanel } from './components/MedicationsPanel'
 export { CycleCalendar } from './components/CycleCalendar'
 export {
   useConsents,
+  useCycleWindow,
   useHealthRecords,
   usePrediction,
   useRestrictions,
@@ -13,6 +14,7 @@ export {
   HEALTH_DISCLAIMER,
   NOT_CHECKED,
   calendarMarks,
+  describeDayMark,
   describeProjectedCycle,
   monthGrid,
   monthOf,
@@ -22,6 +24,7 @@ export {
   describePrediction,
   describeSupply,
   hasConsent,
+  showsCycle,
   matchRestrictions,
   predict,
   restrictionNotice,

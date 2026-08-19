@@ -99,7 +99,7 @@ export function BlendPage({ tripId }: { tripId: string }) {
 
   const pushSelected = (ids: string[]) => {
     if (ids.length === 0) return
-    push.mutate(ids, {
+    push.mutate({ itemIds: ids }, {
       onSuccess: ({ pushed, skipped }) => {
         setSelected(new Set())
         setPushNote(

@@ -1,6 +1,7 @@
 /** Public surface of the map module. */
 export { TripMapPage } from './pages/TripMapPage'
 export { AllMapPage } from './pages/AllMapPage'
+export { MapCanvas } from './components/MapCanvas'
 export { PlaceSearch } from './components/PlaceSearch'
 export { PlacePicker, UseMyLocationButton } from './components/PlacePicker'
 export {

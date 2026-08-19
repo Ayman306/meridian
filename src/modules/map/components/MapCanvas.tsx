@@ -131,7 +131,7 @@ export function MapCanvas({
       const marker = L.marker([pin.lat, pin.lng], {
         icon: L.divIcon({
           className: 'meridian-pin',
-          html: pinHtml(pin, handlers.current.colorFor(pin.personId)),
+          html: pinHtml(pin, pin.color ?? handlers.current.colorFor(pin.personId)),
           iconSize: [28, 28],
           iconAnchor: [14, 14],
         }),

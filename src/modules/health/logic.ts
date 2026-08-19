@@ -588,6 +588,28 @@ export function calendarMarks(
  * straddles the end of a month should be visible on both, and a grid with
  * holes in it reads as missing data.
  */
+/**
+ * What a day is, in words.
+ *
+ * One vocabulary, used by the calendar's screen-reader label and by the trip
+ * journey's cycle line. Two lists that drifted apart would mean the same square
+ * described one way in one place and another way elsewhere, which is the kind
+ * of inconsistency that makes somebody doubt the data rather than the wording.
+ *
+ * "Expected" and "estimated" are load-bearing: a projection is never stated as
+ * a fact.
+ */
+export function describeDayMark(mark: DayMark | undefined): string[] {
+  if (!mark) return []
+  const described: string[] = []
+  if (mark.period) described.push('period logged')
+  if (mark.predictedPeriod) described.push('period expected')
+  if (mark.fertile) described.push('in the estimated fertile window')
+  if (mark.ovulationObserved) described.push('ovulation recorded')
+  else if (mark.ovulation) described.push('ovulation estimated')
+  return described
+}
+
 export function monthGrid(monthStart: DateOnly, weekStartsOn = 1): DateOnly[] {
   const first = parseDateOnly(monthStart)
   const year = first.getFullYear()

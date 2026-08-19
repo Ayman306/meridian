@@ -38,6 +38,7 @@ import { useCouple } from '@/providers/CoupleProvider'
 import {
   FERTILITY_DISCLAIMER,
   calendarMarks,
+  describeDayMark,
   describeProjectedCycle,
   monthGrid,
   monthOf,
@@ -210,12 +211,7 @@ function DayCell({
 
   // Built as a sentence rather than a code, so somebody using a screen reader
   // gets the same four facts a sighted person gets from the colours.
-  const described: string[] = []
-  if (mark?.period) described.push('period logged')
-  if (mark?.predictedPeriod) described.push('period expected')
-  if (mark?.fertile) described.push('in the estimated fertile window')
-  if (mark?.ovulationObserved) described.push('ovulation recorded')
-  else if (mark?.ovulation) described.push('ovulation estimated')
+  const described = describeDayMark(mark)
   if (isToday) described.push('today')
 
   return (
