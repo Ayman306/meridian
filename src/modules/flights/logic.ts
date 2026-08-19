@@ -551,12 +551,53 @@ export function connectionRisk(
   }
 }
 
-/** Consecutive legs of one journey, in order. */
-export function connectionsFor(flights: readonly FlightRow[]): Connection[] {
+/**
+ * Whether a connection crosses a border, which is what makes it slow.
+ *
+ * Immigration is the cost. You clear it on arriving from abroad, and you clear
+ * exit formalities on leaving for abroad — so a connection is international if
+ * *either* leg crosses a border, not only if both do. A domestic hop that feeds
+ * a long-haul departure is still an international connection.
+ *
+ * `null` from `countryOf` means the airport is not in the reference table.
+ * Unknown is treated as international, deliberately: the international minimum
+ * is the longer one, and telling somebody they have plenty of time when they do
+ * not is the failure that makes them miss a flight.
+ */
+export function isInternationalConnection(
+  leg1: Pick<FlightRow, 'origin_iata' | 'dest_iata'>,
+  leg2: Pick<FlightRow, 'origin_iata' | 'dest_iata'>,
+  countryOf: (iata: string | null) => string | null,
+): boolean {
+  const hub = countryOf(leg1.dest_iata) ?? countryOf(leg2.origin_iata)
+  const from = countryOf(leg1.origin_iata)
+  const to = countryOf(leg2.dest_iata)
+  if (!hub || !from || !to) return true
+  return from !== hub || to !== hub
+}
+
+/**
+ * Consecutive legs of one journey, in order.
+ *
+ * `countryOf` resolves an IATA code to a country so a domestic connection is
+ * judged against the domestic minimum. Without it every connection is treated
+ * as international — which is what happened before this parameter existed, and
+ * meant a 70-minute hop between two domestic gates was flagged as tight when it
+ * was comfortable.
+ */
+export function connectionsFor(
+  flights: readonly FlightRow[],
+  countryOf?: (iata: string | null) => string | null,
+): Connection[] {
   const legs = [...flights].sort((a, b) => a.leg_index - b.leg_index)
   const out: Connection[] = []
   for (let i = 0; i < legs.length - 1; i++) {
-    const connection = connectionRisk(legs[i]!, legs[i + 1]!)
+    const leg1 = legs[i]!
+    const leg2 = legs[i + 1]!
+    const international = countryOf
+      ? isInternationalConnection(leg1, leg2, countryOf)
+      : true
+    const connection = connectionRisk(leg1, leg2, international)
     if (connection) out.push(connection)
   }
   return out

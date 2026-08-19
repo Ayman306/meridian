@@ -50,7 +50,10 @@ describe('googleMapsUrl', () => {
 describe('applyFilters', () => {
   it('hides a layer that is switched off', () => {
     const pins = [pin({ layer: 'itinerary' }), pin({ layer: 'wishlist', date: null })]
-    const filters = { ...DEFAULT_FILTERS, layers: { itinerary: false, pool: true, wishlist: true } }
+    const filters = {
+      ...DEFAULT_FILTERS,
+      layers: { ...DEFAULT_FILTERS.layers, itinerary: false },
+    }
     expect(applyFilters(pins, filters).map((p) => p.layer)).toEqual(['wishlist'])
   })
 
@@ -149,6 +152,18 @@ describe('formatDistance', () => {
     expect(formatDistance(3.14)).toBe('3.1 km')
     expect(formatDistance(42.4)).toBe('42 km')
   })
+
+  it('renders miles when that is what the couple chose', () => {
+    // The setting has existed since Phase 13 and was read by nothing, so every
+    // distance in the app was kilometres regardless of the choice — a control
+    // that did nothing.
+    expect(formatDistance(1.609344, 'mi')).toBe('1.0 mi')
+    expect(formatDistance(80.4672, 'mi')).toBe('50 mi')
+  })
+
+  it('drops to feet where metric drops to metres', () => {
+    expect(formatDistance(0.1, 'mi')).toBe('328 ft')
+  })
 })
 
 describe('daysWithPins', () => {
@@ -182,5 +197,24 @@ describe('fallbackCenter', () => {
 
   it('falls back to the world', () => {
     expect(fallbackCenter(null)).toEqual(WORLD_CENTER)
+  })
+})
+
+describe('the stay and photo layers', () => {
+  it('leaves photos off by default', () => {
+    // A trip with three hundred geotagged photos becomes a heat map of
+    // wherever a phone was out, burying the plan it is drawn on top of. Worth
+    // having, not worth leading with.
+    expect(DEFAULT_FILTERS.layers.photo).toBe(false)
+    expect(DEFAULT_FILTERS.layers.stay).toBe(true)
+  })
+
+  it('filters them like any other layer', () => {
+    const pins = [pin({ layer: 'stay' }), pin({ layer: 'photo' })]
+    const onlyStays = {
+      ...DEFAULT_FILTERS,
+      layers: { ...DEFAULT_FILTERS.layers, stay: true, photo: false },
+    }
+    expect(applyFilters(pins, onlyStays).map((p) => p.layer)).toEqual(['stay'])
   })
 })

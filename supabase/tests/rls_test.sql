@@ -1641,6 +1641,88 @@ select assert(
 
 -- ---------------------------------------------------------------------------
 \echo ''
+\echo '== work hours are readable by the other person =='
+-- The whole point of the overlay. These used to live on `user_settings`, whose
+-- policy is `user_id = auth.uid()` and nothing else, so the feature could only
+-- ever have drawn your own hours — the one case where you did not need telling.
+set request.jwt.claim.sub = :'ada_ada';
+update public.profiles set work_hours_start = '09:00', work_hours_end = '17:00'
+  where id = :'ada_ada';
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select work_hours_start from public.profiles where id = :'ada_ada') = '09:00',
+  'a partner can read the hours the overlay is drawn from'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.profiles where id = :'ada_ada') = 0,
+  'and a stranger still cannot see the profile at all'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== accommodations =='
+set request.jwt.claim.sub = :'ada_ada';
+
+insert into public.accommodations (couple_id, trip_id, name, check_in, check_out, created_by)
+values (:'ada_couple', :'ada_trip', 'Pensao Alfama', '2026-06-01', '2026-06-04', :'ada_ada');
+
+select assert(
+  (select count(*) from public.accommodations) = 1,
+  'a stay is readable by the person who booked it'
+);
+
+-- Both partners read it. The point of the column is being able to give the
+-- address to a taxi driver, and either of them might be the one in the taxi.
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select name from public.accommodations) = 'Pensao Alfama',
+  'and by the partner, who may well be the one arriving first'
+);
+update public.accommodations set booking_ref = 'ABC123';
+select assert(
+  (select booking_ref from public.accommodations) = 'ABC123',
+  'either partner may edit a shared booking'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.accommodations) = 0,
+  'a stranger sees no stay of theirs'
+);
+select assert_raises(
+  format(
+    'insert into public.accommodations (couple_id, name) values (%L, %L)',
+    :'ada_couple', 'planted'
+  ),
+  'row-level security',
+  'and cannot plant one in their trip'
+);
+
+-- Nights, not days. check_out equal to check_in would be a zero-night stay.
+set request.jwt.claim.sub = :'ada_ada';
+select assert_raises(
+  format(
+    'insert into public.accommodations (couple_id, name, check_in, check_out) '
+    'values (%L, %L, %L, %L)',
+    :'ada_couple', 'Zero nights', '2026-06-01', '2026-06-01'
+  ),
+  'valid_nights',
+  'a stay must cover at least one night'
+);
+select assert_raises(
+  format(
+    'insert into public.accommodations (couple_id, name, kind) values (%L, %L, %L)',
+    :'ada_couple', 'Somewhere', 'yurt'
+  ),
+  'valid_kind',
+  'and must be a kind the app knows how to show'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
 \echo '== leaving =='
 set request.jwt.claim.sub = :'bo_bo';
 select public.leave_couple();

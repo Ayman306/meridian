@@ -14,6 +14,7 @@
  */
 import { z } from 'zod'
 import { ALLOWANCE_DISCLAIMER } from '@/modules/allowance/logic'
+import { describeFreshness, freshness } from '@/lib/advisory'
 import { defineTool, requireCouple } from './types'
 import type { AnyTool } from './types'
 
@@ -54,6 +55,7 @@ const listAllowanceRules = defineTool({
         : 'No allowance rules recorded yet.'
     }
 
+    const today = new Date().toISOString().slice(0, 10)
     const lines = rows.map((row) => {
       const parts = [
         `${row.passport_country} → ${row.destination_country}`,
@@ -62,7 +64,16 @@ const listAllowanceRules = defineTool({
       ]
       if (row.window_days) parts.push(`in any ${row.window_days}`)
       // The two things that make a number safe to act on. Never omitted.
-      parts.push(row.verified_on ? `verified ${row.verified_on}` : 'never verified')
+      // How old the check is comes with it: a model told only "verified
+      // 2024-01-01" will report the rule as fact, and a rule that has not been
+      // looked at in two years is a starting point rather than an answer.
+      if (row.verified_on) {
+        const age = freshness(row.verified_on, today)
+        const note = describeFreshness(age)
+        parts.push(`verified ${row.verified_on}${note ? ` — ${note}` : ''}`)
+      } else {
+        parts.push('never verified')
+      }
       if (row.source_url) parts.push(row.source_url)
       if (row.notes) parts.push(`— ${row.notes}`)
       return `- ${parts.join(' · ')}`

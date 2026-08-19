@@ -270,3 +270,118 @@ export async function countPushSubscriptions(): Promise<number> {
   if (error) throw toAppError(error)
   return count ?? 0
 }
+
+// ---------------------------------------------------------------------------
+// Category management (spec 14.2)
+// ---------------------------------------------------------------------------
+
+/**
+ * The four lists a couple can rename and recolour.
+ *
+ * They live in four tables with four different shapes, which is why this is a
+ * discriminated set rather than one generic helper: `trip_statuses` has no
+ * colour, `document_types` has flags instead of one, and pretending otherwise
+ * would mean a form that offers a colour picker for something with nowhere to
+ * put the answer.
+ */
+export type CategoryKind =
+  | 'categories'
+  | 'expense_categories'
+  | 'document_types'
+  | 'trip_statuses'
+
+export interface EditableCategory {
+  id: string
+  name: string
+  color: string | null
+  isDefault: boolean
+  sortOrder: number
+}
+
+const HAS_COLOR: Record<CategoryKind, boolean> = {
+  categories: true,
+  expense_categories: true,
+  document_types: false,
+  trip_statuses: true,
+}
+
+export function supportsColor(kind: CategoryKind): boolean {
+  return HAS_COLOR[kind]
+}
+
+export async function listCategoriesOf(
+  kind: CategoryKind,
+  coupleId: string,
+): Promise<EditableCategory[]> {
+  const rows = unwrapList(
+    await supabase.from(kind).select('*').eq('couple_id', coupleId).order('sort_order'),
+  )
+
+  return rows.map((row) => {
+    const record = row as Record<string, unknown>
+    return {
+      id: String(record.id),
+      name: String(record.name ?? ''),
+      color: HAS_COLOR[kind] ? ((record.color as string | null) ?? null) : null,
+      isDefault: Boolean(record.is_default),
+      sortOrder: Number(record.sort_order ?? 0),
+    }
+  })
+}
+
+export async function renameCategory(
+  kind: CategoryKind,
+  id: string,
+  patch: { name?: string; color?: string | null },
+): Promise<void> {
+  const update: { name?: string; color?: string | null } = {}
+  if (patch.name !== undefined) update.name = patch.name
+  // Never send a colour to a table that has no column for it: PostgREST would
+  // reject the whole statement and the rename would be lost with it.
+  if (patch.color !== undefined && HAS_COLOR[kind]) update.color = patch.color
+  if (Object.keys(update).length === 0) return
+
+  // The four tables have four generated row types, and `kind` is only known at
+  // runtime, so the client cannot narrow the update to one of them. The cast is
+  // sound because of the guard above: `name` exists on all four, and `color` is
+  // only ever present when HAS_COLOR says the table has it.
+  const { error } = await supabase
+    .from(kind)
+    .update(update as never)
+    .eq('id', id)
+  if (error) throw toAppError(error)
+}
+
+/**
+ * Add one.
+ *
+ * `is_default` is never set here. A default is something the seed created and
+ * the app may rely on by name; one somebody adds is theirs, and marking it
+ * default would let a later reseed treat it as replaceable.
+ */
+export async function addCategory(
+  kind: CategoryKind,
+  coupleId: string,
+  name: string,
+  color: string | null,
+): Promise<void> {
+  const row: { couple_id: string; name: string; color?: string } = { couple_id: coupleId, name }
+  if (HAS_COLOR[kind] && color) row.color = color
+
+  // Same reasoning as `renameCategory` above.
+  const { error } = await supabase.from(kind).insert(row as never)
+  if (error) throw toAppError(error)
+}
+
+/**
+ * Remove one.
+ *
+ * Every table referencing these uses `on delete set null`, so removing a
+ * category unfiles what used it rather than deleting it. That is worth saying
+ * in the UI, and it is why this is allowed at all — a delete that took the
+ * expenses with it would not be.
+ */
+export async function removeCategory(kind: CategoryKind, id: string): Promise<void> {
+  const { error } = await supabase.from(kind).delete().eq('id', id)
+  if (error) throw toAppError(error)
+}

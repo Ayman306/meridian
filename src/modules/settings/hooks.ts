@@ -23,6 +23,18 @@ export function useCoupleSettings() {
   })
 }
 
+/**
+ * The couple's distance unit, with a default that never blocks a render.
+ *
+ * A hook rather than reading `useCoupleSettings().data?.distance_unit` at each
+ * call site: there are several, and the one that forgets the fallback is the
+ * one that shows "undefined" for a moment on every cold load.
+ */
+export function useDistanceUnit(): 'km' | 'mi' {
+  const settings = useCoupleSettings()
+  return settings.data?.distance_unit === 'mi' ? 'mi' : 'km'
+}
+
 export function useUserSettings() {
   const { user } = useAuth()
   return useQuery({

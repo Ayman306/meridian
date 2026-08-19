@@ -202,6 +202,9 @@ export function TripMoneyPage({
           onSetBudget={(categoryId, amount) =>
             setBudget.mutate({ categoryId, amount, currency: baseCurrency })
           }
+          onSetWeeklyBudget={(amount) =>
+            setBudget.mutate({ categoryId: null, amount, currency: baseCurrency, period: 'week' })
+          }
         />
       )}
 

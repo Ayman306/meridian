@@ -156,13 +156,25 @@ export function Lightbox({
         {placeholder && !current.data && (
           <img src={placeholder} alt="" aria-hidden="true" className="max-h-full max-w-full blur-xl" />
         )}
-        {current.data && (
-          <img
-            src={current.data}
-            alt={media.caption ?? ''}
-            className="max-h-full max-w-full object-contain"
-          />
-        )}
+        {current.data &&
+          (media.media_type === 'video' ? (
+            // `controls` and nothing else: no autoplay, because a video that
+            // starts talking when somebody opens a photo album is startling,
+            // and no loop, because this is a memory rather than a GIF.
+            <video
+              src={current.data}
+              controls
+              playsInline
+              preload="metadata"
+              className="max-h-full max-w-full object-contain"
+            />
+          ) : (
+            <img
+              src={current.data}
+              alt={media.caption ?? ''}
+              className="max-h-full max-w-full object-contain"
+            />
+          ))}
 
         {neighbours.previous && (
           <Button

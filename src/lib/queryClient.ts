@@ -45,6 +45,7 @@ export const qk = {
   wishlist: (coupleId: string) => ['wishlist', coupleId] as const,
 
   destinations: (tripId: string) => ['destinations', tripId] as const,
+  stays: (tripId: string) => ['stays', tripId] as const,
   visaRules: (key: string) => ['visa-rules', key] as const,
   destinationWeights: ['destination-weights'] as const,
   wishlistCities: ['wishlist-cities'] as const,
@@ -57,6 +58,7 @@ export const qk = {
   shareLinks: (coupleId: string) => ['share-links', coupleId] as const,
 
   flights: (coupleId: string) => ['flights', coupleId] as const,
+  airportCountries: (codes: string) => ['airport-countries', codes] as const,
   flight: (id: string) => ['flight', id] as const,
   flightTrack: (id: string) => ['flight-track', id] as const,
 

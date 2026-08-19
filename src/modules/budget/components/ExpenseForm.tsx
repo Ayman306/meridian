@@ -23,7 +23,10 @@ import { useAuth } from '@/providers/AuthProvider'
 import { expenseSchema, type ExpenseFormValues } from '../schemas'
 import { formatMoney, validateSplit } from '../logic'
 import { useBaseCurrency, useExpenseCategories } from '../hooks'
+import { useItems } from '@/modules/itinerary'
+import { useStays } from '@/modules/stays'
 import { CurrencyPicker } from './CurrencyPicker'
+import { ReceiptPicker } from './ReceiptPicker'
 import type { Expense, SplitType } from '../types'
 
 const SPLIT_LABELS: Record<SplitType, string> = {
@@ -55,6 +58,8 @@ export function ExpenseForm({
   const { user } = useAuth()
   const categories = useExpenseCategories()
   const baseCurrency = useBaseCurrency()
+  const planItems = useItems(tripId ?? undefined)
+  const stays = useStays(tripId ?? undefined)
 
   const form = useForm<ExpenseFormValues>({
     resolver: zodResolver(expenseSchema),
@@ -71,6 +76,7 @@ export function ExpenseForm({
       category_id: existing?.category_id ?? null,
       trip_id: existing?.trip_id ?? tripId ?? null,
       itinerary_item_id: existing?.itinerary_item_id ?? null,
+      accommodation_id: existing?.accommodation_id ?? null,
       receipt_media_id: existing?.receipt_media_id ?? null,
       notes: existing?.notes ?? '',
     },
@@ -264,6 +270,62 @@ export function ExpenseForm({
           </p>
         )}
       </fieldset>
+
+      {/* What this was for, in the plan's own terms. The columns for these
+          have existed since Phase 12 with nothing to fill them, so an expense
+          could sit next to the thing it paid for and never point at it. Only
+          offered inside a trip — outside one there is nothing to point at. */}
+      {tripId && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <label htmlFor="itinerary_item_id" className="text-sm font-medium">
+              Part of the plan
+            </label>
+            <select
+              id="itinerary_item_id"
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              {...form.register('itinerary_item_id')}
+            >
+              <option value="">Not linked</option>
+              {(planItems.data ?? [])
+                .filter((item) => item.scheduled_date !== null)
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.scheduled_date} · {item.title}
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label htmlFor="accommodation_id" className="text-sm font-medium">
+              A stay
+            </label>
+            <select
+              id="accommodation_id"
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              {...form.register('accommodation_id')}
+            >
+              <option value="">Not linked</option>
+              {(stays.data ?? []).map((stay) => (
+                <option key={stay.id} value={stay.id}>
+                  {stay.name}
+                  {stay.check_in ? ` · ${stay.check_in}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
+
+      {/* The receipt. Picked from photos already in the gallery rather than
+          uploaded here: the upload pipeline — EXIF, derivatives, the quota —
+          lives in one place, and a second one would drift from it. */}
+      <ReceiptPicker
+        tripId={tripId ?? null}
+        value={form.watch('receipt_media_id') ?? null}
+        onChange={(id) => form.setValue('receipt_media_id', id, { shouldDirty: true })}
+      />
 
       <div className="space-y-1">
         <label htmlFor="notes" className="text-sm font-medium">

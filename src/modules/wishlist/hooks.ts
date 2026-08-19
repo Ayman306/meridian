@@ -6,6 +6,7 @@ import { qk } from '@/lib/queryClient'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/providers/AuthProvider'
 import { useCouple } from '@/providers/CoupleProvider'
+import type { DateOnly } from '@/lib/dates'
 import type { UpdateDto } from '@/types/database'
 import * as api from './api'
 import type { Draft, Verdict } from './types'
@@ -108,7 +109,8 @@ export function useSetVerdict() {
 export function usePushToItinerary(tripId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (itemIds: string[]) => api.pushToItinerary(itemIds, tripId),
+    mutationFn: ({ itemIds, date = null }: { itemIds: string[]; date?: DateOnly | null }) =>
+      api.pushToItinerary(itemIds, tripId, date),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: qk.itinerary(tripId) })
       void qc.invalidateQueries({ queryKey: qk.trip(tripId) })

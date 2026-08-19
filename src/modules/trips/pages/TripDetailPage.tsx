@@ -20,6 +20,10 @@ import { TripAllowanceStrip } from '@/modules/allowance'
 import { chosenDestination, useDestinations } from '@/modules/destinations'
 
 const TABS = [
+  // The empty segment is the trip index — the journey overview. It leads
+  // because it is the only tab that answers "what is this trip" rather than
+  // "what would you like to edit".
+  { segment: '', label: 'Journey' },
   { segment: 'where', label: 'Where' },
   { segment: 'plan', label: 'Plan' },
   { segment: 'blend', label: 'Blend' },
@@ -173,7 +177,7 @@ export function TripDetailPage({ children }: { children: React.ReactNode }) {
         aria-label="Trip sections"
       >
         {TABS.map((tab) => {
-          const href = `/trips/${id}/${tab.segment}`
+          const href = tab.segment ? `/trips/${id}/${tab.segment}` : `/trips/${id}`
           const active = pathname === href
           return (
             <Link

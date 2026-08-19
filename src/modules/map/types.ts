@@ -1,7 +1,13 @@
 import type { DateOnly } from '@/lib/dates'
 
-/** Which list a pin came from. Drives the layer toggles and the pin's shape. */
-export type PinLayer = 'itinerary' | 'pool' | 'wishlist'
+/**
+ * Which list a pin came from. Drives the layer toggles and the pin's shape.
+ *
+ * `stay` and `photo` were reserved from the start and left out because neither
+ * module existed. Both do now, and a map of a trip that omits where they slept
+ * and where they took pictures is showing the plan rather than the trip.
+ */
+export type PinLayer = 'itinerary' | 'pool' | 'wishlist' | 'stay' | 'photo'
 
 export interface MapPin {
   id: string
@@ -22,6 +28,15 @@ export interface MapPin {
   tripTitle: string | null
   /** Position within its day, once a single day is selected. */
   order?: number
+  /**
+   * An explicit fill, for pins that are not anybody's pick.
+   *
+   * The journey overview draws airports and destinations, which belong to the
+   * trip rather than to a person. Colouring them by `personId` would make them
+   * the grey of "nobody chose this", which is true and useless — the thing
+   * worth seeing there is what kind of stop it is.
+   */
+  color?: string
 }
 
 /** Anything with coordinates missing — counted, never silently dropped. */

@@ -12,6 +12,8 @@ const LAYER_LABELS: Record<PinLayer, string> = {
   itinerary: 'Scheduled',
   pool: 'Ideas',
   wishlist: 'Wishlist',
+  stay: 'Stays',
+  photo: 'Photos',
 }
 
 export function MapControls({

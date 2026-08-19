@@ -20,6 +20,7 @@ import { zoneFor } from '@/lib/zones'
 import { useCouple } from '@/providers/CoupleProvider'
 import { PlaceSearch } from '@/modules/map'
 import { useTrip } from '@/modules/trips'
+import { StaysPanel } from '@/modules/stays'
 import {
   ALLOWANCE_DISCLAIMER,
   checkPlannedStay,
@@ -223,6 +224,14 @@ export function WherePage({ tripId }: { tripId: string }) {
           <AdvisoryNote text={ALLOWANCE_DISCLAIMER} />
         </>
       )}
+
+      {/* Which city, then which bed. The two decisions are made minutes apart,
+          so they belong on one screen rather than in two places. */}
+      <StaysPanel
+        tripId={tripId}
+        startDate={trip?.start_date ?? null}
+        endDate={trip?.end_date ?? null}
+      />
     </div>
   )
 }
@@ -276,9 +285,12 @@ function CandidateForm({
             picked ? 'text-muted-foreground' : 'text-[hsl(var(--warn))]',
           )}
         >
+          {/* Confirms it is located without reciting the numbers. Two decimals
+              of latitude is not something anybody can check, and the only
+              question here is whether the place was found at all. */}
           {picked
-            ? `${picked.country_code ?? '??'} · ${picked.lat?.toFixed(2)}, ${picked.lng?.toFixed(2)}`
-            : 'Pick from the search to get coordinates — without them there are no flight times'}
+            ? `Located${picked.country_code ? ` in ${picked.country_code}` : ''}`
+            : 'Pick one from the search — without a location there are no flight times'}
         </span>
       </div>
 

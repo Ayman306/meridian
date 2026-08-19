@@ -5,7 +5,14 @@
  * a blank day is the desired state. The UI must never suggest filling one.
  * `emptyDayTreatment` is where that decision is made, once.
  */
-import { dateRange, daysBetween, formatTime, type DateOnly } from '@/lib/dates'
+import {
+  dateRange,
+  daysBetween,
+  formatTime,
+  offsetMinutes,
+  parseDateOnly,
+  type DateOnly,
+} from '@/lib/dates'
 import { bySortKey } from '@/lib/fractional'
 import { LONG_STAY_NIGHTS } from '@/lib/constants'
 import { haversineKm } from '@/lib/utils'
@@ -27,6 +34,81 @@ export type EmptyTreatment = 'empty' | 'restful'
 export function emptyDayTreatment(tripNights: number | null): EmptyTreatment {
   if (tripNights === null) return 'empty'
   return tripNights > LONG_STAY_NIGHTS ? 'restful' : 'empty'
+}
+
+// ---------------------------------------------------------------------------
+// The work-day overlay
+// ---------------------------------------------------------------------------
+
+/** One person's working day, expressed in the trip's own wall clock. */
+export interface WorkBand {
+  personId: string
+  /** `HH:mm` in trip-local time. */
+  from: string
+  to: string
+  /**
+   * True when their working day, moved into the trip's timezone, runs past
+   * midnight. The band is clipped to the day rather than wrapped, because a
+   * bar that restarts at the top of the same day reads as two shifts.
+   */
+  clipped: boolean
+}
+
+/**
+ * Where somebody's working day falls on a trip day.
+ *
+ * The whole reason this is not a string comparison: work hours are wall-clock
+ * in the *person's own* timezone and the itinerary is wall-clock in the
+ * *trip's*. Someone working 09:00–17:00 in Toronto is unavailable 14:00–22:00
+ * on a Lisbon trip, and drawing 09:00–17:00 on the Lisbon day would tell their
+ * partner the afternoon was free when it is the one part that is not.
+ *
+ * Returns null when either end is unset — a half-known working day is not
+ * something to draw. Offsets are read for the specific date so a band that
+ * straddles a daylight-saving change lands where it actually is.
+ */
+export function workBand(
+  person: { id: string; timezone: string; work_hours_start: string | null; work_hours_end: string | null },
+  date: DateOnly,
+  tripTimezone: string,
+): WorkBand | null {
+  if (!person.work_hours_start || !person.work_hours_end) return null
+
+  const shift = offsetMinutes(tripTimezone, parseDateOnly(date)) -
+    offsetMinutes(person.timezone, parseDateOnly(date))
+
+  const from = minutesOf(person.work_hours_start) + shift
+  const to = minutesOf(person.work_hours_end) + shift
+
+  // Clipped, not wrapped. A working day that starts on the trip's previous
+  // evening shows as running from midnight; one ending after it shows as
+  // running to midnight. Either way it is one continuous band.
+  const clipped = from < 0 || to > 24 * 60
+
+  return {
+    personId: person.id,
+    from: clockOf(Math.max(0, Math.min(24 * 60, from))),
+    to: clockOf(Math.max(0, Math.min(24 * 60, to))),
+    clipped,
+  }
+}
+
+/** Whether a planned time lands inside somebody's working day. */
+export function clashesWithWork(time: string | null, band: WorkBand | null): boolean {
+  if (!time || !band) return false
+  const at = time.slice(0, 5)
+  return at >= band.from && at < band.to
+}
+
+function minutesOf(time: string): number {
+  const [h, m] = time.split(':').map(Number)
+  return (h ?? 0) * 60 + (m ?? 0)
+}
+
+function clockOf(minutes: number): string {
+  const h = Math.floor(minutes / 60)
+  const m = Math.round(minutes % 60)
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
 // ---------------------------------------------------------------------------

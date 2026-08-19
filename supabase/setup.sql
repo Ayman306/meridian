@@ -25,6 +25,12 @@
 --   supabase/migrations/0017_cycle_tracking.sql
 --   supabase/migrations/0018_provider_quota.sql
 --   supabase/migrations/0019_access_tokens.sql
+--   supabase/migrations/0020_accommodations.sql
+--   supabase/migrations/0021_work_hours_on_profiles.sql
+--   supabase/migrations/0022_expense_accommodation.sql
+--   supabase/migrations/0023_document_sweep_schedule.sql
+--   supabase/migrations/0024_reference_data.sql
+--   supabase/migrations/0025_airport_routes.sql
 --
 -- Safe to re-run: every statement is idempotent or uses "or replace".
 -- =============================================================================
@@ -4663,4 +4669,545 @@ grant select (
 -- The exchange endpoint verifies a presented token with the service role, which
 -- is the one sanctioned use of it: establishing who is calling, before any data
 -- is touched. Everything after that runs as the user.
+
+
+-- ===========================================================================
+-- 0020_accommodations.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0020_accommodations — where they sleep.
+--
+-- The app could say which city a trip is in on a given day and not which bed.
+-- That is the largest hole in the journey view: "where are we staying" is the
+-- question a couple asks most often on a trip, and until now the answer lived
+-- in an email.
+--
+-- ## Why the dates are check-in and check-out, not arrive and depart
+--
+-- `trip_destinations` already has `arrive_on` / `depart_on`, and reusing those
+-- names here would invite the assumption that the two ranges mean the same
+-- thing. They do not. A destination's range covers *days in a city*, inclusive
+-- at both ends. A stay covers *nights*, and the check-out day is one you are
+-- there for the morning of and not the night of. Three nights from the 4th is
+-- check_in 04, check_out 07 — four calendar days, three nights.
+--
+-- The consequence worth stating: `check_out` is exclusive. Every query that
+-- asks "which stay covers this date" uses `date >= check_in and date <
+-- check_out`, and the one that asks "is this the morning we leave" compares
+-- equality with `check_out`. Getting this backwards would show somebody a hotel
+-- on a night they had already left it.
+--
+-- ## Why the booking reference is here at all
+--
+-- It is the one thing you need at a front desk at 1am and cannot find. It is
+-- couple-shared like everything else on a trip — but it never leaves the app:
+-- the MCP tools select an explicit column list that omits it, asserted in
+-- `registry.test.ts`, for the same reason document numbers are omitted. A
+-- reference sitting in a model's context is a reference that has left the
+-- couple's control.
+-- =============================================================================
+
+create table if not exists public.accommodations (
+  id           uuid primary key default gen_random_uuid(),
+  couple_id    uuid not null references public.couples(id) on delete cascade,
+  -- Null is legal: a stay can be saved before anybody decides which trip it
+  -- belongs to, the same way a wishlist item can.
+  trip_id      uuid references public.trips(id) on delete set null,
+
+  name         text not null,
+  kind         text not null default 'hotel',
+
+  -- Nights, not days. See the note above.
+  check_in     date,
+  check_out    date,
+
+  -- Resolved, never typed. Every path that writes these goes through the
+  -- geocoder or a parsed maps link (D91–D95).
+  address      text,
+  city         text,
+  country_code text,
+  lat          numeric,
+  lng          numeric,
+  maps_url     text,
+
+  -- The 1am column. Never exposed to a model — see the note above.
+  booking_ref  text,
+  -- Where it was booked, so a change can be made without hunting for the site.
+  url          text,
+  phone        text,
+  notes        text,
+
+  created_by   uuid references public.profiles(id),
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  -- Somebody would regret losing a booking reference, so this is a soft delete.
+  deleted_at   timestamptz,
+
+  constraint valid_kind check (kind in ('hotel', 'apartment', 'guesthouse', 'family', 'other')),
+  -- A one-night stay is check_out = check_in + 1. Equal dates would be a zero
+  -- night stay, which is not a stay.
+  constraint valid_nights check (
+    check_in is null or check_out is null or check_out > check_in
+  )
+);
+
+create index if not exists accommodations_trip_idx
+  on public.accommodations (trip_id, check_in) where deleted_at is null;
+create index if not exists accommodations_couple_idx
+  on public.accommodations (couple_id, check_in) where deleted_at is null;
+
+drop trigger if exists accommodations_updated_at on public.accommodations;
+create trigger accommodations_updated_at before update on public.accommodations
+  for each row execute function public.set_updated_at();
+
+-- =============================================================================
+-- RLS — the standard couple pair. A stay is shared: either partner books one,
+-- either partner needs to read it at a front desk.
+-- =============================================================================
+alter table public.accommodations enable row level security;
+
+drop policy if exists "couple read" on public.accommodations;
+create policy "couple read" on public.accommodations
+  for select using (public.is_couple_member(couple_id));
+
+drop policy if exists "couple write" on public.accommodations;
+create policy "couple write" on public.accommodations
+  for all using (public.is_couple_member(couple_id))
+      with check (public.is_couple_member(couple_id));
+
+
+-- ===========================================================================
+-- 0021_work_hours_on_profiles.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0021_work_hours — move work hours to where the other person can read them.
+--
+-- The work-day overlay exists so neither of them plans a lunch through the
+-- other's stand-up. That requires reading the *partner's* hours, and the
+-- columns were on `user_settings`, whose policy is `user_id = auth.uid()` and
+-- nothing else. So the feature could only ever have drawn your own hours, which
+-- is the one case where you did not need to be told.
+--
+-- Rather than widen that policy — which would hand a partner the whole settings
+-- row, including notification toggles and the vault timeout — the two columns
+-- move to `profiles`, which is already couple-readable and is exactly where
+-- facts-about-a-person-the-other-one-needs already live: timezone, home city,
+-- nationality. Work hours are that class of fact.
+--
+-- Backfilled and then dropped, so there is one source of truth rather than two
+-- that can disagree.
+-- =============================================================================
+
+alter table public.profiles
+  add column if not exists work_hours_start time,
+  add column if not exists work_hours_end   time;
+
+comment on column public.profiles.work_hours_start is
+  'Local wall-clock, in this profile''s own timezone. Feeds the itinerary''s work-day overlay, which is why it is here and not on user_settings.';
+
+-- Carry across anything already entered. Guarded because a fresh database has
+-- no such column to read from.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'user_settings'
+      and column_name = 'work_hours_start'
+  ) then
+    execute $migrate$
+      update public.profiles p
+         set work_hours_start = u.work_hours_start,
+             work_hours_end   = u.work_hours_end
+        from public.user_settings u
+       where u.user_id = p.id
+         and (u.work_hours_start is not null or u.work_hours_end is not null)
+    $migrate$;
+
+    execute 'alter table public.user_settings drop column work_hours_start';
+    execute 'alter table public.user_settings drop column work_hours_end';
+  end if;
+end $$;
+
+
+-- ===========================================================================
+-- 0022_expense_accommodation.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0022_expense_accommodation — what the hotel cost.
+--
+-- `expenses` could already point at a trip and at an itinerary item. It could
+-- not point at a stay, so the single largest line on most trips — the room —
+-- was the one thing you could not trace back to what you booked.
+--
+-- `on delete set null` rather than cascade, deliberately: removing a booking
+-- must never remove the money that was spent on it. The expense outlives the
+-- reservation, which is the whole reason it is recorded.
+-- =============================================================================
+
+alter table public.expenses
+  add column if not exists accommodation_id uuid
+    references public.accommodations(id) on delete set null;
+
+create index if not exists expenses_accommodation_idx
+  on public.expenses (accommodation_id) where accommodation_id is not null;
+
+comment on column public.expenses.accommodation_id is
+  'The booking this paid for. Set null rather than cascaded when the booking goes, because the money was still spent.';
+
+
+-- ===========================================================================
+-- 0023_document_sweep_schedule.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0023_document_sweep_schedule — the fourth sweep.
+--
+-- `crossedThreshold` and `shouldAlert` were written and tested in Phase 4 and
+-- called by nothing, because the notification channel did not exist yet. It
+-- does now, so `/api/cron/document-sweep` is real and this puts it on a timer.
+--
+-- 04:15 UTC, after the media sweep and the FX backfill, so the three nightly
+-- jobs do not contend. A document expiry is not urgent to the minute — what
+-- matters is that it arrives once per threshold rather than every morning,
+-- which is `shouldAlert`'s job and not the schedule's.
+--
+-- `schedule_sweeps()` is replaced wholesale rather than amended: it already
+-- unschedules and reschedules every job it names, so redefining it with the
+-- fourth row is the whole change, and there is one list rather than two places
+-- to keep in agreement.
+-- =============================================================================
+
+create or replace function public.schedule_sweeps()
+returns void language plpgsql security definer
+set search_path = public, cron as $$
+declare
+  job record;
+begin
+  for job in
+    select * from (values
+      -- Every 30 minutes: the hard stop on finished flights, then a refresh of
+      -- the ones actually in the air. This is the one with money attached.
+      ('meridian-flight-sweep',   '*/30 * * * *', '/api/cron/flight-sweep'),
+      -- 03:15 UTC: hard-delete trashed photos, objects before rows.
+      ('meridian-media-sweep',    '15 3 * * *',   '/api/cron/media-sweep'),
+      -- 03:45 UTC: convert the expenses that saved while FX was unreachable.
+      ('meridian-fx-backfill',    '45 3 * * *',   '/api/cron/fx-backfill'),
+      -- 04:15 UTC: tell people a passport is running out, once per threshold.
+      ('meridian-document-sweep', '15 4 * * *',   '/api/cron/document-sweep')
+    ) as t(name, schedule, path)
+  loop
+    perform cron.unschedule(job.name)
+      where exists (select 1 from cron.job j where j.jobname = job.name);
+
+    perform cron.schedule(
+      job.name,
+      job.schedule,
+      format('select public.invoke_sweep(%L)', job.path)
+    );
+  end loop;
+end $$;
+
+revoke all on function public.schedule_sweeps() from public, anon, authenticated;
+
+
+-- ===========================================================================
+-- 0024_reference_data.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0024_reference_data — widen the two seeds that were openly starting points.
+--
+-- Both of these were shipped as small, deliberately conservative sets with
+-- sources attached and a `verified_on` date, and both were recorded as gaps
+-- because a starting point that never grows is just a gap with a citation.
+--
+-- ## What is still true after this
+--
+-- These are **not** a dataset. They are more rows of the same kind: each with
+-- a source link and a checked-on date, each rendered behind the same advisory
+-- wording, and each now carrying a staleness marker once it passes six months
+-- (see `lib/advisory.ts`). Nobody should board a plane on the strength of a row
+-- in here without opening its source, and every surface says so.
+--
+-- Airports are different in kind — a coordinate and an IATA code are facts that
+-- do not change — so those are simply more of them.
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- Medication restrictions.
+--
+-- Chosen by the failure they prevent: each is something routinely carried and
+-- legal at home, whose seizure at a border would derail a trip. A row that says
+-- "cocaine is illegal" would be true and useless.
+-- -----------------------------------------------------------------------------
+insert into public.medication_restrictions
+  (country_code, substance, restriction, source_url, verified_on)
+values
+  -- Japan — the strictest common case, and the one that catches ordinary
+  -- cold remedies and prescribed ADHD medication.
+  ('JP', 'methylphenidate', 'Prohibited, including prescribed ADHD medicines such as Ritalin and Concerta',
+   'https://www.mhlw.go.jp/english/policy/health-medical/pharmaceuticals/01.html', '2026-08-19'),
+  ('JP', 'oxycodone', 'Requires a Yakkan Shoumei import certificate obtained before travel',
+   'https://www.mhlw.go.jp/english/policy/health-medical/pharmaceuticals/01.html', '2026-08-19'),
+
+  -- United Arab Emirates — a long controlled list, and transit counts.
+  ('AE', 'diazepam', 'Controlled — prior approval and a prescription are required',
+   'https://mohap.gov.ae/en/services/import-medicines-for-personal-use', '2026-08-19'),
+  ('AE', 'methylphenidate', 'Controlled — prior approval and a prescription are required',
+   'https://mohap.gov.ae/en/services/import-medicines-for-personal-use', '2026-08-19'),
+  ('AE', 'pseudoephedrine', 'Restricted — carry the original packaging and a prescription',
+   'https://mohap.gov.ae/en/services/import-medicines-for-personal-use', '2026-08-19'),
+
+  -- Singapore.
+  ('SG', 'diazepam', 'Controlled — carry a prescription; approval needed for larger quantities',
+   'https://www.hsa.gov.sg/personal-medication', '2026-08-19'),
+  ('SG', 'methylphenidate', 'Controlled — approval needed before arrival',
+   'https://www.hsa.gov.sg/personal-medication', '2026-08-19'),
+
+  -- India.
+  ('IN', 'codeine', 'Controlled — carry a prescription',
+   'https://cdsco.gov.in/opencms/opencms/en/Home/', '2026-08-19'),
+  ('IN', 'cannabidiol', 'Restricted — legality depends on THC content and state law',
+   'https://cdsco.gov.in/opencms/opencms/en/Home/', '2026-08-19'),
+
+  -- United Kingdom.
+  ('GB', 'codeine', 'Controlled — carry a prescription and a letter for trips over three months',
+   'https://www.gov.uk/travelling-controlled-drugs', '2026-08-19'),
+  ('GB', 'methylphenidate', 'Controlled — carry a prescription and a letter for trips over three months',
+   'https://www.gov.uk/travelling-controlled-drugs', '2026-08-19'),
+
+  -- United States.
+  ('US', 'tramadol', 'Schedule IV — carry it in its original labelled container',
+   'https://www.dea.gov/drug-information/drug-scheduling', '2026-08-19'),
+  ('US', 'cannabidiol', 'Federally restricted above 0.3% THC, and prohibited by TSA above that',
+   'https://www.tsa.gov/travel/security-screening/whatcanibring/items/medical-marijuana', '2026-08-19'),
+
+  -- Schengen states people most often connect through.
+  ('DE', 'codeine', 'Controlled — carry a prescription; a Schengen certificate is needed over 30 days',
+   'https://www.bfarm.de/EN/Federal-Opium-Agency/_node.html', '2026-08-19'),
+  ('FR', 'codeine', 'Controlled — carry a prescription; a Schengen certificate is needed over 30 days',
+   'https://ansm.sante.fr/', '2026-08-19'),
+  ('NL', 'cannabidiol', 'Permitted below 0.05% THC; above that it is a controlled substance',
+   'https://www.government.nl/topics/drugs', '2026-08-19'),
+
+  -- Others that regularly surprise people.
+  ('TR', 'pseudoephedrine', 'Restricted — carry the original packaging and a prescription',
+   'https://www.titck.gov.tr/', '2026-08-19'),
+  ('TH', 'tramadol', 'Controlled — carry a prescription, with a 30-day personal supply limit',
+   'https://www.fda.moph.go.th/sites/en/Pages/Main.aspx', '2026-08-19'),
+  ('QA', 'codeine', 'Controlled — prior approval required, and transit counts as entry',
+   'https://www.moph.gov.qa/english/Pages/default.aspx', '2026-08-19'),
+  ('AU', 'pseudoephedrine', 'Restricted — declare it and carry a prescription',
+   'https://www.tga.gov.au/products/medicines/travelling-medicines-and-medical-devices', '2026-08-19'),
+  ('CA', 'cannabidiol', 'Prohibited to carry across the border in either direction, legal or not',
+   'https://www.canada.ca/en/health-canada/services/drugs-medication/cannabis/laws-regulations.html', '2026-08-19')
+on conflict do nothing;
+
+-- -----------------------------------------------------------------------------
+-- Airports.
+--
+-- An airport missing from this table saves fine and carries no coordinates, so
+-- the map cannot draw that leg and the layover minimum falls back to the
+-- international one. Both are silent degradations, which is what makes the list
+-- worth widening rather than leaving to be noticed.
+--
+-- Coordinates are published airport reference points; timezones are IANA names,
+-- because a fixed offset is wrong twice a year.
+-- -----------------------------------------------------------------------------
+insert into public.airports (iata, icao, name, city, country_code, lat, lng, timezone) values
+  -- India, beyond the metros
+  ('IXE', 'VOML', 'Mangaluru International',            'Mangalore',    'IN', 12.9613,  74.8901, 'Asia/Kolkata'),
+  ('CCJ', 'VOCL', 'Calicut International',              'Kozhikode',    'IN', 11.1368,  75.9553, 'Asia/Kolkata'),
+  ('TRV', 'VOTV', 'Trivandrum International',           'Thiruvananthapuram', 'IN', 8.4821, 76.9201, 'Asia/Kolkata'),
+  ('IXM', 'VOMD', 'Madurai',                            'Madurai',      'IN',  9.8345,  78.0934, 'Asia/Kolkata'),
+  ('VTZ', 'VOVZ', 'Visakhapatnam',                      'Visakhapatnam','IN', 17.7211,  83.2245, 'Asia/Kolkata'),
+  ('IXC', 'VICG', 'Chandigarh',                         'Chandigarh',   'IN', 30.6735,  76.7885, 'Asia/Kolkata'),
+  ('IXB', 'VEBD', 'Bagdogra',                           'Siliguri',     'IN', 26.6812,  88.3286, 'Asia/Kolkata'),
+  ('IXJ', 'VIJU', 'Jammu',                              'Jammu',        'IN', 32.6891,  74.8374, 'Asia/Kolkata'),
+  ('IXL', 'VILH', 'Kushok Bakula Rimpochee',            'Leh',          'IN', 34.1359,  77.5465, 'Asia/Kolkata'),
+  ('STV', 'VASU', 'Surat',                              'Surat',        'IN', 21.1141,  72.7418, 'Asia/Kolkata'),
+  ('BDQ', 'VABO', 'Vadodara',                           'Vadodara',     'IN', 22.3362,  73.2263, 'Asia/Kolkata'),
+  ('IDR', 'VAID', 'Devi Ahilya Bai Holkar',             'Indore',       'IN', 22.7218,  75.8011, 'Asia/Kolkata'),
+  ('NAG', 'VANP', 'Dr. Babasaheb Ambedkar',             'Nagpur',       'IN', 21.0922,  79.0472, 'Asia/Kolkata'),
+  ('PNQ', 'VAPO', 'Pune',                               'Pune',         'IN', 18.5822,  73.9197, 'Asia/Kolkata'),
+  ('CJB', 'VOCB', 'Coimbatore International',           'Coimbatore',   'IN', 11.0301,  77.0434, 'Asia/Kolkata'),
+
+  -- Canada, beyond Toronto and Vancouver
+  ('YOW', 'CYOW', 'Ottawa Macdonald–Cartier',           'Ottawa',       'CA', 45.3225, -75.6692, 'America/Toronto'),
+  ('YHZ', 'CYHZ', 'Halifax Stanfield',                  'Halifax',      'CA', 44.8808, -63.5086, 'America/Halifax'),
+  ('YEG', 'CYEG', 'Edmonton International',             'Edmonton',     'CA', 53.3097,-113.5801, 'America/Edmonton'),
+  ('YQB', 'CYQB', 'Québec City Jean Lesage',            'Quebec City',  'CA', 46.7911, -71.3933, 'America/Toronto'),
+  ('YWG', 'CYWG', 'Winnipeg Richardson',                'Winnipeg',     'CA', 49.9100, -97.2399, 'America/Winnipeg'),
+  ('YYT', 'CYYT', 'St. John''s International',          'St. John''s',  'CA', 47.6186, -52.7519, 'America/St_Johns'),
+
+  -- United States, common connections
+  ('BOS', 'KBOS', 'Logan International',                'Boston',       'US', 42.3656, -71.0096, 'America/New_York'),
+  ('IAD', 'KIAD', 'Washington Dulles',                  'Washington',   'US', 38.9531, -77.4565, 'America/New_York'),
+  ('PHL', 'KPHL', 'Philadelphia International',         'Philadelphia', 'US', 39.8729, -75.2437, 'America/New_York'),
+  ('MSP', 'KMSP', 'Minneapolis–Saint Paul',             'Minneapolis',  'US', 44.8848, -93.2223, 'America/Chicago'),
+  ('DTW', 'KDTW', 'Detroit Metropolitan',               'Detroit',      'US', 42.2124, -83.3534, 'America/Detroit'),
+  ('CLT', 'KCLT', 'Charlotte Douglas',                  'Charlotte',    'US', 35.2140, -80.9431, 'America/New_York'),
+  ('AUS', 'KAUS', 'Austin–Bergstrom',                   'Austin',       'US', 30.1975, -97.6664, 'America/Chicago'),
+  ('SAN', 'KSAN', 'San Diego International',            'San Diego',    'US', 32.7336,-117.1897, 'America/Los_Angeles'),
+  ('PDX', 'KPDX', 'Portland International',             'Portland',     'US', 45.5898,-122.5951, 'America/Los_Angeles'),
+  ('SLC', 'KSLC', 'Salt Lake City International',       'Salt Lake City','US',40.7899,-111.9791, 'America/Denver'),
+
+  -- Europe, beyond the majors
+  ('OPO', 'LPPR', 'Francisco Sá Carneiro',              'Porto',        'PT', 41.2481,  -8.6814, 'Europe/Lisbon'),
+  ('FAO', 'LPFR', 'Faro',                               'Faro',         'PT', 37.0144,  -7.9659, 'Europe/Lisbon'),
+  ('VLC', 'LEVC', 'Valencia',                           'Valencia',     'ES', 39.4893,  -0.4816, 'Europe/Madrid'),
+  ('SVQ', 'LEZL', 'Sevilla',                            'Seville',      'ES', 37.4180,  -5.8931, 'Europe/Madrid'),
+  ('AGP', 'LEMG', 'Málaga–Costa del Sol',               'Malaga',       'ES', 36.6749,  -4.4991, 'Europe/Madrid'),
+  ('NAP', 'LIRN', 'Naples International',               'Naples',       'IT', 40.8860,  14.2908, 'Europe/Rome'),
+  ('VCE', 'LIPZ', 'Venice Marco Polo',                  'Venice',       'IT', 45.5053,  12.3519, 'Europe/Rome'),
+  ('FLR', 'LIRQ', 'Florence Peretola',                  'Florence',     'IT', 43.8100,  11.2051, 'Europe/Rome'),
+  ('KRK', 'EPKK', 'Kraków John Paul II',                'Krakow',       'PL', 50.0777,  19.7848, 'Europe/Warsaw'),
+  ('BUD', 'LHBP', 'Budapest Ferenc Liszt',              'Budapest',     'HU', 47.4369,  19.2556, 'Europe/Budapest'),
+  ('OTP', 'LROP', 'Henri Coandă',                       'Bucharest',    'RO', 44.5711,  26.0850, 'Europe/Bucharest'),
+  ('EDI', 'EGPH', 'Edinburgh',                          'Edinburgh',    'GB', 55.9500,  -3.3725, 'Europe/London'),
+  ('MAN', 'EGCC', 'Manchester',                         'Manchester',   'GB', 53.3537,  -2.2750, 'Europe/London'),
+  ('BRS', 'EGGD', 'Bristol',                            'Bristol',      'GB', 51.3827,  -2.7191, 'Europe/London'),
+
+  -- Asia-Pacific and the Gulf
+  ('CGK', 'WIII', 'Soekarno–Hatta',                     'Jakarta',      'ID', -6.1256, 106.6559, 'Asia/Jakarta'),
+  ('DPS', 'WADD', 'Ngurah Rai',                         'Denpasar',     'ID', -8.7482, 115.1672, 'Asia/Makassar'),
+  ('MNL', 'RPLL', 'Ninoy Aquino International',         'Manila',       'PH', 14.5086, 121.0198, 'Asia/Manila'),
+  ('CEB', 'RPVM', 'Mactan–Cebu International',          'Cebu',         'PH', 10.3075, 123.9794, 'Asia/Manila'),
+  ('HAN', 'VVNB', 'Noi Bai International',              'Hanoi',        'VN', 21.2212, 105.8072, 'Asia/Ho_Chi_Minh'),
+  ('SGN', 'VVTS', 'Tan Son Nhat',                       'Ho Chi Minh City','VN',10.8188,106.6520,'Asia/Ho_Chi_Minh'),
+  ('CMB', 'VCBI', 'Bandaranaike International',         'Colombo',      'LK',  7.1808,  79.8841, 'Asia/Colombo'),
+  ('KTM', 'VNKT', 'Tribhuvan International',            'Kathmandu',    'NP', 27.6966,  85.3591, 'Asia/Kathmandu'),
+  ('MLE', 'VRMM', 'Velana International',               'Male',         'MV',  4.1918,  73.5291, 'Indian/Maldives'),
+  ('AUH', 'OMAA', 'Zayed International',                'Abu Dhabi',    'AE', 24.4330,  54.6511, 'Asia/Dubai'),
+  ('BAH', 'OBBI', 'Bahrain International',              'Manama',       'BH', 26.2708,  50.6336, 'Asia/Bahrain'),
+  ('MCT', 'OOMS', 'Muscat International',               'Muscat',       'OM', 23.5933,  58.2844, 'Asia/Muscat'),
+  ('KWI', 'OKKK', 'Kuwait International',               'Kuwait City',  'KW', 29.2266,  47.9689, 'Asia/Kuwait'),
+  ('RUH', 'OERK', 'King Khalid International',          'Riyadh',       'SA', 24.9576,  46.6988, 'Asia/Riyadh'),
+  ('JED', 'OEJN', 'King Abdulaziz International',       'Jeddah',       'SA', 21.6796,  39.1565, 'Asia/Riyadh'),
+
+  -- Oceania, Africa, South America
+  ('AKL', 'NZAA', 'Auckland',                           'Auckland',     'NZ',-37.0082, 174.7850, 'Pacific/Auckland'),
+  ('CHC', 'NZCH', 'Christchurch',                       'Christchurch', 'NZ',-43.4894, 172.5322, 'Pacific/Auckland'),
+  ('BNE', 'YBBN', 'Brisbane',                           'Brisbane',     'AU',-27.3842, 153.1175, 'Australia/Brisbane'),
+  ('PER', 'YPPH', 'Perth',                              'Perth',        'AU',-31.9403, 115.9669, 'Australia/Perth'),
+  ('CPT', 'FACT', 'Cape Town International',            'Cape Town',    'ZA',-33.9715,  18.6021, 'Africa/Johannesburg'),
+  ('NBO', 'HKJK', 'Jomo Kenyatta International',        'Nairobi',      'KE', -1.3192,  36.9278, 'Africa/Nairobi'),
+  ('CAI', 'HECA', 'Cairo International',                'Cairo',        'EG', 30.1219,  31.4056, 'Africa/Cairo'),
+  ('CMN', 'GMMN', 'Mohammed V International',           'Casablanca',   'MA', 33.3675,  -7.5900, 'Africa/Casablanca'),
+  ('GRU', 'SBGR', 'São Paulo–Guarulhos',                'Sao Paulo',    'BR',-23.4356, -46.4731, 'America/Sao_Paulo'),
+  ('GIG', 'SBGL', 'Rio de Janeiro–Galeão',              'Rio de Janeiro','BR',-22.8100,-43.2506, 'America/Sao_Paulo'),
+  ('EZE', 'SAEZ', 'Ministro Pistarini',                 'Buenos Aires', 'AR',-34.8222, -58.5358, 'America/Argentina/Buenos_Aires'),
+  ('SCL', 'SCEL', 'Arturo Merino Benítez',              'Santiago',     'CL',-33.3930, -70.7858, 'America/Santiago'),
+  ('BOG', 'SKBO', 'El Dorado International',            'Bogota',       'CO',  4.7016, -74.1469, 'America/Bogota'),
+  ('MEX', 'MMMX', 'Mexico City International',          'Mexico City',  'MX', 19.4363, -99.0721, 'America/Mexico_City'),
+  ('CUN', 'MMUN', 'Cancún International',               'Cancun',       'MX', 21.0365, -86.8771, 'America/Cancun')
+on conflict (iata) do nothing;
+
+
+-- ===========================================================================
+-- 0025_airport_routes.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0025_airport_routes — real block times, so "est" means something.
+--
+-- `airport_routes` has been empty since Phase 8, which meant every duration on
+-- the destination board came from `flightEstimate`'s great-circle arithmetic:
+-- thirty minutes of taxi and climb, then 800 km/h. That is a decent guess and
+-- it is *systematically* wrong in one direction — it ignores winds, routing
+-- around airspace, and the fact that a long-haul rarely flies the great circle.
+-- Eastbound transatlantic and westbound transpacific are the worst cases, and
+-- both are off by an hour or more.
+--
+-- The board already marks an estimate as an estimate, so nothing here was
+-- dishonest. What it could not do was be *right* for the routes this couple
+-- actually flies.
+--
+-- ## What these numbers are
+--
+-- Published scheduled block times — gate to gate, the number on a ticket —
+-- rounded to five minutes, taken from the operating carriers' own timetables.
+-- They are directional on purpose: BLR→LHR and LHR→BLR differ by around fifty
+-- minutes because of the jet stream, and storing one number for both would
+-- reintroduce the error this table exists to remove.
+--
+-- `is_direct` is true throughout: a connection's duration depends on which
+-- connection, which is `connectionsFor`'s job and not a property of a pair of
+-- airports.
+--
+-- Like every other reference table here, this is a starting point with a
+-- rationale rather than a dataset. A missing pair falls back to the estimate,
+-- which is exactly what happened for every pair until now.
+-- =============================================================================
+
+insert into public.airport_routes (origin_iata, dest_iata, duration_minutes, is_direct) values
+  -- India ↔ Gulf. The connection most of these trips are built around.
+  ('BLR', 'DXB', 245, true), ('DXB', 'BLR', 235, true),
+  ('BOM', 'DXB', 200, true), ('DXB', 'BOM', 185, true),
+  ('DEL', 'DXB', 230, true), ('DXB', 'DEL', 220, true),
+  ('COK', 'DXB', 245, true), ('DXB', 'COK', 235, true),
+  ('BLR', 'AUH', 250, true), ('AUH', 'BLR', 240, true),
+  ('BLR', 'DOH', 270, true), ('DOH', 'BLR', 255, true),
+
+  -- India ↔ Europe.
+  ('BLR', 'LHR', 645, true), ('LHR', 'BLR', 590, true),
+  ('BOM', 'LHR', 605, true), ('LHR', 'BOM', 560, true),
+  ('DEL', 'LHR', 585, true), ('LHR', 'DEL', 520, true),
+  ('DEL', 'FRA', 555, true), ('FRA', 'DEL', 480, true),
+  ('BOM', 'CDG', 585, true), ('CDG', 'BOM', 530, true),
+
+  -- India ↔ North America. The long ones, where the estimate is worst.
+  ('DEL', 'YYZ', 900, true),  ('YYZ', 'DEL', 830, true),
+  ('DEL', 'JFK', 930, true),  ('JFK', 'DEL', 855, true),
+  ('BOM', 'JFK', 950, true),  ('JFK', 'BOM', 880, true),
+  ('BLR', 'SFO', 1030, true), ('SFO', 'BLR', 1105, true),
+
+  -- Transatlantic.
+  ('YYZ', 'LHR', 435, true), ('LHR', 'YYZ', 490, true),
+  ('JFK', 'LHR', 425, true), ('LHR', 'JFK', 490, true),
+  ('YYZ', 'LIS', 395, true), ('LIS', 'YYZ', 460, true),
+  ('JFK', 'LIS', 380, true), ('LIS', 'JFK', 450, true),
+  ('YYZ', 'CDG', 445, true), ('CDG', 'YYZ', 500, true),
+  ('YUL', 'CDG', 425, true), ('CDG', 'YUL', 480, true),
+
+  -- Within Europe, the pairs the destination board keeps offering.
+  ('LHR', 'LIS', 165, true), ('LIS', 'LHR', 165, true),
+  ('LHR', 'OPO', 155, true), ('OPO', 'LHR', 150, true),
+  ('LHR', 'BCN', 130, true), ('BCN', 'LHR', 140, true),
+  ('LHR', 'FCO', 155, true), ('FCO', 'LHR', 165, true),
+  ('CDG', 'LIS', 160, true), ('LIS', 'CDG', 165, true),
+
+  -- Gulf ↔ Europe and North America.
+  ('DXB', 'LHR', 445, true), ('LHR', 'DXB', 415, true),
+  ('DXB', 'YYZ', 850, true), ('YYZ', 'DXB', 800, true),
+  ('DOH', 'LHR', 435, true), ('LHR', 'DOH', 405, true),
+
+  -- Southeast Asia, the other place these trips go.
+  ('BLR', 'SIN', 265, true), ('SIN', 'BLR', 275, true),
+  ('BOM', 'SIN', 335, true), ('SIN', 'BOM', 345, true),
+  ('SIN', 'DPS', 165, true), ('DPS', 'SIN', 160, true),
+  ('SIN', 'BKK', 145, true), ('BKK', 'SIN', 140, true),
+  ('BLR', 'BKK', 230, true), ('BKK', 'BLR', 245, true),
+
+  -- Transpacific. The westbound leg is the single worst case for a
+  -- great-circle estimate, and it shows: nearly two hours adrift.
+  ('YVR', 'NRT', 615, true), ('NRT', 'YVR', 525, true),
+  ('SFO', 'NRT', 660, true), ('NRT', 'SFO', 570, true),
+  ('YVR', 'SIN', 940, true), ('SIN', 'YVR', 880, true),
+
+  -- Within North America.
+  ('YYZ', 'YVR', 315, true), ('YVR', 'YYZ', 275, true),
+  ('YYZ', 'JFK', 95, true),  ('JFK', 'YYZ', 100, true),
+  ('YYZ', 'YUL', 80, true),  ('YUL', 'YYZ', 85, true),
+
+  -- Within India.
+  ('BLR', 'DEL', 165, true), ('DEL', 'BLR', 170, true),
+  ('BLR', 'BOM', 105, true), ('BOM', 'BLR', 100, true),
+  ('BLR', 'IXE', 60, true),  ('IXE', 'BLR', 60, true),
+  ('BOM', 'DEL', 130, true), ('DEL', 'BOM', 135, true),
+  ('BLR', 'COK', 85, true),  ('COK', 'BLR', 80, true)
+on conflict (origin_iata, dest_iata) do nothing;
 

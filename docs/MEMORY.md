@@ -12,12 +12,12 @@ work up next — including a future session with no memory of this one.
 
 | | |
 | --- | --- |
-| Phase | **All 14 done. Sweeps scheduled.** |
-| Next | Two operator steps below, then use it. The rest is the deferred list in `PHASES.md`. |
+| Phase | **All 14 done, and every deferred item that code can close.** |
+| Next | Two operator steps below, then use it. `PHASES.md` now has exactly two open boxes and both need a human, not a commit. |
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0019, live |
+| Migrations applied | 0001–0025, live |
 | Deployed | Vercel, `meridian-ay-za.vercel.app` |
 
 ### What runs today
@@ -37,6 +37,17 @@ both wanted into the plan, and have the app lay out a draft — arithmetic, no
 model — that waits in the tray until somebody keeps it. And a map: every place
 with coordinates, filterable by day, person, category and state, with the
 selected day's route drawn between its stops.
+
+Opening a trip now shows the trip rather than a form: a map with the route it
+traces, a strip of every day with its flights, its density, where they sleep
+and — for whoever is looking — their own cycle marks, and one day's detail in a
+panel that does not push the page down. Saved places near *that night's hotel*
+are offered on the day already in view, one tap to add. See D96–D103.
+
+Accommodation is modelled (0020): bookings with dates, a resolved address and
+the booking reference, with the nights nobody has booked counted for you. The
+one rule to know is that `check_out` is exclusive — a stay covers nights, not
+days.
 
 And Phases 8 and 9, which answer the two questions that come before planning
 anything: *where* and *for how long*. The destination board puts candidate
@@ -86,7 +97,7 @@ allowed.
 And 0015 made it run unattended: the three sweeps are on pg_cron, and the
 dashboard finally fills the stay-allowance slot it reserved back in phase 5.
 
-Typecheck, lint, 771 unit tests, 206 database assertions and a production build
+Typecheck, lint, 774 unit tests, 206 database assertions and a production build
 pass.
 
 ### The two operator steps left
@@ -1461,6 +1472,59 @@ only out of it — never from the model. A model asked where somewhere is will
 produce a plausible latitude, and a pin confidently in the wrong suburb is worse
 than no pin at all.
 
+### D94 — Nobody types coordinates, and nobody is shown them either
+
+Latitude and longitude are machine facts. A person who reads
+"12.86980, 74.84300" has learned nothing they can check, and a person asked to
+*enter* it has been handed the app's job.
+
+No form ever had raw coordinate inputs — but three surfaces were still printing
+them back: `PlacePicker` fell through to `toFixed(5)` when it had no address,
+the trip map said "Add something here — 12.8698, 74.8430", and the destinations
+page confirmed a pick with two decimals of latitude. All three now show the
+address, or say plainly that there is no street address at that spot, which is
+a true and useful sentence where a pair of decimals is neither.
+
+**The address is derived, continuously.** An earlier version cleared the address
+when a pin moved, told the person in the UI that it would be looked up on save,
+and then never did it — so a moved pin saved with nothing. The lookup now lives
+inside `PlacePicker`, fired whenever there are coordinates and no address, so no
+form can forget it. That placement is the fix: the previous arrangement asked
+every caller to remember, and the first caller did not.
+
+Two supporting changes. `useReverseGeocode` rounds to five decimals for its
+cache key — about a metre — because not rounding misses the cache on every pixel
+of a drag. And search now leads in the itinerary editor, with "use my location"
+beside it: typing three letters of a name is the fastest route to a located
+place, and burying it under a field that asks somebody to go and fetch a URL
+made the clumsy path look like the intended one.
+
+### D95 — The model names the place; the geocoder decides where it is
+
+For the MCP to plan on the couple's behalf it has to be able to locate places.
+The tempting shape — let the tools take `lat` and `lng` — is the one that
+quietly breaks everything.
+
+Asked where a café is, a language model produces a latitude. It is plausible,
+correctly formatted, and often a kilometre out or in the wrong city. A pin that
+is confidently wrong is worse than no pin, because nothing about it looks
+wrong: the name is right, the address reads fine, and only the map shows the
+problem — which is exactly what nobody checks for a place they have not been to
+yet.
+
+So **no tool in the server accepts a coordinate**, and a test asserts it by
+walking every input schema for `lat`/`lng`/`latitude`/`longitude`. Instead
+there is `find_place`, and `locate_query` on everything that stores a location —
+including each item inside a `suggest_itinerary` draft, so a whole AI-planned
+day arrives with real pins and can actually be drawn and routed rather than
+being a list of words.
+
+One bug this surfaced: `searchPlaces` never sent a `User-Agent`. Browsers set
+one automatically, so it had always worked — and Nominatim refuses requests
+without it, which the MCP server geocoding from a laptop would have hit
+immediately. The failure would have read as "place search is unavailable"
+rather than as a missing header.
+
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 
 Supabase's linter, run against the live project, showed every helper and
@@ -1530,6 +1594,339 @@ SSR, and the obvious fix — read it in an effect — sets state synchronously a
 cascades a render. `useStoredPreference` treats localStorage as what it is, an
 external store: the server render sees the fallback, and a change in another
 tab is picked up for free.
+
+### D96 — The trip's front page is the trip, not a form
+
+Opening a trip used to redirect straight to the plan, so the first thing the app
+showed about a trip was a list to fill in. Everything that makes a trip a trip —
+the flights, the days, the chosen city, the places already saved — was spread
+across eight tabs, each fine for editing and none of them able to answer *what
+does this look like?* Answering that meant reading four screens and holding
+them in your head.
+
+`src/modules/trips/journey.ts` merges them into one ordered timeline and one
+drawable route. It is pure and tested, because every visual decision on the new
+screen reads from it. Two rules in it are easy to get wrong and are pinned by
+tests:
+
+- **Flights bracket a day; they do not sit inside it.** An arrival at 06:00
+  comes before everything planned that day and a departure at 21:00 after,
+  regardless of whether anything else has a time. Sorting flights in with items
+  by time would be right by accident and wrong whenever an item has none.
+- **`rest` and `open` stay distinct.** A day left blank on a long stay is the
+  point of the trip (non-negotiable #6); a day nobody has reached yet is not.
+  The model keeps them apart so the screen can, and so the MCP can say
+  "kept clear on purpose — do not fill this" rather than offering to fill it.
+
+### D97 — One screen that does not grow
+
+The obvious build for "the whole trip at once" is one card per day down the
+page. It is also wrong: a fortnight becomes a page nobody scrolls to the end
+of, and the shape of the trip — where the flights are, where the empty stretch
+is — is the first casualty.
+
+So the layout is three fixed regions: a map, a horizontally scrolling strip of
+day chips, and one day's detail in a panel with a ceiling and its own scroll.
+Tapping through fourteen days moves nothing. The map stays an overview
+deliberately — it does not re-fit when the selected day changes, because a map
+that resets your pan every time you tap is the most annoying thing a map can
+do while you are looking at it.
+
+Each chip carries the date and at most three marks: a plane for a travel day, a
+moon for a day kept clear, dots for how much is planned, and — for the
+signed-in person only — a dot for a period day. Anything more is a tap away.
+The marks are also spoken: each chip's `aria-label` says "travel day",
+"2 planned", "period expected", so nothing is available only as a colour.
+
+### D98 — The view asks for almost nothing, because almost nothing is unknown
+
+The brief was to reduce manual entry, so every part of this screen is derived:
+
+| Shown | Derived from |
+| --- | --- |
+| The days | `trip_days`, or the trip's own dates when no rows exist yet |
+| Which days are travel | The flights pointed at the trip |
+| Where the trip is that day | The chosen `trip_destinations` and their date range |
+| Which day to open on | Today if the trip is running; the first flight if it has not started; the last day if it is over |
+| What to offer adding | Saved places within 60 km of the trip that are not already on the plan |
+| The cycle marks | Predictions the health module was already making |
+
+The only input is a tap. Adding a nearby saved place takes one more, and it
+lands on the day already in view — dated, placed, attributed — because all of
+that was known before the tap. `pushToItinerary` grew an optional date for
+exactly this: with none, saves land in the idea pool as the blend screen wants;
+with one, they land on that day. Making somebody push to a pool and then drag
+onto a day is asking twice for one decision.
+
+Two things are deliberately withheld on a day that is blank on a long stay: the
+"nothing planned" line, and the nearby-places offer. Non-negotiable #6 says a
+`RestfulEmpty` and nothing else, and an invitation to fill the day would undo
+the only thing it is there for.
+
+### D99 — The cycle on a shared screen is the viewer's own, by construction
+
+The journey is a screen both partners look at, and the health module already
+supports a partner reading a consented scope. Passing an owner id into a trip
+view would eventually be passed the partner's, and consent given so a person
+could look with their own eyes is not consent to have it drawn onto a shared
+planning surface.
+
+So `useCycleWindow` takes a date range and no owner: it reads the signed-in
+person's logs and nobody else's. RLS would refuse without consent anyway; this
+makes the refusal unnecessary by never asking. The section is hidden entirely
+for anyone whose profile does not track a cycle, and the words stay the
+calendar's own — "period expected", "in the estimated fertile window" — because
+`describeDayMark` is now shared between the two screens rather than duplicated.
+
+### D100 — `get_trip_journey`, so the assistant sees the same trip the screen does
+
+The MCP could already assemble this: `get_trip`, `list_flights`,
+`list_itinerary`, `list_destinations`, then merge. Four calls, plus the two
+ordering rules from D96 that the model would have to reimplement correctly
+every time.
+
+`get_trip_journey` calls `buildJourney` — the same function the screen calls —
+and renders it as text, including the saved places near the trip that are not
+yet planned. One call, and the assistant and the couple are demonstrably
+looking at the same trip. It is read-only, and the nearby list ends with a line
+saying nothing is added on its own, because non-negotiable #5 is a rule the
+model has to be told about rather than one it can infer.
+
+### D101 — Where they sleep is a table, and `check_out` is exclusive
+
+The app could say which *city* a trip was in on a given day and not which bed.
+That was the largest hole in the journey view — "where are we staying" is the
+question a couple asks most often on a trip, and the answer lived in an email.
+
+`accommodations` (0020) is the standard couple-scoped table, with one decision
+worth stating: the dates are `check_in` / `check_out`, not `arrive_on` /
+`depart_on` like `trip_destinations`, because the two ranges do not mean the
+same thing. A destination's range covers *days in a city*, inclusive at both
+ends. A stay covers *nights*, and **`check_out` is exclusive** — three nights
+from the 4th is check-in 04, check-out 07.
+
+Every consequence follows from that one line. "Which stay covers this date" is
+`check_in <= date < check_out`. "Is this the morning we leave" is equality with
+`check_out`. The night of the check-out date belongs to whatever comes next, not
+to the booking being left. Getting it backwards shows somebody a hotel on a
+night they had already handed the key back for — a mistake that looks correct on
+screen and is discovered at a locked door, which is why `modules/stays/logic.ts`
+is pure and has twenty tests whose entire subject is that one rule.
+
+The database refuses `check_out <= check_in`, which catches a zero-night stay
+and *not* an off-by-one. Nothing can catch that but the wording, so the MCP tool
+descriptions state it in capitals.
+
+### D102 — The booking reference is the one column a model never sees
+
+`booking_ref` is the thing you cannot reconstruct from memory at a front desk at
+1am, which is exactly why it is stored — and exactly why it does not travel.
+`tools/stays.ts` selects an explicit column list that omits it, asserted in
+`registry.test.ts` by walking every `.select(` in the file, on the same
+reasoning as document numbers: a reference sitting in a model's context is a
+reference that has left the couple's control.
+
+### D103 — The journey answers "near where?" with the bed, not the trip
+
+Nearby saved places were offered within 60 km of the *trip's* centre, which is a
+weak filter on a city break and a useless one across two cities. `dayCentre`
+prefers the night's accommodation, then anything already planned that day, then
+the trip. "Near where you are sleeping tonight" is the question somebody
+actually has.
+
+Two smaller things fell out of the same work. A booked bed now outranks an
+arrival airport when deciding where the trip is centred — it is a firmer
+statement about where the trip happens than a candidate city nobody chose. And
+each booking is drawn on the route once, on the night they move in: a hotel
+plotted on every night of a week is six identical points and a line that never
+leaves it.
+
+### D104 — The blend finally reads the destination it was always meant to
+
+Since Phase 6 the blend guessed which city a trip was about by matching the
+trip's *title* against cities people had saved. That worked for "Lisbon in May"
+and for nothing else, and it was written before the destinations module existed.
+
+`blendCity` now takes the chosen destination first and keeps the title match
+underneath as the fallback for a trip nobody has filled a board in for.
+Returning null still means no narrowing, which stays the safe direction to be
+wrong in: showing too much is a longer list, showing too little hides somebody's
+own save from them.
+
+### D105 — A domestic connection is judged as one
+
+`connectionRisk` has always taken an `isInternational` flag and `connectionsFor`
+never passed it, so every connection took the international 90-minute minimum.
+A comfortable 70-minute hop between two domestic gates was reported as tight,
+which is the kind of wrong that trains somebody to ignore the warning.
+
+`connectionsFor` now takes a `countryOf` lookup, fed by `useAirportCountries`
+against the `airports` table. The rule it applies: a connection is international
+if *either* leg crosses a border, because immigration is the cost and you clear
+it on the way out too — a domestic hop feeding a long-haul departure is still an
+international connection.
+
+An airport missing from the ~135-row reference table returns null, and unknown
+is treated as international on purpose. The international minimum is the longer
+one, and telling somebody they have plenty of time when they do not is the
+failure that makes them miss a flight.
+
+### D106 — A rule checked two years ago no longer looks fresh
+
+Every visa rule, stay allowance and medication restriction carries `verified_on`
+and, until now, nothing read it. A rule checked in 2024 rendered identically to
+one checked yesterday: same wording, same source link, same quiet confidence.
+For data that changes with no notice, that is the worst possible shape.
+
+`lib/advisory.ts` computes the age and says so, on every surface that renders a
+rule — the allowance note, the destination board's visa column, the medication
+restrictions, and the MCP's `list_allowance_rules`, because a model told only
+"verified 2024-01-01" will report the rule as fact.
+
+Six months is a judgement, not a fact: visa rules change roughly yearly and
+announce themselves badly, so six months is short enough to catch a change
+before somebody books on it and long enough that a fresh rule is not nagging
+about itself. Past eighteen months the wording escalates from "worth confirming"
+to "treat it as a starting point".
+
+Two things it deliberately does not do. Nothing re-checks anything — the rule
+may well still be correct, and what changes is only how much weight a reader
+puts on it. And a *missing* `verified_on` is not stale: it was never claimed to
+be checked at all, so saying "6 months old" about it would be inventing a fact.
+
+### D107 — Work hours were on the wrong table, so the overlay could not work
+
+The work-day overlay exists so neither of them plans a lunch through the
+other's stand-up. That requires reading the **partner's** hours, and the columns
+were on `user_settings`, whose policy is `user_id = auth.uid()` and nothing
+else. So the feature could only ever have drawn your own hours — the one case
+where you do not need to be told.
+
+Widening that policy would hand a partner the whole settings row, including
+notification toggles and the vault timeout. Instead the two columns moved to
+`profiles` (0021), which is already couple-readable and is exactly where
+facts-about-a-person-the-other-one-needs already live: timezone, home city,
+nationality. Work hours are that class of fact.
+
+`workBand` then does the conversion the feature actually needed. Work hours are
+wall-clock in the person's **own** zone; the itinerary is wall-clock in the
+**trip's**. Someone working 09:00–17:00 in Toronto is unavailable 14:00–22:00 on
+a Lisbon trip, and drawing the Toronto times would tell their partner the
+afternoon was free when it is the one part that is not. Offsets are read per
+date so a band spanning a DST change lands where it is, and a day spilling past
+midnight is clipped rather than wrapped — a bar that restarts at the top of the
+same day reads as two shifts.
+
+### D108 — The vault lock says what it is, which is less than it looks like
+
+`vault_lock_minutes` was stored from Phase 13 and enforced by nothing: a setting
+that quietly did nothing, which is worse than not offering it, because somebody
+set it to five and believed it.
+
+The gate is now real, and the copy is careful. It is a **screen lock, not an
+access control.** RLS is what stops anybody reading those rows; this stops a
+passport scan being on screen when a phone is handed over or left on a table.
+Saying so matters because a re-auth prompt implies a stronger guarantee than it
+gives — the data is already fetched, and anyone with the device and the
+browser's storage could reach it regardless.
+
+There is also no password to re-enter, because sign-in is Google OAuth. Asking
+for one would mean inventing a second credential to store, which is a worse
+position than the one being defended. So it clears the screen and needs a
+deliberate action to bring it back, which is the whole of what it can honestly
+offer. Signing out is offered alongside, and that one does end the session.
+
+### D109 — A timezone from the nearest airport, and a refusal past 500 km
+
+Choosing a destination sets the trip's timezone, and `choose_destination` can
+only copy what is on the candidate row — which the city search never fills in.
+So trips kept UTC and every itinerary time on them was read in the wrong zone.
+
+`tz-lookup` is the obvious fix and ships a ~100 KB polygon dataset. That is a
+poor trade in a PWA bundle for a lookup that happens once per trip. The airports
+table is already loaded, already carries IANA zones, and a city anybody flies to
+has an airport near it — which is the entire population of things this is asked
+about. Widening that table to 169 rows (0024) made it good enough.
+
+Past 500 km it returns null rather than guessing. The nearest airport is then
+likely across a zone boundary, and a wrong timezone silently shifts every time
+on the trip by an hour or more — far worse than an unset one, which the app
+already handles. Resolved in `addCandidate` so every path gets it including the
+MCP's, and backfilled on choose for rows added before it existed.
+
+### D110 — Not virtualising the gallery, and why the alternative was better
+
+The deferred list said `@tanstack/react-virtual` was installed and the grid
+should use it. Two things were wrong with that. The package was never actually a
+dependency, and virtualisation is the wrong tool here: the grid is grouped into
+day sections of varying height, which windowing libraries handle badly, and the
+real cost of an offscreen thumbnail is its decode — which `loading="lazy"`
+already avoids. Sixty DOM nodes per page is not what makes a gallery slow.
+
+What the "Load more" button actually cost was a tap every sixty photos. An
+IntersectionObserver removes that, and the button stays as the fallback so a
+browser without one cannot strand somebody halfway through a library.
+
+The general shape is worth keeping: a deferred item is a hypothesis about what
+would help, and it is worth re-deriving before implementing rather than treating
+the list as a specification.
+
+### D111 — Settings that did nothing are worse than settings that do not exist
+
+Three separate cases turned up in one sweep, all the same bug:
+`vault_lock_minutes` was stored and never enforced (D108); `work_hours_*` was
+editable and unreadable by the only person who needed it (D107); and
+`distance_unit` was on the settings screen while every distance in the app was
+rendered in kilometres regardless.
+
+Each is worse than the feature being absent, because a control that appears to
+work is one somebody relies on. `formatDistance` now takes a unit and
+`useDistanceUnit` supplies it, which is a small change whose value is entirely
+in the setting no longer lying.
+
+Worth generalising: a column added "for later" and a UI control wired to it are
+two different commitments, and shipping the second without the first is the
+failure mode this project produced three times.
+
+### D112 — Remote MCP without an authorization server, stated as a trade
+
+The remote-MCP specification describes OAuth 2.1 with dynamic client
+registration. `/api/mcp/rpc` takes the personal access token the app already
+issues, as a bearer credential, and does not implement one.
+
+Hand-rolling an authorization server — authorization codes, PKCE verification,
+client registration, refresh rotation — is a large amount of security-critical
+code whose failure modes are silent. Getting it subtly wrong is worse than not
+having it, and there is nobody here to review it. The PAT path already exists,
+is tested, is revocable from Settings, is scoped per module, and ends in the
+same ten-minute user JWT. Going over HTTP changes nothing about what a token can
+reach: RLS is the boundary either way.
+
+The token is re-verified on **every** call rather than exchanged for a session,
+which costs one indexed lookup and is the entire reason revoking a token takes
+effect immediately.
+
+The cost is real and is written down in `mcp/README.md` rather than papered
+over: a client that can only authenticate via OAuth cannot use this endpoint,
+and should use stdio.
+
+### D113 — Deleting an account does not delete the trip
+
+`/api/account/delete` erases the sign-in, the profile, and everything keyed on
+the person: cycle logs, health records, documents, tokens, subscriptions.
+Shared data survives — trips, itineraries, photos, expenses — and that is not an
+oversight.
+
+A trip belongs to the couple. Erasing it because one person left would delete
+the other person's memories along with their own, which is not a right either of
+them has. `leave_couple` already encodes exactly this, so the deletion runs it
+first, **as the user**, rather than inventing a second answer to the same
+question — running it with the service role would bypass the very logic that
+protects the partner's copy.
+
+The id deleted comes from the verified session and never from the request body.
+A handler that accepted a user id would be an authenticated user's ability to
+delete anybody, which is the worst bug that file could have.
 
 ---
 

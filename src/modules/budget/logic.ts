@@ -323,6 +323,13 @@ export function summarise(
     budgetFor.set(budget.category_id, toCents(Number(budget.amount)))
   }
 
+  // A weekly budget is an overall figure — "about 400 a week" — rather than one
+  // per category. Per-category-per-week would be four numbers to maintain for a
+  // question nobody asks, and the schema's unique index already allows only one
+  // weekly row per category.
+  const weeklyCents =
+    budgets.find((b) => b.period === 'week' && b.category_id === null)?.amount ?? null
+
   const byCategory: CategoryTotal[] = [...categoryCents.entries()]
     .map(([categoryId, cents]) => {
       const category = categories.find((c) => c.id === categoryId)
@@ -358,7 +365,10 @@ export function summarise(
     byCategory,
     byPerson,
     byDay,
-    byWeek: span ? weeksOf(span.start, span.end, dayCents) : [],
+    byWeek: span
+      ? weeksOf(span.start, span.end, dayCents, weeklyCents === null ? null : toCents(Number(weeklyCents)))
+      : [],
+    weeklyBudget: weeklyCents === null ? null : Number(weeklyCents),
     // Per *elapsed* day, not per day with spending — a zero-spend day is still
     // a day of the trip, and averaging it away flatters the number.
     perDayAverage: days > 0 ? fromCents(Math.round(total / days)) : 0,
@@ -380,6 +390,7 @@ export function weeksOf(
   start: DateOnly,
   end: DateOnly,
   dayCents: Map<DateOnly, number>,
+  weeklyBudgetCents: number | null = null,
 ): WeekTotal[] {
   const out: WeekTotal[] = []
   const totalDays = daysBetween(start, end) + 1
@@ -389,7 +400,23 @@ export function weeksOf(
     const weekEnd = addDaysTo(start, lastIndex)
     let cents = 0
     for (const date of dateRange(weekStart, weekEnd)) cents += dayCents.get(date) ?? 0
-    out.push({ index: index + 1, start: weekStart, end: weekEnd, total: fromCents(cents) })
+
+    // Pro-rata on a short final week. A trip ending on a Wednesday has a
+    // three-day week, and holding three days of spending against seven days of
+    // budget would report every trip as finishing comfortably under.
+    const daysInWeek = daysBetween(weekStart, weekEnd) + 1
+    const budget =
+      weeklyBudgetCents === null
+        ? null
+        : fromCents(Math.round((weeklyBudgetCents * daysInWeek) / 7))
+
+    out.push({
+      index: index + 1,
+      start: weekStart,
+      end: weekEnd,
+      total: fromCents(cents),
+      budget,
+    })
   }
   return out
 }

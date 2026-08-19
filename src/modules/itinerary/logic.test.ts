@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildPlan,
   checkPacing,
+  clashesWithWork,
   dayDensity,
   dayNumber,
   dayWarnings,
@@ -11,6 +12,7 @@ import {
   planDays,
   sortDayItems,
   toMinutes,
+  workBand,
 } from '@/modules/itinerary/logic'
 import type { ItineraryItem } from '@/modules/itinerary/types'
 
@@ -299,5 +301,60 @@ describe('display helpers', () => {
     expect(counts.get('2026-06-02')).toBe(2)
     expect(counts.get('2026-06-03')).toBe(1)
     expect(counts.has('2026-06-04')).toBe(false)
+  })
+})
+
+describe('the work-day overlay', () => {
+  const toronto = {
+    id: 'ada',
+    timezone: 'America/Toronto',
+    work_hours_start: '09:00',
+    work_hours_end: '17:00',
+  }
+
+  it('moves a working day into the trip’s clock', () => {
+    // The reason this is not a string comparison. Someone working 09:00–17:00
+    // in Toronto is unavailable 14:00–22:00 on a Lisbon trip in June, and
+    // drawing 09:00–17:00 would tell their partner the afternoon was free when
+    // it is the one part that is not.
+    const band = workBand(toronto, '2026-06-10', 'Europe/Lisbon')
+    expect(band).toMatchObject({ personId: 'ada', from: '14:00', to: '22:00', clipped: false })
+  })
+
+  it('leaves a same-zone day exactly where it was entered', () => {
+    expect(workBand(toronto, '2026-06-10', 'America/Toronto')).toMatchObject({
+      from: '09:00',
+      to: '17:00',
+    })
+  })
+
+  it('clips rather than wraps when the day spills over midnight', () => {
+    // A bar that restarts at the top of the same day reads as two shifts.
+    const band = workBand(toronto, '2026-06-10', 'Asia/Tokyo')
+    expect(band?.clipped).toBe(true)
+    expect(band?.to).toBe('24:00')
+  })
+
+  it('draws nothing from a half-known working day', () => {
+    expect(workBand({ ...toronto, work_hours_end: null }, '2026-06-10', 'UTC')).toBeNull()
+    expect(workBand({ ...toronto, work_hours_start: null }, '2026-06-10', 'UTC')).toBeNull()
+  })
+
+  it('reads the offset for the date, so a DST change lands where it is', () => {
+    // Toronto is UTC-5 in January and UTC-4 in June; Lisbon shifts too, but not
+    // on the same days. Hard-coding one offset would be right for half the year.
+    const winter = workBand(toronto, '2026-01-10', 'Europe/Lisbon')
+    const summer = workBand(toronto, '2026-06-10', 'Europe/Lisbon')
+    expect(winter?.from).toBe('14:00')
+    expect(summer?.from).toBe('14:00')
+  })
+
+  it('knows whether a planned time lands in the middle of it', () => {
+    const band = workBand(toronto, '2026-06-10', 'Europe/Lisbon')
+    expect(clashesWithWork('15:30', band)).toBe(true)
+    expect(clashesWithWork('22:00', band)).toBe(false)
+    expect(clashesWithWork('13:59', band)).toBe(false)
+    // An untimed item is not a clash — "sometime today" claims nothing.
+    expect(clashesWithWork(null, band)).toBe(false)
   })
 })

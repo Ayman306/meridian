@@ -26,6 +26,37 @@ export function useFlights() {
   })
 }
 
+/**
+ * A code → country lookup for the airports a set of flights touches.
+ *
+ * Returns a function rather than a map so callers read the same way whether or
+ * not the query has resolved: before it does, every code is unknown, and
+ * unknown is treated as international by `connectionsFor` — the longer
+ * minimum, so a layover never looks safer than it is while the data loads.
+ */
+export function useAirportCountries(flights: readonly FlightRow[]) {
+  const codes = useMemo(
+    () =>
+      [...new Set(flights.flatMap((f) => [f.origin_iata, f.dest_iata]))]
+        .filter((c): c is string => Boolean(c))
+        .sort(),
+    [flights],
+  )
+
+  const query = useQuery({
+    queryKey: qk.airportCountries(codes.join(',')),
+    queryFn: () => api.airportCountries(codes),
+    enabled: codes.length > 0,
+    // Reference data. It does not change while somebody is looking at it.
+    staleTime: Infinity,
+  })
+
+  return useCallback(
+    (iata: string | null) => (iata ? (query.data?.[iata.toUpperCase()] ?? null) : null),
+    [query.data],
+  )
+}
+
 export function useFlight(id: string | undefined) {
   return useQuery({
     queryKey: qk.flight(id ?? 'none'),

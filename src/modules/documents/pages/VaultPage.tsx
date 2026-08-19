@@ -10,12 +10,15 @@ import { Select } from '@/components/ui/input'
 import { EmptyState, ErrorState, SkeletonList } from '@/components/common/states'
 import { PersonBadge } from '@/components/PersonBadge'
 import { useCouple } from '@/providers/CoupleProvider'
+import { useAuth } from '@/providers/AuthProvider'
+import { useUserSettings } from '@/modules/settings'
 import { todayIn } from '@/lib/dates'
 import { cn } from '@/lib/utils'
 import { useDocuments, useDocumentTypes } from '../hooks'
 import { byUrgency, expiryStatus, isActionable, maskNumber } from '../logic'
 import { ExpiryBadge } from '../components/ExpiryBadge'
 import { DocumentForm } from '../components/DocumentForm'
+import { VaultGate } from '../components/VaultGate'
 import type { DocumentWithType } from '../types'
 
 type Filter = 'all' | 'mine' | 'theirs' | 'expiring'
@@ -24,6 +27,8 @@ export function VaultPage() {
   const { self, partner, selfRef, partnerRef, tzSelf } = useCouple()
   const documents = useDocuments()
   const types = useDocumentTypes()
+  const settings = useUserSettings()
+  const { signOut } = useAuth()
   const [filter, setFilter] = useState<Filter>('all')
   const [adding, setAdding] = useState(false)
 
@@ -63,7 +68,7 @@ export function VaultPage() {
   const owners = [self, partner].filter((p) => p !== null)
 
   return (
-    <>
+    <VaultGate lockMinutes={settings.data?.vault_lock_minutes} onSignOut={() => void signOut()}>
       <PageHeader
         title="Documents"
         description="Passports, visas and the dates that matter. Private by default to whoever owns them."
@@ -135,7 +140,7 @@ export function VaultPage() {
           )
         })}
       </div>
-    </>
+    </VaultGate>
   )
 }
 

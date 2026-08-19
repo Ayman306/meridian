@@ -60,6 +60,13 @@ export interface WeekTotal {
   start: DateOnly
   end: DateOnly
   total: number
+  /**
+   * The weekly budget, when one is set — and the *pro-rata* share of it on a
+   * short final week. A trip ending on a Wednesday has a three-day week, and
+   * comparing three days of spending against seven days of budget would report
+   * every trip as ending under budget.
+   */
+  budget: number | null
 }
 
 export interface DayTotal {
@@ -75,6 +82,8 @@ export interface Summary {
   byCategory: CategoryTotal[]
   byPerson: PersonTotal[]
   byWeek: WeekTotal[]
+  /** The full weekly budget, before any pro-rata on a short week. */
+  weeklyBudget: number | null
   byDay: DayTotal[]
   perDayAverage: number
   days: number

@@ -10,6 +10,13 @@
  */
 import { z } from 'zod'
 import type { UpdateDto } from '@/types/database'
+import {
+  buildJourney,
+  describeTripJourney,
+  journeyCentre,
+  nearbyWishlist,
+} from '@/modules/trips/journey'
+import { uncoveredNights } from '@/modules/stays/logic'
 import { defineTool, requireCouple } from './types'
 import type { AnyTool } from './types'
 
@@ -145,6 +152,168 @@ function describeTrip(trip: TripRow): string {
 }
 
 
+
+/**
+ * The whole trip as one picture — the same one the app's journey screen draws.
+ *
+ * Assembling this from `get_trip`, `list_flights`, `list_itinerary` and
+ * `list_destinations` was possible before, and it took four calls plus a
+ * merge the model had to get right — including the two ordering rules
+ * (`journey.ts`) that are easy to get subtly wrong. Doing it here means the
+ * assistant and the screen are looking at the same trip, assembled by the same
+ * function, and it costs one call.
+ *
+ * Read-only and deliberately dense: it is the call to make before suggesting
+ * anything, because it says which days are already busy, which are travel days,
+ * and which were left blank on purpose.
+ */
+const getTripJourney = defineTool({
+  name: 'get_trip_journey',
+  module: 'trips',
+  title: 'See the whole trip',
+  description:
+    "The whole trip in one read: every day in order, with flights, planned items, where they are sleeping, and which destination they are at. Also lists nights with nowhere booked, and saved places near the trip that are not on the plan yet. Call this before suggesting anything — it says which days are travel days and which were deliberately left blank ('kept clear'), and a suggestion that lands on either is one the couple will reject.",
+  readOnly: true,
+  inputSchema: z.object({
+    trip_id: z.string().uuid().describe('From list_trips.'),
+  }),
+  async handler(ctx, input) {
+    const coupleId = requireCouple(ctx)
+
+    const [trip, days, flights, items, destinations, wishlist, stays] = await Promise.all([
+      ctx.supabase
+        .from('trips')
+        .select('id, title, start_date, end_date, date_precision, is_open_ended, timezone, notes')
+        .eq('id', input.trip_id)
+        .is('deleted_at', null)
+        .maybeSingle(),
+      ctx.supabase
+        .from('trip_days')
+        .select('date, day_type, title, note')
+        .eq('trip_id', input.trip_id)
+        .order('date', { ascending: true }),
+      ctx.supabase
+        .from('flights')
+        .select(
+          'id, flight_number, flight_date, origin_iata, dest_iata, origin_lat, origin_lng, dest_lat, dest_lng, scheduled_departure, scheduled_arrival',
+        )
+        .eq('trip_id', input.trip_id),
+      ctx.supabase
+        .from('itinerary_items')
+        .select('id, title, scheduled_date, start_time, place_name, state, lat, lng')
+        .eq('trip_id', input.trip_id)
+        .is('deleted_at', null),
+      ctx.supabase
+        .from('trip_destinations')
+        .select('city, arrive_on, depart_on, lat, lng, state')
+        .eq('trip_id', input.trip_id),
+      ctx.supabase
+        .from('wishlist_items')
+        .select('id, title, lat, lng')
+        .eq('couple_id', coupleId)
+        .is('deleted_at', null),
+      // Never `booking_ref` — see the note at the top of `tools/stays.ts`.
+      ctx.supabase
+        .from('accommodations')
+        .select('id, name, kind, address, check_in, check_out, lat, lng')
+        .eq('trip_id', input.trip_id)
+        .is('deleted_at', null),
+    ])
+
+    if (trip.error) throw new Error(trip.error.message)
+    if (!trip.data) return 'No trip with that id, or it is not one you can see.'
+    for (const result of [days, flights, items, destinations, wishlist, stays]) {
+      if (result.error) throw new Error(result.error.message)
+    }
+
+    const journey = buildJourney({
+      startDate: trip.data.start_date,
+      endDate: trip.data.end_date,
+      days: days.data ?? [],
+      flights: flights.data ?? [],
+      items: items.data ?? [],
+      destinations: destinations.data ?? [],
+      stays: stays.data ?? [],
+    })
+
+    const lines = [describeTrip(trip.data), describeTripJourney(journey)]
+    if (journey.days.length === 0) {
+      lines.push('', 'No dates on this trip yet, so there is nothing laid out.')
+      return lines.join('\n')
+    }
+
+    lines.push('')
+    for (const day of journey.days) {
+      const header = [`Day ${day.index}`, day.date]
+      if (day.place) header.push(day.place)
+      if (day.title) header.push(day.title)
+      // Said in words, because these are the two states a suggestion must
+      // respect and neither is obvious from a list of items that is empty.
+      if (day.isRest) header.push('kept clear on purpose — do not fill this')
+      else if (day.isOpen) header.push('open')
+      lines.push(header.join(' · '))
+
+      if (day.note) lines.push(`    note: ${day.note}`)
+      // The two facts a check-out morning carries. Said as words rather than
+      // left for the model to derive from a date range, because deriving it
+      // means re-deriving that check_out is exclusive on every read.
+      if (day.checkingOutOf && day.checkingOutOf.id !== day.stay?.id) {
+        lines.push(`    check out of ${day.checkingOutOf.name}`)
+      }
+      if (day.stay) {
+        lines.push(
+          `    sleeping at ${day.stay.name}${day.stay.address ? ` — ${day.stay.address}` : ''}`,
+        )
+      }
+      for (const entry of day.entries) {
+        if (entry.kind === 'item') {
+          const parts = [entry.time?.slice(0, 5) ?? '—', entry.title]
+          if (entry.placeName && entry.placeName !== entry.title) parts.push(entry.placeName)
+          if (entry.state && entry.state !== 'accepted') parts.push(`[${entry.state}]`)
+          lines.push(`    ${parts.join(' · ')}`)
+        } else {
+          const verb = entry.kind === 'arrive' ? 'lands' : 'departs'
+          lines.push(`    ${entry.flightNumber} ${verb} ${entry.airport ?? ''}`.trimEnd())
+        }
+      }
+    }
+
+    // Nights with nowhere booked. Worth stating rather than leaving to be
+    // inferred from a list of date ranges — the exclusive check-out is exactly
+    // the arithmetic a reader gets wrong, and an unbooked Tuesday in the middle
+    // of a fortnight is the single most useful thing this call can point at.
+    const gaps = uncoveredNights(
+      trip.data.start_date,
+      trip.data.end_date,
+      stays.data ?? [],
+    )
+    if (gaps.length > 0) {
+      lines.push(
+        '',
+        `Nights with nowhere booked: ${gaps
+          .map((gap) => `${gap.from} → ${gap.to} (${gap.nights} night${gap.nights === 1 ? '' : 's'})`)
+          .join(', ')}`,
+      )
+    }
+
+    const nearby = nearbyWishlist(
+      wishlist.data ?? [],
+      journeyCentre(journey),
+      (items.data ?? []).map((i) => i.title),
+    )
+    if (nearby.length > 0) {
+      lines.push('', 'Saved places near this trip, not yet on the plan:')
+      for (const { item, km } of nearby.slice(0, 10)) {
+        lines.push(`  - ${item.title} (${Math.round(km)} km) — wishlist id ${item.id}`)
+      }
+      lines.push(
+        'Use add_itinerary_item to put one on a day, or leave them; nothing here is added on its own.',
+      )
+    }
+
+    return lines.join('\n')
+  },
+})
 
 const createTrip = defineTool({
   name: 'create_trip',
@@ -314,4 +483,11 @@ const setTripDay = defineTool({
   },
 })
 
-export const tripTools: AnyTool[] = [listTrips, getTrip, createTrip, updateTrip, setTripDay]
+export const tripTools: AnyTool[] = [
+  listTrips,
+  getTrip,
+  getTripJourney,
+  createTrip,
+  updateTrip,
+  setTripDay,
+]

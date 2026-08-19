@@ -27,7 +27,29 @@ export async function getMapData(coupleId: string, tripId: string | null): Promi
     .eq('couple_id', coupleId)
     .is('deleted_at', null)
 
-  const [items, saves, trips] = await Promise.all([
+  // Where they slept. Scoped the same way the itinerary is — on a trip map,
+  // that trip's bookings; on the all-time map, all of them.
+  const stayQuery = supabase
+    .from('accommodations')
+    .select('id, name, lat, lng, address, city, check_in, trip_id, created_by')
+    .eq('couple_id', coupleId)
+    .is('deleted_at', null)
+  if (tripId) stayQuery.eq('trip_id', tripId)
+
+  // And where they took pictures. Only ones that carry a location, and capped:
+  // a trip with three hundred geotagged photos would put three hundred markers
+  // on top of the plan, and the layer is off by default for the same reason.
+  const photoQuery = supabase
+    .from('media')
+    .select('id, caption, lat, lng, taken_at, trip_id, uploader_id')
+    .eq('couple_id', coupleId)
+    .is('deleted_at', null)
+    .not('lat', 'is', null)
+    .order('taken_at', { ascending: false })
+    .limit(300)
+  if (tripId) photoQuery.eq('trip_id', tripId)
+
+  const [items, saves, trips, stays, photos] = await Promise.all([
     itineraryQuery,
     // A trip map is about that trip; the whole wishlist would swamp it with
     // places from other cities. The all-time map wants everything.
@@ -35,6 +57,8 @@ export async function getMapData(coupleId: string, tripId: string | null): Promi
     tripId
       ? Promise.resolve(null)
       : supabase.from('trips').select('id, title').eq('couple_id', coupleId).is('deleted_at', null),
+    stayQuery,
+    photoQuery,
   ])
 
   const itineraryRows = unwrapList(items)
@@ -88,6 +112,52 @@ export async function getMapData(coupleId: string, tripId: string | null): Promi
       address: row.address,
       tripId: null,
       tripTitle: row.city,
+    })
+  }
+
+  for (const row of unwrapList(stays)) {
+    if (row.lat === null || row.lng === null) {
+      notOnMap.push({ id: row.id, title: row.name, layer: 'stay' })
+      continue
+    }
+    pins.push({
+      id: `stay:${row.id}`,
+      layer: 'stay',
+      title: row.name,
+      lat: Number(row.lat),
+      lng: Number(row.lng),
+      // The check-in date, so the stay sorts into the trip at the point they
+      // arrived rather than at the front with everything undated.
+      date: row.check_in,
+      time: null,
+      categoryId: null,
+      // A booking belongs to the couple rather than to whoever typed it in, so
+      // it takes the neutral colour rather than one person's accent.
+      personId: null,
+      state: null,
+      placeName: row.city,
+      address: row.address,
+      tripId: row.trip_id,
+      tripTitle: row.trip_id ? (tripTitles.get(row.trip_id) ?? null) : null,
+    })
+  }
+
+  for (const row of unwrapList(photos)) {
+    pins.push({
+      id: `photo:${row.id}`,
+      layer: 'photo',
+      title: row.caption ?? 'Photo',
+      lat: Number(row.lat),
+      lng: Number(row.lng),
+      date: row.taken_at ? row.taken_at.slice(0, 10) : null,
+      time: null,
+      categoryId: null,
+      personId: row.uploader_id,
+      state: null,
+      placeName: null,
+      address: null,
+      tripId: row.trip_id,
+      tripTitle: row.trip_id ? (tripTitles.get(row.trip_id) ?? null) : null,
     })
   }
 

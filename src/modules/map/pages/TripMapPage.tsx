@@ -16,8 +16,9 @@ import { formatInZone, parseDateOnly } from '@/lib/dates'
 import { pluralise } from '@/lib/utils'
 import { useCategories, useCreateItem, useMoveItem } from '@/modules/itinerary'
 import { useTrip } from '@/modules/trips'
+import { useDistanceUnit } from '@/modules/settings'
 import { MapControls } from '../components/MapControls'
-import { useMapData, usePinPeople } from '../hooks'
+import { useMapData, usePinPeople, useReverseGeocode } from '../hooks'
 import {
   DEFAULT_FILTERS,
   applyFilters,
@@ -39,12 +40,17 @@ export function TripMapPage({ tripId }: { tripId: string }) {
   const { data: trip } = useTrip(tripId)
   const categories = useCategories()
   const { people, colorFor, nameFor } = usePinPeople()
+  const distanceUnit = useDistanceUnit()
   const move = useMoveItem(tripId)
   const create = useCreateItem(tripId)
 
   const [filters, setFilters] = useState<MapFilters>(DEFAULT_FILTERS)
   const [selected, setSelected] = useState<MapPin | null>(null)
+
   const [dropped, setDropped] = useState<{ lat: number; lng: number } | null>(null)
+  // Derived the moment a pin lands, so the card can name the place
+  // rather than echo the coordinates back.
+  const droppedPlace = useReverseGeocode(dropped?.lat ?? null, dropped?.lng ?? null)
   const [droppedTitle, setDroppedTitle] = useState('')
   // Changing this remounts the canvas, which is how "recentre" re-fits bounds
   // after the user has panned away.
@@ -113,7 +119,7 @@ export function TripMapPage({ tripId }: { tripId: string }) {
         <span>{pluralise(visible.length, 'place')} shown</span>
         {route.length > 1 && (
           <span>
-            {formatDistance(routeDistanceKm(route))} across the day — straight lines, not walking
+            {formatDistance(routeDistanceKm(route), distanceUnit)} across the day — straight lines, not walking
             distance
           </span>
         )}
@@ -163,8 +169,16 @@ export function TripMapPage({ tripId }: { tripId: string }) {
       {dropped && (
         <Card>
           <CardContent className="space-y-3 py-4">
+            {/* The address, not the numbers. Somebody who dropped a pin knows
+                where they pressed; reading them back their own coordinates
+                confirms nothing and is not a sentence anybody can check. */}
             <p className="text-sm">
-              Add something here — {dropped.lat.toFixed(4)}, {dropped.lng.toFixed(4)}
+              Add something here
+              {droppedPlace.data ? (
+                <span className="text-muted-foreground"> — {droppedPlace.data.displayName}</span>
+              ) : droppedPlace.isFetching ? (
+                <span className="text-muted-foreground"> — finding the address…</span>
+              ) : null}
             </p>
             <div className="flex flex-wrap gap-2">
               <Input

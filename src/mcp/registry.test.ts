@@ -81,6 +81,21 @@ describe('the sensitive modules', () => {
     expect(source).not.toContain('createSignedUrl')
   })
 
+  it('never exposes a booking reference', () => {
+    // The one thing you cannot reconstruct from memory at a front desk at 1am,
+    // and exactly the shape of thing that should not sit in a model's context.
+    // Same reasoning as document numbers above: the boundary is the column
+    // list, so this walks every select in the file rather than trusting one.
+    const source = readFileSync(join(TOOLS_DIR, 'stays.ts'), 'utf8')
+    const selects = source.match(/\.select\([^)]*\)/gs) ?? []
+    expect(selects.length).toBeGreaterThan(0)
+    for (const select of selects) {
+      expect(`booking_ref:${select.includes('booking_ref')}`).toBe('booking_ref:false')
+    }
+    // And the shared column list the selects are built from.
+    expect(source).not.toMatch(/SAFE_COLUMNS\s*=\s*'[^']*booking_ref/)
+  })
+
   it('cannot delete health data', () => {
     // The wipe RPC is irreversible by design — there is no thirty-day bin for
     // health data. A tool for it would put total erasure one hallucinated call
@@ -179,6 +194,7 @@ describe('the registry itself', () => {
       'add_health_record',
       'add_itinerary_item',
       'add_journey',
+      'add_stay',
       'add_wishlist_item',
       'choose_destination',
       'create_trip',
@@ -188,12 +204,14 @@ describe('the registry itself', () => {
       'record_settlement',
       'remove_flight',
       'remove_itinerary_item',
+      'remove_stay',
       'remove_wishlist_item',
       'set_budget',
       'set_trip_day',
       'suggest_itinerary',
       'update_flight',
       'update_itinerary_item',
+      'update_stay',
       'update_trip',
       'vote_on_wishlist_item',
     ])
@@ -239,6 +257,41 @@ describe('the service role stays out of the tool path', () => {
       const source = readFileSync(join(process.cwd(), 'src/mcp', file), 'utf8')
       expect(`${file}:${source.includes('SERVICE_ROLE')}`).toBe(`${file}:false`)
       expect(`${file}:${source.includes('createAdminSupabase')}`).toBe(`${file}:false`)
+    }
+  })
+})
+
+describe('where a location can come from', () => {
+  it('lets no tool accept coordinates', () => {
+    // The invariant the whole places module exists to hold. Asked where a café
+    // is, a model produces a plausible latitude — correctly formatted, and
+    // often a kilometre out. A pin that is confidently wrong looks right in
+    // every field a person reads, and only the map shows it, which is the one
+    // thing nobody checks for a place they have not been to.
+    //
+    // So no tool takes one. Names go in, the geocoder decides where they are.
+    for (const tool of ALL_TOOLS) {
+      const schema = zodToJsonSchema(tool.inputSchema, { $refStrategy: 'none' })
+      const names = JSON.stringify(schema).match(/"(lat|lng|latitude|longitude|coordinates)"/g) ?? []
+      expect(`${tool.name}:${names.join(',')}`).toBe(`${tool.name}:`)
+    }
+  })
+
+  it('offers a way to look a place up instead', () => {
+    const find = ALL_TOOLS.find((t) => t.name === 'find_place')
+    expect(find).toBeDefined()
+    expect(find!.readOnly).toBe(true)
+  })
+
+  it('locates from a name on every tool that stores a place', () => {
+    // Each of these writes a location, so each must have a way to acquire one
+    // that is not the model's own arithmetic.
+    for (const name of ['add_wishlist_item', 'add_itinerary_item']) {
+      const tool = ALL_TOOLS.find((t) => t.name === name)
+      const schema = zodToJsonSchema(tool!.inputSchema, { $refStrategy: 'none' }) as {
+        properties?: Record<string, unknown>
+      }
+      expect(`${name}:${'locate_query' in (schema.properties ?? {})}`).toBe(`${name}:true`)
     }
   })
 })

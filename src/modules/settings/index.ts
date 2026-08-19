@@ -7,6 +7,7 @@ export {
   useAccessTokens,
   useAcceptInvite,
   useCoupleSettings,
+  useDistanceUnit,
   useCreateAccessToken,
   useCreateInvite,
   useInvites,

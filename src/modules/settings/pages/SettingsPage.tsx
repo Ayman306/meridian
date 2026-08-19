@@ -20,10 +20,13 @@ import { useAuth } from '@/providers/AuthProvider'
 import { useAccess } from '@/providers/AccessProvider'
 import { useTheme } from '@/providers/ThemeProvider'
 import { CurrencyPicker } from '@/modules/budget'
+import { TripBin } from '@/modules/trips'
 import { useLeaveCouple, useUpdateProfile } from '@/modules/auth'
 import { AccessPanel } from '../components/AccessPanel'
 import { AssistantsPanel } from '../components/AssistantsPanel'
 import { PushPanel } from '../components/PushPanel'
+import { CategoriesPanel } from '../components/CategoriesPanel'
+import { DataPanel } from '../components/DataPanel'
 import { useCoupleSettings, useUpdateCoupleSettings, useUpdateUserSettings, useUserSettings } from '../hooks'
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -242,25 +245,28 @@ export function SettingsPage() {
             />
           </Row>
 
+          {/* On the profile rather than in user_settings, because the other
+              person has to be able to read them — that is the entire point of
+              the overlay. See 0021. */}
           <Row
             label="Work hours"
-            hint="Feeds the work-day overlay on the itinerary, so neither of you plans a lunch through the other's stand-up."
+            hint="Shown on the itinerary as a band across your working day, in your timezone, so neither of you plans a lunch through the other's stand-up. Your partner can see these."
           >
             <div className="flex items-center gap-2">
               <Input
                 type="time"
                 className="w-32"
-                defaultValue={us?.work_hours_start ?? ''}
+                defaultValue={self?.work_hours_start?.slice(0, 5) ?? ''}
                 aria-label="Work day starts"
-                onBlur={(e) => updateUser.mutate({ work_hours_start: e.target.value || null })}
+                onBlur={(e) => updateProfile.mutate({ work_hours_start: e.target.value || null })}
               />
               <span className="text-sm text-muted-foreground">to</span>
               <Input
                 type="time"
                 className="w-32"
-                defaultValue={us?.work_hours_end ?? ''}
+                defaultValue={self?.work_hours_end?.slice(0, 5) ?? ''}
                 aria-label="Work day ends"
-                onBlur={(e) => updateUser.mutate({ work_hours_end: e.target.value || null })}
+                onBlur={(e) => updateProfile.mutate({ work_hours_end: e.target.value || null })}
               />
             </div>
           </Row>
@@ -317,6 +323,25 @@ export function SettingsPage() {
       {/* ---------------------------------------------------------------- */}
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Your lists
+        </h2>
+        <CategoriesPanel />
+      </section>
+
+      {/* ----------------------------------------------------------------
+          The bin. Deleting a trip has always been reversible in the database
+          and, until now, irreversible from the app — which made the delete
+          dialog's promise of a 30-day bin one nobody could act on.          */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Deleted trips
+        </h2>
+        <TripBin />
+      </section>
+
+      {/* ---------------------------------------------------------------- */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Account
         </h2>
         <Card className="space-y-3 p-5">
@@ -336,6 +361,14 @@ export function SettingsPage() {
             </div>
           )}
         </Card>
+      </section>
+
+      {/* ---------------------------------------------------------------- */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Data
+        </h2>
+        <DataPanel />
       </section>
 
       <ConfirmDialog

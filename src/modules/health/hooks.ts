@@ -7,8 +7,9 @@ import { useAuth } from '@/providers/AuthProvider'
 import { useCouple } from '@/providers/CoupleProvider'
 import type { InsertDto, UpdateDto } from '@/types/database'
 import * as api from './api'
-import { predict } from './logic'
-import type { ConsentScope, Prediction, RecordKind } from './types'
+import { MAX_PROJECTED_CYCLES, calendarMarks, predict, predictCycles } from './logic'
+import type { DateOnly } from '@/lib/dates'
+import type { ConsentScope, DayMark, Prediction, RecordKind } from './types'
 
 /** The signed-in person's own id. Everything here is owner-scoped. */
 function useOwnerId(): string | null {
@@ -64,6 +65,32 @@ export function useCycles(ownerId: string | null) {
 export function usePrediction(ownerId: string | null): Prediction {
   const cycles = useCycles(ownerId)
   return useMemo(() => predict(cycles.data ?? []), [cycles.data])
+}
+
+/**
+ * What the cycle looks like across a date range — for the signed-in person and
+ * nobody else.
+ *
+ * Deliberately not parameterised by owner, unlike `useCycles`. This exists so
+ * the trip journey can mark days, and a trip is a shared screen: passing an
+ * owner id would eventually be passed the partner's, and consent granted so a
+ * person could look with their own eyes is not consent to have it drawn onto a
+ * planning view they share. RLS would still refuse without consent; this makes
+ * the refusal unnecessary by never asking.
+ *
+ * Returns an empty map rather than null when there is nothing logged, so a
+ * caller can read it without branching.
+ */
+export function useCycleWindow(from: DateOnly | null, to: DateOnly | null) {
+  const ownerId = useOwnerId()
+  const cycles = useCycles(ownerId)
+
+  return useMemo(() => {
+    const logs = cycles.data ?? []
+    if (!from || !to || logs.length === 0) return new Map<DateOnly, DayMark>()
+    // Enough projections to cover the range; the helper caps and trims them.
+    return calendarMarks(logs, predictCycles(logs, MAX_PROJECTED_CYCLES, from), from, to)
+  }, [cycles.data, from, to])
 }
 
 export function useLogCycle() {

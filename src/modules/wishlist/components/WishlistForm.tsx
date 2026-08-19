@@ -7,7 +7,7 @@ import { Link2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Field, Input, Select, Textarea } from '@/components/ui/input'
 import { userMessage } from '@/lib/errors'
-import { PlacePicker, PlaceSearch, useResolvePlace } from '@/modules/map'
+import { PlacePicker, PlaceSearch, UseMyLocationButton, useResolvePlace } from '@/modules/map'
 import { describeParseSource, isGoogleMapsLink, parseGoogleMapsLink } from '@/lib/maps/googleMaps'
 import type { Category } from '@/modules/itinerary'
 import { useAddWishlistItem, useExtractFromUrl, useUpdateWishlistItem } from '../hooks'
@@ -170,6 +170,16 @@ export function WishlistForm({
         />
       </Field>
 
+      <UseMyLocationButton
+        onLocated={(at) => {
+          form.setValue('lat', at.lat)
+          form.setValue('lng', at.lng)
+          form.setValue('address', null)
+          form.setValue('maps_url', null)
+          setPinNote(null)
+        }}
+      />
+
       {/* Seeing the pin is the check that matters. A link copied after panning
           carries the camera position rather than the place, so the name and
           address can look right while the coordinates are a street off — which
@@ -184,10 +194,19 @@ export function WishlistForm({
           form.setValue('lat', at.lat)
           form.setValue('lng', at.lng)
           // The address described the old coordinates. Keeping it would make it
-          // a claim about somewhere else.
+          // a claim about somewhere else. Clearing it is also what triggers
+          // PlacePicker to fetch the new one.
           form.setValue('address', null)
           form.setValue('maps_url', null)
-          setPinNote('Pin moved by hand. The address will be looked up again when you save.')
+          setPinNote(null)
+        }}
+        // The address is derived, never typed. This is where it arrives.
+        onAddressResolved={(place) => {
+          form.setValue('address', place.displayName)
+          if (place.city && !form.getValues('city')) form.setValue('city', place.city)
+          if (place.countryCode && !form.getValues('country_code')) {
+            form.setValue('country_code', place.countryCode)
+          }
         }}
         onClear={() => {
           form.setValue('lat', null)
