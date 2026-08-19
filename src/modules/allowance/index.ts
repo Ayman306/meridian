@@ -3,6 +3,7 @@ export { AllowancePage } from './pages/AllowancePage'
 export { AllowanceWarning } from './components/AllowanceWarning'
 export { TripAllowanceStrip } from './components/TripAllowanceStrip'
 export { AdvisoryNote } from './components/AdvisoryNote'
+export { RuleEditor } from './components/RuleEditor'
 export { AllowanceBar } from './components/AllowanceBar'
 export {
   useAllowanceRules,

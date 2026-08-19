@@ -13,6 +13,7 @@ import { buildAlerts, countdown, nightsTogether } from '../logic'
 import { CountdownBlock } from '../components/CountdownBlock'
 import { ClocksCard } from '../components/ClocksCard'
 import { AlertStrip } from '../components/AlertStrip'
+import { ActiveFlightCard } from '../components/ActiveFlightCard'
 
 export function DashboardPage() {
   const { self, partner, selfRef, partnerRef, tzSelf } = useCouple()
@@ -50,6 +51,11 @@ export function DashboardPage() {
   return (
     <div className="space-y-6">
       {view.alerts.length > 0 && <AlertStrip alerts={view.alerts} />}
+
+      {/* Above the countdown deliberately: when somebody is in the air, that is
+          the most important thing on the screen, and a countdown to a date
+          that has already arrived is the least. */}
+      <ActiveFlightCard />
 
       <CountdownBlock countdown={view.countdown} />
 

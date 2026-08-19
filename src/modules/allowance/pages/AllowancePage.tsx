@@ -19,6 +19,7 @@ import { pluralise } from '@/lib/utils'
 import { displayCountry } from '@/lib/zones'
 import { useCouple } from '@/providers/CoupleProvider'
 import { AdvisoryNote } from '../components/AdvisoryNote'
+import { RuleEditor } from '../components/RuleEditor'
 import { AllowanceBar } from '../components/AllowanceBar'
 import { LogEditor } from '../components/LogEditor'
 import {
@@ -59,6 +60,8 @@ export function AllowancePage() {
       person: typeof self
       countryCode: string
       rule: AllowanceRule | null
+      /** Which of their passports the rule was matched on, for an override. */
+      passportCountry: string
       entries: EntryExitLog[]
     }[] = []
 
@@ -68,13 +71,19 @@ export function AllowancePage() {
       const countries = [...new Set(theirs.map((e) => e.country_code.toUpperCase()))].sort()
 
       for (const countryCode of countries) {
+        const matched = ruleFor(rules.data ?? [], person.id, countryCode, [
+          person.nationality,
+          person.second_nationality,
+        ])
+
         out.push({
           person,
           countryCode,
-          rule: ruleFor(rules.data ?? [], person.id, countryCode, [
-            person.nationality,
-            person.second_nationality,
-          ]),
+          rule: matched,
+          // The rule's own passport when there is one, so an override replaces
+          // exactly what was matched. Otherwise their primary nationality —
+          // adding a rule for a passport they do not hold would never match.
+          passportCountry: matched?.passport_country ?? person.nationality ?? '',
           entries: theirs.filter((e) => e.country_code.toUpperCase() === countryCode),
         })
       }
@@ -194,6 +203,7 @@ export function AllowancePage() {
                 personRef={refFor(card.person!.id)}
                 countryCode={card.countryCode}
                 rule={card.rule}
+                passportCountry={card.passportCountry}
                 entries={card.entries}
                 today={today}
               />
@@ -246,16 +256,19 @@ function StatusCard({
   personRef,
   countryCode,
   rule,
+  passportCountry,
   entries,
   today,
 }: {
   personRef: ReturnType<typeof useCouple>['selfRef']
   countryCode: string
   rule: AllowanceRule | null
+  passportCountry: string
   entries: EntryExitLog[]
   today: string
 }) {
   const status = rule ? statusFor(entries, rule, today) : null
+  const [editing, setEditing] = useState(false)
 
   return (
     <Card>
@@ -325,6 +338,27 @@ function StatusCard({
             sourceUrl={rule.source_url}
             verifiedOn={rule.verified_on}
           />
+        )}
+
+        {/* The seeded rules are a conservative common-case set. Anybody whose
+            situation differs — a residence permit, a long-stay visa, a
+            nationality the seed does not cover — was being shown a number that
+            was wrong for them with no way to correct it. */}
+        {editing ? (
+          <RuleEditor
+            passportCountry={passportCountry}
+            destinationCountry={rule?.destination_country ?? countryCode}
+            existing={rule}
+            onDone={() => setEditing(false)}
+          />
+        ) : (
+          <button
+            type="button"
+            className="self-start text-xs text-muted-foreground underline-offset-2 hover:underline"
+            onClick={() => setEditing(true)}
+          >
+            {rule ? 'This is wrong for me — set my own rule' : 'Add a rule for this country'}
+          </button>
         )}
       </CardContent>
     </Card>

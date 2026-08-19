@@ -2,9 +2,10 @@
 'use client'
 
 import { supabase } from '@/lib/supabase/client'
-import { toAppError, unwrap, unwrapList } from '@/lib/errors'
+import { toAppError, unwrap, unwrapList, unwrapMaybe } from '@/lib/errors'
 import { keyBetween } from '@/lib/fractional'
 import { zoneFor } from '@/lib/zones'
+import { haversineKm } from '@/lib/utils'
 import type { InsertDto, UpdateDto } from '@/types/database'
 import type { ScoreWeights, TripDestination, VisaRule } from './types'
 import { parseWeights, ZERO_WEIGHTS } from './logic'
@@ -41,11 +42,22 @@ export async function addCandidate(
       .limit(1),
   )
 
+  // Resolved here rather than in the form, so every path that adds a candidate
+  // gets it — including the MCP's add_destination. `choose_destination` copies
+  // this onto the trip, and a trip whose timezone is wrong reads every
+  // itinerary time wrong, so it is worth the extra round trip once.
+  const timezone =
+    input.timezone ??
+    (input.lat !== null && input.lat !== undefined && input.lng !== null && input.lng !== undefined
+      ? await timezoneNear(Number(input.lat), Number(input.lng)).catch(() => null)
+      : null)
+
   return unwrap(
     await supabase
       .from('trip_destinations')
       .insert({
         ...input,
+        timezone,
         couple_id: coupleId,
         trip_id: tripId,
         created_by: userId,
@@ -78,6 +90,26 @@ export async function removeDestination(id: string): Promise<void> {
  * timezone set — so it goes through the RPC that does them together.
  */
 export async function chooseDestination(id: string): Promise<void> {
+  // Backfill for candidates added before the zone lookup existed, or added
+  // without coordinates and given some later. The RPC copies whatever is on
+  // the row onto the trip, so filling it first is the only chance.
+  const existing = unwrapMaybe(
+    await supabase
+      .from('trip_destinations')
+      .select('timezone, lat, lng')
+      .eq('id', id)
+      .maybeSingle(),
+  )
+
+  if (existing && !existing.timezone && existing.lat !== null && existing.lng !== null) {
+    const timezone = await timezoneNear(Number(existing.lat), Number(existing.lng)).catch(
+      () => null,
+    )
+    if (timezone) {
+      await supabase.from('trip_destinations').update({ timezone }).eq('id', id)
+    }
+  }
+
   const { error } = await supabase.rpc('choose_destination', { destination_id: id })
   if (error) throw toAppError(error)
 }
@@ -186,4 +218,57 @@ export async function getChosenCountry(tripId: string): Promise<string | null> {
       .limit(1),
   )
   return rows[0]?.country_code ?? null
+}
+
+/**
+ * The IANA timezone for a coordinate, from the nearest listed airport.
+ *
+ * Choosing a destination sets the trip's timezone, and until now that only
+ * happened when the candidate already carried one — which the city search does
+ * not return. Every itinerary time on a trip is read in that zone, so leaving
+ * it unset is not cosmetic.
+ *
+ * ## Why the airport table rather than `tz-lookup`
+ *
+ * `tz-lookup` ships a polygon dataset around 100 KB. Correct, and a hundred
+ * kilobytes in a PWA bundle for a lookup that happens once per trip is a poor
+ * trade. The airports table is already loaded, already carries IANA zones, and
+ * a city that anybody flies to has an airport near it — which is the entire
+ * population of things this is asked about.
+ *
+ * ## Why it refuses rather than guesses
+ *
+ * Past `MAX_NEAREST_KM` the nearest airport is likely across a zone boundary,
+ * and a wrong timezone silently shifts every time on the trip by an hour or
+ * more. That is far worse than an unset one, which the app already handles.
+ * So a remote coordinate returns null and the trip keeps whatever it had.
+ */
+const MAX_NEAREST_KM = 500
+
+export async function timezoneNear(lat: number, lng: number): Promise<string | null> {
+  // A degree of latitude is ~111 km, so this box comfortably contains the
+  // radius and keeps the query off a full table scan. Longitude degrees narrow
+  // towards the poles, which only makes the box wider than needed — never
+  // narrower, so nothing inside the radius is excluded.
+  const pad = MAX_NEAREST_KM / 111
+
+  const candidates = unwrapList(
+    await supabase
+      .from('airports')
+      .select('lat, lng, timezone')
+      .gte('lat', lat - pad)
+      .lte('lat', lat + pad)
+      .gte('lng', lng - pad * 2)
+      .lte('lng', lng + pad * 2),
+  )
+
+  let best: { timezone: string; km: number } | null = null
+  for (const airport of candidates) {
+    const km = haversineKm({ lat, lng }, { lat: Number(airport.lat), lng: Number(airport.lng) })
+    if (km <= MAX_NEAREST_KM && (!best || km < best.km)) {
+      best = { timezone: airport.timezone, km }
+    }
+  }
+
+  return best?.timezone ?? null
 }
