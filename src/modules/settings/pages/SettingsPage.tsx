@@ -25,6 +25,8 @@ import { useLeaveCouple, useUpdateProfile } from '@/modules/auth'
 import { AccessPanel } from '../components/AccessPanel'
 import { AssistantsPanel } from '../components/AssistantsPanel'
 import { PushPanel } from '../components/PushPanel'
+import { CategoriesPanel } from '../components/CategoriesPanel'
+import { DataPanel } from '../components/DataPanel'
 import { useCoupleSettings, useUpdateCoupleSettings, useUpdateUserSettings, useUserSettings } from '../hooks'
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -318,6 +320,14 @@ export function SettingsPage() {
         </Card>
       </section>
 
+      {/* ---------------------------------------------------------------- */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Your lists
+        </h2>
+        <CategoriesPanel />
+      </section>
+
       {/* ----------------------------------------------------------------
           The bin. Deleting a trip has always been reversible in the database
           and, until now, irreversible from the app — which made the delete
@@ -351,6 +361,14 @@ export function SettingsPage() {
             </div>
           )}
         </Card>
+      </section>
+
+      {/* ---------------------------------------------------------------- */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Data
+        </h2>
+        <DataPanel />
       </section>
 
       <ConfirmDialog
