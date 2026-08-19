@@ -477,9 +477,13 @@ Spec: Module 12. Built last, as the spec instructs.
       project at all
 - [x] 29 unit tests, 18 new RLS assertions covering every acceptance criterion
       in spec 12.8
-- [ ] Cycle calendar view — the history list and `cycleDays()` exist; the month
-      grid does not
-- [ ] Predicted dates on the trip calendar, behind `cycle_predictions` consent
+- [x] **Cycle calendar view** — a month grid with logged and projected periods,
+      the fertile window and ovulation, projections drawn as projections with a
+      window that widens as it compounds. See D90.
+- [x] **Predicted dates on the trip view** — the journey screen marks the
+      signed-in person's own period days on the day strip. Deliberately *not*
+      behind `cycle_predictions` consent: the journey is a screen both partners
+      look at, so it reads the viewer's own logs and never an owner id. See D99.
 - [ ] Linking a vaccination or prescription to a document — `document_id` is on
       the row, no picker
 - [ ] The restriction seed is eleven rows across six countries. It is a
@@ -531,6 +535,17 @@ Everything below came from actually running the app rather than from the spec.
 - [x] **Web push**, wired to the flight sweep and gated on the `notify_*`
       toggles that had been recorded since phase 13 with nothing reading them.
       See D86.
+- [x] **Locations resolve themselves.** Paste a Google Maps link and the app
+      takes the name, the full address and the pin from it; moving a pin
+      re-resolves the address; no screen shows a coordinate and no MCP tool
+      accepts one. See D91–D95.
+- [x] **The trip's front page is the trip.** One journey view — map, a strip of
+      every day, one day's detail — assembled from flights, days, destinations
+      and the itinerary, with nearby saved places offered on the day in view.
+      `get_trip_journey` gives the MCP the same assembly. See D96–D100.
+- [ ] Accommodation is still not modelled. The journey can say which city a day
+      is in and not where they sleep, which is the largest remaining hole in
+      "the whole trip in one picture".
 - [ ] Offline reads of the plan. Would need a per-account encrypted store —
       a different feature with different risks than caching the shell.
 - [ ] Background Sync for writes made offline. Chromium only, so the app would
