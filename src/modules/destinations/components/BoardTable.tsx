@@ -13,7 +13,9 @@ import { Button } from '@/components/ui/button'
 import { PersonBadge } from '@/components/PersonBadge'
 import { AllowanceWarning } from '@/modules/allowance'
 import { cn, pluralise } from '@/lib/utils'
-import { formatInZone, parseDateOnly } from '@/lib/dates'
+import { formatInZone, parseDateOnly, todayIn } from '@/lib/dates'
+import { freshness } from '@/lib/advisory'
+import { useCouple } from '@/providers/CoupleProvider'
 import type { PersonRef } from '@/types/domain'
 import type { AllowanceCheck } from '@/modules/allowance'
 import { BAND_LABELS } from '../climate'
@@ -38,6 +40,8 @@ export function BoardTable({
   onRemove: (column: BoardColumn) => void
 }) {
   const [openScore, setOpenScore] = useState<string | null>(null)
+  const { tzSelf } = useCouple()
+  const today = todayIn(tzSelf)
 
   return (
     <div className="overflow-x-auto">
@@ -136,6 +140,12 @@ export function BoardTable({
                             <>
                               Checked{' '}
                               {formatInZone(parseDateOnly(view.visa.verified_on), 'UTC', 'd MMM yyyy')}
+                              {/* A rule this old is still shown — it may well
+                                  still be right. The reader just gets to know
+                                  how much weight to put on it. */}
+                              {freshness(view.visa.verified_on, today)?.stale && (
+                                <span className="text-[hsl(var(--warn))]"> (old)</span>
+                              )}
                               {' · '}
                             </>
                           )}

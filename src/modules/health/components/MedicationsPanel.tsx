@@ -18,6 +18,9 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { EmptyState, ErrorState, SkeletonList } from '@/components/common/states'
 import { cn } from '@/lib/utils'
+import { formatDateOnly, todayIn } from '@/lib/dates'
+import { freshness } from '@/lib/advisory'
+import { useCouple } from '@/providers/CoupleProvider'
 import { NOT_CHECKED, checkSupply, describeSupply, matchRestrictions, restrictionNotice } from '../logic'
 import { useAddRecord, useDeleteRecord, useHealthRecords, useRestrictions } from '../hooks'
 import type { RecordKind } from '../types'
@@ -39,6 +42,8 @@ export function MedicationsPanel({
   /** Set when viewed from a trip, so supply and restrictions can be checked. */
   trip?: { nights: number; countryCode: string | null; countryName: string } | null
 }) {
+  const { tzSelf } = useCouple()
+  const today = todayIn(tzSelf)
   const records = useHealthRecords(ownerId)
   const restrictions = useRestrictions(trip?.countryCode ?? null)
   const add = useAddRecord()
@@ -103,7 +108,13 @@ export function MedicationsPanel({
                     </a>
                     {restriction.verified_on && (
                       <span className="ml-2 text-xs text-muted-foreground">
-                        checked {restriction.verified_on}
+                        checked {formatDateOnly(restriction.verified_on, 'd MMM yyyy')}
+                        {/* Customs rules on medication change quietly and the
+                            consequence of an old one is being stopped at a
+                            border, so an old check says so. */}
+                        {freshness(restriction.verified_on, today)?.stale && (
+                          <span className="text-[hsl(var(--warn))]"> — old, open the link</span>
+                        )}
                       </span>
                     )}
                   </li>

@@ -17,7 +17,7 @@ work up next — including a future session with no memory of this one.
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0019, live |
+| Migrations applied | 0001–0020, live |
 | Deployed | Vercel, `meridian-ay-za.vercel.app` |
 
 ### What runs today
@@ -39,10 +39,15 @@ with coordinates, filterable by day, person, category and state, with the
 selected day's route drawn between its stops.
 
 Opening a trip now shows the trip rather than a form: a map with the route it
-traces, a strip of every day with its flights, its density and — for whoever is
-looking — their own cycle marks, and one day's detail in a panel that does not
-push the page down. Saved places near the trip are offered on the day already
-in view, one tap to add. See D96–D100.
+traces, a strip of every day with its flights, its density, where they sleep
+and — for whoever is looking — their own cycle marks, and one day's detail in a
+panel that does not push the page down. Saved places near *that night's hotel*
+are offered on the day already in view, one tap to add. See D96–D103.
+
+Accommodation is modelled (0020): bookings with dates, a resolved address and
+the booking reference, with the nights nobody has booked counted for you. The
+one rule to know is that `check_out` is exclusive — a stay covers nights, not
+days.
 
 And Phases 8 and 9, which answer the two questions that come before planning
 anything: *where* and *for how long*. The destination board puts candidate
@@ -1686,6 +1691,108 @@ yet planned. One call, and the assistant and the couple are demonstrably
 looking at the same trip. It is read-only, and the nearby list ends with a line
 saying nothing is added on its own, because non-negotiable #5 is a rule the
 model has to be told about rather than one it can infer.
+
+### D101 — Where they sleep is a table, and `check_out` is exclusive
+
+The app could say which *city* a trip was in on a given day and not which bed.
+That was the largest hole in the journey view — "where are we staying" is the
+question a couple asks most often on a trip, and the answer lived in an email.
+
+`accommodations` (0020) is the standard couple-scoped table, with one decision
+worth stating: the dates are `check_in` / `check_out`, not `arrive_on` /
+`depart_on` like `trip_destinations`, because the two ranges do not mean the
+same thing. A destination's range covers *days in a city*, inclusive at both
+ends. A stay covers *nights*, and **`check_out` is exclusive** — three nights
+from the 4th is check-in 04, check-out 07.
+
+Every consequence follows from that one line. "Which stay covers this date" is
+`check_in <= date < check_out`. "Is this the morning we leave" is equality with
+`check_out`. The night of the check-out date belongs to whatever comes next, not
+to the booking being left. Getting it backwards shows somebody a hotel on a
+night they had already handed the key back for — a mistake that looks correct on
+screen and is discovered at a locked door, which is why `modules/stays/logic.ts`
+is pure and has twenty tests whose entire subject is that one rule.
+
+The database refuses `check_out <= check_in`, which catches a zero-night stay
+and *not* an off-by-one. Nothing can catch that but the wording, so the MCP tool
+descriptions state it in capitals.
+
+### D102 — The booking reference is the one column a model never sees
+
+`booking_ref` is the thing you cannot reconstruct from memory at a front desk at
+1am, which is exactly why it is stored — and exactly why it does not travel.
+`tools/stays.ts` selects an explicit column list that omits it, asserted in
+`registry.test.ts` by walking every `.select(` in the file, on the same
+reasoning as document numbers: a reference sitting in a model's context is a
+reference that has left the couple's control.
+
+### D103 — The journey answers "near where?" with the bed, not the trip
+
+Nearby saved places were offered within 60 km of the *trip's* centre, which is a
+weak filter on a city break and a useless one across two cities. `dayCentre`
+prefers the night's accommodation, then anything already planned that day, then
+the trip. "Near where you are sleeping tonight" is the question somebody
+actually has.
+
+Two smaller things fell out of the same work. A booked bed now outranks an
+arrival airport when deciding where the trip is centred — it is a firmer
+statement about where the trip happens than a candidate city nobody chose. And
+each booking is drawn on the route once, on the night they move in: a hotel
+plotted on every night of a week is six identical points and a line that never
+leaves it.
+
+### D104 — The blend finally reads the destination it was always meant to
+
+Since Phase 6 the blend guessed which city a trip was about by matching the
+trip's *title* against cities people had saved. That worked for "Lisbon in May"
+and for nothing else, and it was written before the destinations module existed.
+
+`blendCity` now takes the chosen destination first and keeps the title match
+underneath as the fallback for a trip nobody has filled a board in for.
+Returning null still means no narrowing, which stays the safe direction to be
+wrong in: showing too much is a longer list, showing too little hides somebody's
+own save from them.
+
+### D105 — A domestic connection is judged as one
+
+`connectionRisk` has always taken an `isInternational` flag and `connectionsFor`
+never passed it, so every connection took the international 90-minute minimum.
+A comfortable 70-minute hop between two domestic gates was reported as tight,
+which is the kind of wrong that trains somebody to ignore the warning.
+
+`connectionsFor` now takes a `countryOf` lookup, fed by `useAirportCountries`
+against the `airports` table. The rule it applies: a connection is international
+if *either* leg crosses a border, because immigration is the cost and you clear
+it on the way out too — a domestic hop feeding a long-haul departure is still an
+international connection.
+
+An airport missing from the ~135-row reference table returns null, and unknown
+is treated as international on purpose. The international minimum is the longer
+one, and telling somebody they have plenty of time when they do not is the
+failure that makes them miss a flight.
+
+### D106 — A rule checked two years ago no longer looks fresh
+
+Every visa rule, stay allowance and medication restriction carries `verified_on`
+and, until now, nothing read it. A rule checked in 2024 rendered identically to
+one checked yesterday: same wording, same source link, same quiet confidence.
+For data that changes with no notice, that is the worst possible shape.
+
+`lib/advisory.ts` computes the age and says so, on every surface that renders a
+rule — the allowance note, the destination board's visa column, the medication
+restrictions, and the MCP's `list_allowance_rules`, because a model told only
+"verified 2024-01-01" will report the rule as fact.
+
+Six months is a judgement, not a fact: visa rules change roughly yearly and
+announce themselves badly, so six months is short enough to catch a change
+before somebody books on it and long enough that a fresh rule is not nagging
+about itself. Past eighteen months the wording escalates from "worth confirming"
+to "treat it as a starting point".
+
+Two things it deliberately does not do. Nothing re-checks anything — the rule
+may well still be correct, and what changes is only how much weight a reader
+puts on it. And a *missing* `verified_on` is not stale: it was never claimed to
+be checked at all, so saying "6 months old" about it would be inventing a fact.
 
 ---
 

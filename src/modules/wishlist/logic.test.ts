@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   applyPacing,
   balanceAuthorship,
+  blendCity,
   buildBlend,
   clusterByLocation,
   generateDraft,
@@ -136,6 +137,29 @@ describe('buildBlend', () => {
   it('ignores deleted saves', () => {
     const blend = buildBlend([save({ deleted_at: '2026-02-01T00:00:00Z' })], ME, THEM)
     expect(blend.mine).toHaveLength(0)
+  })
+})
+
+describe('blendCity', () => {
+  const items = [save({ city: 'Lisbon' }), save({ city: 'Tokyo' })]
+
+  it('uses the chosen destination, whatever the trip is called', () => {
+    // The whole point of the change: a trip called "Summer" with Porto chosen
+    // is a Porto trip, and the title has nothing to say about it.
+    expect(blendCity('Porto', 'Summer', items)).toBe('Porto')
+    expect(blendCity('Porto', 'Lisbon in May', items)).toBe('Porto')
+  })
+
+  it('falls back to the title for a trip with no board filled in', () => {
+    expect(blendCity(null, 'Lisbon in May', items)).toBe('Lisbon')
+  })
+
+  it('narrows nothing when neither says anything', () => {
+    // The safe direction to be wrong in: too much shown is a longer list, too
+    // little hides somebody's own save from them.
+    expect(blendCity(null, 'Summer', items)).toBeNull()
+    expect(blendCity(null, null, items)).toBeNull()
+    expect(blendCity('   ', 'Summer', items)).toBeNull()
   })
 })
 

@@ -12,7 +12,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { Plane, Moon } from 'lucide-react'
+import { BedDouble, Plane, Moon } from 'lucide-react'
 import { formatDateOnly, type DateOnly } from '@/lib/dates'
 import { cn } from '@/lib/utils'
 import type { JourneyDay } from '../journey'
@@ -88,6 +88,12 @@ export function DayStrip({ days, selected, today, onSelect, cycleDays }: DayStri
                 the chips do not jitter in height along the strip. */}
             <span className="flex h-3 items-center gap-0.5" aria-hidden="true">
               {day.isTravel && <Plane className="size-3 text-muted-foreground" />}
+              {/* Only when there is no plane already: a travel day with a bed is
+                  still first a travel day, and three marks on a 56px chip is
+                  where a glance turns into a puzzle. */}
+              {!day.isTravel && day.stay && (
+                <BedDouble className="size-3 text-muted-foreground/70" />
+              )}
               {day.isRest && <Moon className="size-3 text-muted-foreground/70" />}
               {planned > 0 && <Dots count={planned} />}
               {/* Same rose as the cycle calendar, so the mark means the same
@@ -106,6 +112,10 @@ function dayLabel(day: JourneyDay, cycle: string | null): string {
   const parts = [`Day ${day.index}`, formatDateOnly(day.date, 'EEEE d MMMM')]
   if (day.isTravel) parts.push('travel day')
   if (day.isRest) parts.push('kept clear')
+  // Spoken even when the icon was dropped for space — a screen reader has no
+  // 56px limit.
+  if (day.stay) parts.push(`staying at ${day.stay.name}`)
+  if (day.checkingOutOf) parts.push(`checking out of ${day.checkingOutOf.name}`)
   const planned = day.entries.filter((e) => e.kind === 'item').length
   if (planned > 0) parts.push(`${planned} planned`)
   if (cycle) parts.push(cycle)

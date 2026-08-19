@@ -39,6 +39,16 @@ export type JourneyEntry =
       lng: number | null
     }
 
+/** A booking, reduced to what the journey needs to draw and say. */
+export interface JourneyStay {
+  id: string
+  name: string
+  kind: string
+  address: string | null
+  lat: number | null
+  lng: number | null
+}
+
 export interface JourneyDay {
   date: DateOnly
   /** 1 for the first day of the trip. */
@@ -48,6 +58,18 @@ export interface JourneyDay {
   note: string | null
   /** Which destination the trip is at on this day, when that is known. */
   place: string | null
+  /**
+   * Where they sleep that night, and where they are checking out of that
+   * morning.
+   *
+   * Two fields rather than one because they are two different facts and the
+   * check-out day carries both: on the morning of the 7th they are leaving the
+   * hotel they slept in on the 6th, and may be moving into another one that
+   * night. Merging them would lose whichever the screen did not pick.
+   */
+  stay: JourneyStay | null
+  /** Set on the morning somebody has to be out, whatever comes next. */
+  checkingOutOf: JourneyStay | null
   entries: JourneyEntry[]
   /** Nothing planned, and not deliberately so. */
   isOpen: boolean
@@ -60,7 +82,12 @@ export interface JourneyDay {
 export interface TripJourney {
   days: JourneyDay[]
   /** The route the trip traces, in order, for drawing. */
-  route: { lat: number; lng: number; label: string; kind: 'airport' | 'destination' | 'item' }[]
+  route: {
+    lat: number
+    lng: number
+    label: string
+    kind: 'airport' | 'destination' | 'stay' | 'item'
+  }[]
   totalKm: number
   /** How many days have something on them. */
   plannedDays: number
@@ -102,6 +129,21 @@ export interface JourneyInput {
     lat: number | null
     lng: number | null
     state: string | null
+  }[]
+  /**
+   * Bookings, with `check_out` exclusive — see `modules/stays/logic.ts`. The
+   * night of the check-out date belongs to whatever comes next, not to the
+   * booking being left.
+   */
+  stays?: {
+    id: string
+    name: string
+    kind: string
+    address: string | null
+    check_in: DateOnly | null
+    check_out: DateOnly | null
+    lat: number | null
+    lng: number | null
   }[]
 }
 
@@ -175,6 +217,13 @@ export function buildJourney(input: JourneyInput): TripJourney {
     const isTravel = arrivals.length > 0 || departures.length > 0
     const isRest = dayType === 'rest'
 
+    const stays = input.stays ?? []
+    const sleepingAt =
+      stays.find(
+        (s) => s.check_in !== null && date >= s.check_in && (s.check_out === null || date < s.check_out),
+      ) ?? null
+    const leaving = stays.find((s) => s.check_out === date) ?? null
+
     return {
       date,
       index: i + 1,
@@ -182,6 +231,8 @@ export function buildJourney(input: JourneyInput): TripJourney {
       title: row?.title ?? null,
       note: row?.note ?? null,
       place: placeOn(date, input.destinations),
+      stay: sleepingAt ? toJourneyStay(sleepingAt) : null,
+      checkingOutOf: leaving ? toJourneyStay(leaving) : null,
       entries,
       isRest,
       isOpen: !isRest && !isTravel && items.length === 0,
@@ -198,6 +249,17 @@ export function buildJourney(input: JourneyInput): TripJourney {
     plannedDays: days.filter((d) => d.entries.some((e) => e.kind === 'item')).length,
     openDays: days.filter((d) => d.isOpen).length,
     restDays: days.filter((d) => d.isRest).length,
+  }
+}
+
+function toJourneyStay(stay: NonNullable<JourneyInput['stays']>[number]): JourneyStay {
+  return {
+    id: stay.id,
+    name: stay.name,
+    kind: stay.kind,
+    address: stay.address,
+    lat: stay.lat,
+    lng: stay.lng,
   }
 }
 
@@ -265,6 +327,11 @@ function buildRoute(input: JourneyInput, dates: DateOnly[]): TripJourney['route'
     const destination = input.destinations.find((d) => d.arrive_on === date && d.state !== 'rejected')
     if (destination) push(destination.lat, destination.lng, destination.city, 'destination')
 
+    // The night they move in, and only that night. A hotel drawn on every day
+    // of a week would be six identical points and a line that never leaves it.
+    const arriving = (input.stays ?? []).find((s) => s.check_in === date)
+    if (arriving) push(arriving.lat, arriving.lng, arriving.name, 'stay')
+
     for (const item of input.items.filter((it) => it.scheduled_date === date)) {
       push(item.lat, item.lng, item.place_name ?? item.title, 'item')
     }
@@ -312,10 +379,35 @@ export function nearbyWishlist<
     .sort((a, b) => a.km - b.km)
 }
 
+/**
+ * Where a single day is centred.
+ *
+ * This is what makes the nearby-places offer worth anything. "Within 60 km of
+ * the trip" is a weak filter on a city break and a useless one on a two-city
+ * trip; "near where you are sleeping tonight" is the question somebody actually
+ * has. So the bed wins, then anything already planned that day, and only then
+ * the trip as a whole.
+ */
+export function dayCentre(day: JourneyDay, journey: TripJourney): LatLng | null {
+  if (day.stay?.lat != null && day.stay.lng != null) {
+    return { lat: day.stay.lat, lng: day.stay.lng }
+  }
+  const placed = day.entries.find(
+    (e): e is Extract<JourneyEntry, { kind: 'item' }> =>
+      e.kind === 'item' && e.lat !== null && e.lng !== null,
+  )
+  if (placed) return { lat: placed.lat!, lng: placed.lng! }
+  return journeyCentre(journey)
+}
+
 /** Where the trip is centred, for the nearby search and the initial map view. */
 export function journeyCentre(journey: TripJourney): LatLng | null {
   const destination = journey.route.find((p) => p.kind === 'destination')
   if (destination) return { lat: destination.lat, lng: destination.lng }
+  // A booked bed is a firmer statement about where the trip happens than a
+  // candidate city that nobody has chosen yet.
+  const stay = journey.route.find((p) => p.kind === 'stay')
+  if (stay) return { lat: stay.lat, lng: stay.lng }
   // No destination chosen yet — the airport they land at is the next best guess
   // at where the trip actually happens.
   const airport = journey.route.filter((p) => p.kind === 'airport')[1] ?? journey.route[0]

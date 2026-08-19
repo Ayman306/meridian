@@ -81,6 +81,21 @@ describe('the sensitive modules', () => {
     expect(source).not.toContain('createSignedUrl')
   })
 
+  it('never exposes a booking reference', () => {
+    // The one thing you cannot reconstruct from memory at a front desk at 1am,
+    // and exactly the shape of thing that should not sit in a model's context.
+    // Same reasoning as document numbers above: the boundary is the column
+    // list, so this walks every select in the file rather than trusting one.
+    const source = readFileSync(join(TOOLS_DIR, 'stays.ts'), 'utf8')
+    const selects = source.match(/\.select\([^)]*\)/gs) ?? []
+    expect(selects.length).toBeGreaterThan(0)
+    for (const select of selects) {
+      expect(`booking_ref:${select.includes('booking_ref')}`).toBe('booking_ref:false')
+    }
+    // And the shared column list the selects are built from.
+    expect(source).not.toMatch(/SAFE_COLUMNS\s*=\s*'[^']*booking_ref/)
+  })
+
   it('cannot delete health data', () => {
     // The wipe RPC is irreversible by design — there is no thirty-day bin for
     // health data. A tool for it would put total erasure one hallucinated call
@@ -179,6 +194,7 @@ describe('the registry itself', () => {
       'add_health_record',
       'add_itinerary_item',
       'add_journey',
+      'add_stay',
       'add_wishlist_item',
       'choose_destination',
       'create_trip',
@@ -188,12 +204,14 @@ describe('the registry itself', () => {
       'record_settlement',
       'remove_flight',
       'remove_itinerary_item',
+      'remove_stay',
       'remove_wishlist_item',
       'set_budget',
       'set_trip_day',
       'suggest_itinerary',
       'update_flight',
       'update_itinerary_item',
+      'update_stay',
       'update_trip',
       'vote_on_wishlist_item',
     ])

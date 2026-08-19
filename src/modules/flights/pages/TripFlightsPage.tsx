@@ -17,7 +17,12 @@ import { cn } from '@/lib/utils'
 import { useCouple } from '@/providers/CoupleProvider'
 import { AddFlightForm } from '../components/AddFlightForm'
 import { FlightCard } from '../components/FlightCard'
-import { useFlightRealtime, useFlightStates, useFlights } from '../hooks'
+import {
+  useAirportCountries,
+  useFlightRealtime,
+  useFlightStates,
+  useFlights,
+} from '../hooks'
 import { connectionsFor } from '../logic'
 
 export function TripFlightsPage({ tripId }: { tripId: string }) {
@@ -31,6 +36,9 @@ export function TripFlightsPage({ tripId }: { tripId: string }) {
     [flights.data, tripId],
   )
   const states = useFlightStates(rows)
+  // Tells a domestic connection from an international one, which is the
+  // difference between a 60-minute minimum and a 90-minute one.
+  const countryOf = useAirportCountries(rows)
 
   // Legs of one journey, in order. A flight with no journey is a single leg
   // and has nothing to connect to.
@@ -42,8 +50,8 @@ export function TripFlightsPage({ tripId }: { tripId: string }) {
       list.push(flight)
       byJourney.set(flight.journey_id, list)
     }
-    return [...byJourney.values()].flatMap((legs) => connectionsFor(legs))
-  }, [rows])
+    return [...byJourney.values()].flatMap((legs) => connectionsFor(legs, countryOf))
+  }, [rows, countryOf])
 
   const risky = connections.filter((c) => c.risk !== 'ok')
 

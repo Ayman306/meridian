@@ -307,6 +307,26 @@ export async function getAirport(iata: string): Promise<AirportRow | null> {
   )
 }
 
+/**
+ * Country codes for a set of airports, in one round trip.
+ *
+ * Used to tell a domestic connection from an international one, which decides
+ * whether the layover minimum is 60 minutes or 90. An airport missing from the
+ * reference table simply is not in the map, and the caller treats unknown as
+ * international — the longer minimum, and the safe direction to be wrong in.
+ */
+export async function airportCountries(
+  codes: readonly string[],
+): Promise<Record<string, string>> {
+  const wanted = [...new Set(codes.filter(Boolean).map((c) => c.toUpperCase()))]
+  if (wanted.length === 0) return {}
+
+  const rows = unwrapList(
+    await supabase.from('airports').select('iata, country_code').in('iata', wanted),
+  )
+  return Object.fromEntries(rows.map((row) => [row.iata, row.country_code]))
+}
+
 // ---------------------------------------------------------------------------
 // Saving a whole booking
 // ---------------------------------------------------------------------------

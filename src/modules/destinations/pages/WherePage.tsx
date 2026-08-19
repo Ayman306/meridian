@@ -20,6 +20,7 @@ import { zoneFor } from '@/lib/zones'
 import { useCouple } from '@/providers/CoupleProvider'
 import { PlaceSearch } from '@/modules/map'
 import { useTrip } from '@/modules/trips'
+import { StaysPanel } from '@/modules/stays'
 import {
   ALLOWANCE_DISCLAIMER,
   checkPlannedStay,
@@ -223,6 +224,14 @@ export function WherePage({ tripId }: { tripId: string }) {
           <AdvisoryNote text={ALLOWANCE_DISCLAIMER} />
         </>
       )}
+
+      {/* Which city, then which bed. The two decisions are made minutes apart,
+          so they belong on one screen rather than in two places. */}
+      <StaysPanel
+        tripId={tripId}
+        startDate={trip?.start_date ?? null}
+        endDate={trip?.end_date ?? null}
+      />
     </div>
   )
 }

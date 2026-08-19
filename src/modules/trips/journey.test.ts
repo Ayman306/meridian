@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildJourney,
+  dayCentre,
   describeTripJourney,
   focusDay,
   journeyCentre,
@@ -21,7 +22,22 @@ const EMPTY: JourneyInput = {
   flights: [],
   items: [],
   destinations: [],
+  stays: [],
 }
+
+const bed = (
+  patch: Partial<NonNullable<JourneyInput['stays']>[number]>,
+): NonNullable<JourneyInput['stays']>[number] => ({
+  id: 's1',
+  name: 'Pensão Alfama',
+  kind: 'hotel',
+  address: 'Rua dos Remédios, Lisbon',
+  check_in: '2026-03-02',
+  check_out: '2026-03-05',
+  lat: 38.712,
+  lng: -9.128,
+  ...patch,
+})
 
 function input(patch: Partial<JourneyInput>): JourneyInput {
   return { ...EMPTY, ...patch }
@@ -360,5 +376,111 @@ describe('the sentence at the top', () => {
     expect(sentence).toContain('3 days')
     expect(sentence).toContain('1 with something planned')
     expect(sentence).not.toContain('kept clear')
+  })
+})
+
+describe('where they sleep', () => {
+  const stays = [
+    bed({ id: 'first', check_in: '2026-03-02', check_out: '2026-03-05' }),
+    bed({
+      id: 'second',
+      name: 'Casa Baixa',
+      check_in: '2026-03-05',
+      check_out: '2026-03-07',
+      lat: 38.71,
+      lng: -9.139,
+    }),
+  ]
+  const journey = buildJourney(
+    input({ startDate: '2026-03-01', endDate: '2026-03-07', stays }),
+  )
+  const on = (date: string) => journey.days.find((d) => d.date === date)!
+
+  it('covers the nights of a booking and not the morning it ends', () => {
+    // check_out is exclusive. Showing the first hotel on the 5th would put
+    // somebody in a room they had already handed the key back for.
+    expect(on('2026-03-02').stay?.id).toBe('first')
+    expect(on('2026-03-04').stay?.id).toBe('first')
+    expect(on('2026-03-05').stay?.id).toBe('second')
+  })
+
+  it('says what they are checking out of, separately from where they sleep', () => {
+    // The move day carries both facts, and picking one loses the other.
+    const moveDay = on('2026-03-05')
+    expect(moveDay.checkingOutOf?.id).toBe('first')
+    expect(moveDay.stay?.id).toBe('second')
+  })
+
+  it('has a check-out with nowhere after it on the last morning', () => {
+    const last = on('2026-03-07')
+    expect(last.checkingOutOf?.id).toBe('second')
+    expect(last.stay).toBeNull()
+  })
+
+  it('leaves a night before the first check-in unbooked', () => {
+    expect(on('2026-03-01').stay).toBeNull()
+  })
+
+  it('treats a booking with no check-out as still running', () => {
+    const openEnded = buildJourney(
+      input({
+        startDate: '2026-03-02',
+        endDate: '2026-03-09',
+        stays: [bed({ check_out: null })],
+      }),
+    )
+    expect(openEnded.days[openEnded.days.length - 1]!.stay).not.toBeNull()
+  })
+
+  it('draws each booking on the route once, on the night they move in', () => {
+    // A hotel drawn on every night of a week is six identical points and a
+    // line that never leaves it.
+    expect(journey.route.filter((p) => p.kind === 'stay').map((p) => p.label)).toEqual([
+      'Pensão Alfama',
+      'Casa Baixa',
+    ])
+  })
+})
+
+describe('what the day is near', () => {
+  it('centres on the bed, because that is the question somebody has', () => {
+    const journey = buildJourney(
+      input({ startDate: '2026-03-02', endDate: '2026-03-02', stays: [bed({})] }),
+    )
+    expect(dayCentre(journey.days[0]!, journey)).toEqual({ lat: 38.712, lng: -9.128 })
+  })
+
+  it('falls back to something already planned that day', () => {
+    const journey = buildJourney(
+      input({ startDate: '2026-03-02', endDate: '2026-03-02', items: [item({})] }),
+    )
+    expect(dayCentre(journey.days[0]!, journey)).toEqual({ lat: 51.505, lng: -0.09 })
+  })
+
+  it('falls back to the trip when the day itself says nothing', () => {
+    const journey = buildJourney(
+      input({
+        startDate: '2026-03-02',
+        endDate: '2026-03-02',
+        destinations: [
+          { city: 'London', arrive_on: '2026-03-02', depart_on: null, lat: 51.5, lng: -0.12, state: 'chosen' },
+        ],
+      }),
+    )
+    expect(dayCentre(journey.days[0]!, journey)).toEqual({ lat: 51.5, lng: -0.12 })
+  })
+
+  it('has no answer for a trip with nothing placed anywhere', () => {
+    const journey = buildJourney(input({ startDate: '2026-03-02', endDate: '2026-03-02' }))
+    expect(dayCentre(journey.days[0]!, journey)).toBeNull()
+  })
+})
+
+describe('a booked bed outranks an airport when nothing is chosen', () => {
+  it('centres the trip on where they sleep', () => {
+    const journey = buildJourney(
+      input({ startDate: '2026-03-01', endDate: '2026-03-03', flights: [flight({})], stays: [bed({})] }),
+    )
+    expect(journeyCentre(journey)).toEqual({ lat: 38.712, lng: -9.128 })
   })
 })

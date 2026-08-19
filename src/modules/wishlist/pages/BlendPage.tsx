@@ -16,6 +16,7 @@ import { pluralise } from '@/lib/utils'
 import { useCouple } from '@/providers/CoupleProvider'
 import { planDays, useCategories } from '@/modules/itinerary'
 import { useTrip } from '@/modules/trips'
+import { chosenDestination, useDestinations } from '@/modules/destinations'
 import { SaveCard } from '../components/SaveCard'
 import { DraftGenerator } from '../components/DraftGenerator'
 import {
@@ -24,7 +25,7 @@ import {
   useWishlist,
   useWishlistRealtime,
 } from '../hooks'
-import { buildBlend } from '../logic'
+import { blendCity, buildBlend } from '../logic'
 import type { Verdict, WishlistItemWithVerdicts } from '../types'
 
 export function BlendPage({ tripId }: { tripId: string }) {
@@ -32,6 +33,7 @@ export function BlendPage({ tripId }: { tripId: string }) {
   const saves = useWishlist()
   const categories = useCategories()
   const { data: trip } = useTrip(tripId)
+  const destinations = useDestinations(tripId)
   const setVerdict = useSetVerdict()
   const push = usePushToItinerary(tripId)
   useWishlistRealtime()
@@ -43,10 +45,18 @@ export function BlendPage({ tripId }: { tripId: string }) {
 
   /**
    * Spec 7.6: with no destination chosen, the blend is over everything. With
-   * one, it narrows to that city — a save in Tokyo is noise on a Lisbon trip,
-   * but only once we know the trip is about Lisbon.
+   * one, it narrows to that city — a save in Tokyo is noise on a Lisbon trip.
+   *
+   * The trip's chosen destination is what says which city that is. Until the
+   * destinations module existed this read the trip's *title*, which worked for
+   * "Lisbon in May" and for nothing else; the title match survives as the
+   * fallback for a trip nobody has filled a board in for.
    */
-  const city = useMemo(() => cityOf(trip?.title ?? null, items), [trip?.title, items])
+  const chosenCity = chosenDestination(destinations.data ?? [])?.city ?? null
+  const city = useMemo(
+    () => blendCity(chosenCity, trip?.title ?? null, items),
+    [chosenCity, trip?.title, items],
+  )
   const scoped = useMemo(
     () => (city ? items.filter((i) => !i.city || i.city === city) : items),
     [items, city],
@@ -253,17 +263,4 @@ function Section({
   )
 }
 
-/**
- * Which city this trip is about.
- *
- * Destinations are their own module and not built yet, so this reads the trip's
- * title against the cities people have actually saved — a guess, but a cheap
- * and correct-looking one for "Lisbon in May". No match means no narrowing,
- * which is the safe direction to be wrong in.
- */
-function cityOf(title: string | null, items: readonly WishlistItemWithVerdicts[]): string | null {
-  if (!title) return null
-  const cities = [...new Set(items.map((i) => i.city).filter((c): c is string => Boolean(c)))]
-  const lower = title.toLowerCase()
-  return cities.find((c) => lower.includes(c.toLowerCase())) ?? null
-}
+

@@ -12,7 +12,7 @@
  */
 'use client'
 
-import { Plane, PlaneLanding, Plus } from 'lucide-react'
+import { BedDouble, LogOut, Plane, PlaneLanding, Plus } from 'lucide-react'
 import { Badge } from '@/components/ui/card'
 import { RestfulEmpty } from '@/components/common/states'
 import { formatDateOnly, formatTime } from '@/lib/dates'
@@ -58,6 +58,32 @@ export function DayPanel({
         {day.place && <Badge tone="accent">{day.place}</Badge>}
         {day.title && <span className="text-sm text-muted-foreground">{day.title}</span>}
       </header>
+
+      {/* Where they sleep, and what they have to be out of. Both, because the
+          check-out morning carries both facts and picking one loses the other:
+          leaving the Alfama at 11 and moving into the Baixa that night is one
+          day and two bookings. */}
+      {(day.stay || day.checkingOutOf) && (
+        <div className="space-y-1 text-xs">
+          {day.checkingOutOf && day.checkingOutOf.id !== day.stay?.id && (
+            <p className="flex items-center gap-1.5 text-muted-foreground">
+              <LogOut className="size-3 shrink-0" aria-hidden="true" />
+              Check out of {day.checkingOutOf.name}
+            </p>
+          )}
+          {day.stay && (
+            <p className="flex items-start gap-1.5">
+              <BedDouble className="mt-0.5 size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span>
+                {day.stay.name}
+                {day.stay.address && (
+                  <span className="block text-muted-foreground">{day.stay.address}</span>
+                )}
+              </span>
+            </p>
+          )}
+        </div>
+      )}
 
       {cycleNote && (
         <p className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -116,7 +142,9 @@ export function DayPanel({
           whole point of leaving it blank. */}
       {!restful && nearby.length > 0 && (
         <div className="mt-auto space-y-1.5 border-t border-border pt-2">
-          <p className="text-xs text-muted-foreground">From your saved places, nearby</p>
+          <p className="text-xs text-muted-foreground">
+            {day.stay ? `From your saved places, near ${day.stay.name}` : 'From your saved places, nearby'}
+          </p>
           <div className="flex flex-wrap gap-1.5">
             {nearby.map((place) => (
               <button

@@ -450,6 +450,47 @@ describe('connectionsFor', () => {
     expect(connections[0]!.fromFlightId).toBe('a')
     expect(connections[0]!.toFlightId).toBe('b')
   })
+
+  it('judges a domestic connection against the domestic minimum', () => {
+    // The bug this fixes: with no country to check, every connection took the
+    // international 90 minutes, so a comfortable 70-minute domestic hop was
+    // reported as tight. `sameTerminal` is deliberately not set here — the
+    // 45-minute same-terminal case would have hidden the difference.
+    const legs = [
+      flight({ id: 'a', leg_index: 1, origin_iata: 'BLR', dest_iata: 'DEL', scheduled_arrival: at(0), terminal: '1' }),
+      flight({ id: 'b', leg_index: 2, origin_iata: 'DEL', dest_iata: 'BOM', scheduled_departure: at(70), terminal: '3' }),
+    ]
+    const indian = (iata: string | null) => (iata ? 'IN' : null)
+
+    expect(connectionsFor(legs, indian)[0]).toMatchObject({ minimumMinutes: 60, risk: 'ok' })
+    expect(connectionsFor(legs)[0]).toMatchObject({ minimumMinutes: 90, risk: 'tight' })
+  })
+
+  it('still calls it international when a domestic hop feeds a long-haul', () => {
+    // Immigration is the cost, and you clear it on the way out too. Both legs
+    // have to be domestic for the connection to be.
+    const legs = [
+      flight({ id: 'a', leg_index: 1, origin_iata: 'BLR', dest_iata: 'DEL', scheduled_arrival: at(0), terminal: '1' }),
+      flight({ id: 'b', leg_index: 2, origin_iata: 'DEL', dest_iata: 'LHR', scheduled_departure: at(70), terminal: '3' }),
+    ]
+    const countries: Record<string, string> = { BLR: 'IN', DEL: 'IN', LHR: 'GB' }
+    const countryOf = (iata: string | null) => (iata ? (countries[iata] ?? null) : null)
+
+    expect(connectionsFor(legs, countryOf)[0]).toMatchObject({ minimumMinutes: 90 })
+  })
+
+  it('treats an airport it has never heard of as international', () => {
+    // The reference table is ~135 rows. Unknown has to mean the longer
+    // minimum: telling somebody they have plenty of time when they do not is
+    // the failure that makes them miss a flight.
+    const legs = [
+      flight({ id: 'a', leg_index: 1, origin_iata: 'IXE', dest_iata: 'DEL', scheduled_arrival: at(0), terminal: '1' }),
+      flight({ id: 'b', leg_index: 2, origin_iata: 'DEL', dest_iata: 'BOM', scheduled_departure: at(70), terminal: '3' }),
+    ]
+    const partial = (iata: string | null) => (iata === 'IXE' ? null : 'IN')
+
+    expect(connectionsFor(legs, partial)[0]).toMatchObject({ minimumMinutes: 90 })
+  })
 })
 
 describe('groupFlight', () => {

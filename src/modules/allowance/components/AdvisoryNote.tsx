@@ -7,12 +7,18 @@
  * them after the next refactor. It renders the source link and the date the
  * rule was checked alongside, because "advisory" without "as of when" is not
  * much of a warning.
+ *
+ * And how old that date is, which for a while it did not: a rule checked two
+ * years ago rendered identically to one checked yesterday, which is the worst
+ * possible shape for data that changes with no notice. See `lib/advisory.ts`.
  */
 'use client'
 
 import { Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { formatInZone, parseDateOnly } from '@/lib/dates'
+import { formatInZone, parseDateOnly, todayIn } from '@/lib/dates'
+import { describeFreshness, freshness } from '@/lib/advisory'
+import { useCouple } from '@/providers/CoupleProvider'
 
 export function AdvisoryNote({
   text,
@@ -25,6 +31,10 @@ export function AdvisoryNote({
   verifiedOn?: string | null
   className?: string
 }) {
+  const { tzSelf } = useCouple()
+  const age = freshness(verifiedOn, todayIn(tzSelf))
+  const staleness = describeFreshness(age)
+
   return (
     <p
       className={cn(
@@ -39,6 +49,12 @@ export function AdvisoryNote({
           <>
             {' '}
             Checked {formatInZone(parseDateOnly(verifiedOn), 'UTC', 'd MMM yyyy')}.
+            {staleness && (
+              <>
+                {' '}
+                <span className="font-medium text-[hsl(var(--warn))]">{staleness}</span>
+              </>
+            )}
           </>
         )}
         {sourceUrl && (

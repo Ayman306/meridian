@@ -46,11 +46,11 @@ If you would rather not put the token in a config file, write it to
 
 ## What it can do
 
-Forty-one tools across nine modules — every module the app has.
+Forty-five tools across nine modules — every module the app has.
 
 | Module | Tools | Writes |
 | --- | --- | --- |
-| **trips** | `get_overview`, `list_trips`, `get_trip`, `get_trip_journey`, `create_trip`, `update_trip`, `set_trip_day`, `get_itinerary`, `suggest_itinerary`, `add_itinerary_item`, `update_itinerary_item`, `remove_itinerary_item`, `list_suggestions`, `dismiss_suggestion` | 8 of 14 |
+| **trips** | `get_overview`, `list_trips`, `get_trip`, `get_trip_journey`, `create_trip`, `update_trip`, `set_trip_day`, `list_stays`, `add_stay`, `update_stay`, `remove_stay`, `get_itinerary`, `suggest_itinerary`, `add_itinerary_item`, `update_itinerary_item`, `remove_itinerary_item`, `list_suggestions`, `dismiss_suggestion` | 11 of 18 |
 | **money** | `get_budget`, `log_expense`, `list_settlements`, `record_settlement`, `set_budget`, `get_budgets` | 3 of 6 |
 | **flights** | `list_flights`, `add_journey`, `update_flight`, `remove_flight` | 3 of 4 |
 | **wishlist** | `list_wishlist`, `find_place`, `add_wishlist_item`, `vote_on_wishlist_item`, `remove_wishlist_item` | 3 of 5 |
@@ -65,7 +65,22 @@ otherwise takes four. For one trip, start with `get_trip_journey`: it returns
 every day in order with its flights, planned items and destination, marks the
 days that were deliberately left blank, and lists saved places near the trip
 that are not on the plan yet. It is the same assembly the app's own journey
-screen draws, so the assistant and the couple are looking at the same trip.
+screen draws, so the assistant and the couple are looking at the same trip — and
+it names the nights with nowhere booked, which is the thing nobody spots by
+reading a list of date ranges.
+
+Accommodation lives under the `trips` scope rather than getting one of its own:
+a booking is part of a trip, and a token trusted to read the trip should be able
+to answer "which hotel are we in on Thursday". Two things about it are worth
+knowing before writing one:
+
+- **`check_out` is exclusive.** Three nights from the 4th is `check_in`
+  2026-06-04 and `check_out` 2026-06-07. The database refuses check-out on or
+  before check-in, which catches a zero-night stay and not an off-by-one.
+- **The booking reference never leaves the app.** No query in `tools/stays.ts`
+  selects it, asserted in `registry.test.ts`, for the same reason document
+  numbers are omitted — it is the one thing you cannot reconstruct at a front
+  desk, and it has no business sitting in a model's context.
 
 ### A generated plan is not a dictated one
 

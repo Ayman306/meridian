@@ -10,6 +10,7 @@ export { AirportPicker } from './components/AirportPicker'
 export {
   useFlights,
   useFlight,
+  useAirportCountries,
   useFlightState,
   useFlightStates,
   useFlightTrack,
@@ -43,6 +44,7 @@ export {
   computeTimes,
   connectionRisk,
   connectionsFor,
+  isInternationalConnection,
   estimatedPosition,
   groupFlight,
   isAirbornePhase,

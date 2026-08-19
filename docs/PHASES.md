@@ -189,7 +189,9 @@ Spec: Module 7.
 - [x] Suggestion tray UI on the plan tab — Keep or Discard, nothing automatic
 - [x] Realtime on saves and verdicts
 - [ ] Bulk "push all undecided" — only "both of us" and multi-select ship now
-- [ ] Blend scoped by a real destination — it matches on the trip title until
+- [x] **Blend scoped by the chosen destination** — `blendCity` reads the trip's
+      chosen destination, with the old title match kept as a fallback. See D104.
+- [ ] ~~superseded by the line above~~ — it matched on the trip title until
       Module 4 (Phase 8) gives trips a destination
 
 ## Phase 7 — Map
@@ -512,9 +514,10 @@ Everything below came from actually running the app rather than from the spec.
       provider's real balance, with a secret scanner in the test suite. D79.
 - [ ] Airport list is ~135 rows. An unlisted airport saves but carries no
       coordinates, so the map cannot draw that leg.
-- [ ] Domestic connections take the international 90-minute minimum, because
-      the flight row has no country. An `airports.country_code` join would
-      make it exact.
+- [x] **Domestic connections take the domestic minimum.** `connectionsFor`
+      takes a `countryOf` lookup fed from `airports.country_code`; a connection
+      is international if either leg crosses a border, and an unlisted airport
+      is treated as international. See D105.
 - [ ] Nobody has paired on the live project yet, so the two-account isolation
       the spec gates on is proven in the harness and not in production.
 - [x] **An MCP server** (`mcp/`), so an assistant can read the plan and propose
@@ -543,9 +546,12 @@ Everything below came from actually running the app rather than from the spec.
       every day, one day's detail — assembled from flights, days, destinations
       and the itinerary, with nearby saved places offered on the day in view.
       `get_trip_journey` gives the MCP the same assembly. See D96–D100.
-- [ ] Accommodation is still not modelled. The journey can say which city a day
-      is in and not where they sleep, which is the largest remaining hole in
-      "the whole trip in one picture".
+- [x] **Accommodation is modelled** (0020). Bookings with dates, a resolved
+      address and a booking reference; nights with nowhere booked are counted;
+      the journey shows the bed on every day and centres its nearby-places
+      offer on it. `check_out` is exclusive. See D101–D103.
+- [ ] Nothing links a stay to an expense, so "what did the hotel cost" is still
+      two screens. `expenses` has the columns; the picker does not exist.
 - [ ] Offline reads of the plan. Would need a per-account encrypted store —
       a different feature with different risks than caching the shell.
 - [ ] Background Sync for writes made offline. Chromium only, so the app would

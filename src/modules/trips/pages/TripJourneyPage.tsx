@@ -46,25 +46,29 @@ import { useItems } from '@/modules/itinerary'
 import { useFlights } from '@/modules/flights'
 import { useDestinations } from '@/modules/destinations'
 import { usePushToItinerary, useWishlist } from '@/modules/wishlist'
+import { useStays } from '@/modules/stays'
 import { describeDayMark, showsCycle, useCycleWindow } from '@/modules/health'
 import { useTrip } from '../hooks'
 import { isLongStay } from '../logic'
 import {
   buildJourney,
+  dayCentre,
   describeTripJourney,
   focusDay,
   journeyCentre,
   nearbyWishlist,
 } from '../journey'
+import type { TripJourney } from '../journey'
 import { DayStrip } from '../components/DayStrip'
 import { DayPanel } from '../components/DayPanel'
 
 /** What each kind of stop looks like on the map. */
-const STOP_COLORS = {
+const STOP_COLORS: Record<TripJourney['route'][number]['kind'], string> = {
   airport: 'hsl(210 90% 62%)',
   destination: 'hsl(38 92% 50%)',
+  stay: 'hsl(280 60% 62%)',
   item: 'hsl(150 60% 45%)',
-} as const
+}
 
 export function TripJourneyPage() {
   const { id } = useParams<{ id: string }>()
@@ -76,6 +80,7 @@ export function TripJourneyPage() {
   const flights = useFlights()
   const destinations = useDestinations(id)
   const wishlist = useWishlist()
+  const stays = useStays(id)
   const push = usePushToItinerary(id)
 
   const { colorFor, nameFor } = usePinPeople()
@@ -94,8 +99,9 @@ export function TripJourneyPage() {
         flights: (flights.data ?? []).filter((f) => f.trip_id === id),
         items: items.data ?? [],
         destinations: destinations.data ?? [],
+        stays: stays.data ?? [],
       }),
-    [trip.data, flights.data, items.data, destinations.data, id],
+    [trip.data, flights.data, items.data, destinations.data, stays.data, id],
   )
 
   // The chosen day only overrides the derived one; it is not the source of
@@ -151,15 +157,17 @@ export function TripJourneyPage() {
     () => (items.data ?? []).map((i) => i.title),
     [items.data],
   )
-  const nearby = useMemo(
-    () =>
-      nearbyWishlist(wishlist.data ?? [], journeyCentre(journey), plannedTitles)
-        // Three is what fits on one line on a phone, and a longer list is a
-        // decision rather than a suggestion.
-        .slice(0, 3)
-        .map(({ item, km }) => ({ id: item.id, title: item.title, km })),
-    [wishlist.data, journey, plannedTitles],
-  )
+  // Centred on the day, not the trip. "Near where you are sleeping tonight" is
+  // the question somebody actually has; "within 60 km of the trip" is a weak
+  // filter on a city break and a useless one across two cities.
+  const nearby = useMemo(() => {
+    if (!day) return []
+    return nearbyWishlist(wishlist.data ?? [], dayCentre(day, journey), plannedTitles)
+      // Three is what fits on one line on a phone, and a longer list is a
+      // decision rather than a suggestion.
+      .slice(0, 3)
+      .map(({ item, km }) => ({ id: item.id, title: item.title, km }))
+  }, [wishlist.data, day, journey, plannedTitles])
 
   if (trip.isLoading) return <PageLoading />
   if (trip.error) return <ErrorState error={trip.error} onRetry={() => void trip.refetch()} />

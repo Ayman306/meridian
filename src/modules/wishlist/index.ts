@@ -15,6 +15,7 @@ export {
 export {
   applyPacing,
   balanceAuthorship,
+  blendCity,
   buildBlend,
   clusterByLocation,
   generateDraft,

@@ -4,7 +4,7 @@
  *   npm run db:types
  *   # supabase gen types typescript --project-id <ref> > src/types/database.ts
  *
- * Generated from the live project after migrations 0001-0019. The aliases at
+ * Generated from the live project after migrations 0001-0020. The aliases at
  * the bottom are the only hand-written part: they are what the modules import,
  * and they are re-added after each regeneration.
  */
@@ -25,6 +25,100 @@ export type Database = {
   }
   public: {
     Tables: {
+      accommodations: {
+        Row: {
+          address: string | null
+          booking_ref: string | null
+          check_in: string | null
+          check_out: string | null
+          city: string | null
+          country_code: string | null
+          couple_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          kind: string
+          lat: number | null
+          lng: number | null
+          maps_url: string | null
+          name: string
+          notes: string | null
+          phone: string | null
+          trip_id: string | null
+          updated_at: string
+          url: string | null
+        }
+        Insert: {
+          address?: string | null
+          booking_ref?: string | null
+          check_in?: string | null
+          check_out?: string | null
+          city?: string | null
+          country_code?: string | null
+          couple_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          kind?: string
+          lat?: number | null
+          lng?: number | null
+          maps_url?: string | null
+          name: string
+          notes?: string | null
+          phone?: string | null
+          trip_id?: string | null
+          updated_at?: string
+          url?: string | null
+        }
+        Update: {
+          address?: string | null
+          booking_ref?: string | null
+          check_in?: string | null
+          check_out?: string | null
+          city?: string | null
+          country_code?: string | null
+          couple_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          kind?: string
+          lat?: number | null
+          lng?: number | null
+          maps_url?: string | null
+          name?: string
+          notes?: string | null
+          phone?: string | null
+          trip_id?: string | null
+          updated_at?: string
+          url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "accommodations_couple_id_fkey"
+            columns: ["couple_id"]
+            isOneToOne: false
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accommodations_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accommodations_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       access_tokens: {
         Row: {
           created_at: string

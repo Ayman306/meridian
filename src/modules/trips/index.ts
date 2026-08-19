@@ -32,12 +32,19 @@ export {
 } from './logic'
 export {
   buildJourney,
+  dayCentre,
   describeTripJourney,
   focusDay,
   journeyCentre,
   nearbyWishlist,
 } from './journey'
-export type { TripJourney, JourneyDay, JourneyEntry, JourneyInput } from './journey'
+export type {
+  TripJourney,
+  JourneyDay,
+  JourneyEntry,
+  JourneyInput,
+  JourneyStay,
+} from './journey'
 export type {
   DatePrecision,
   DayType,

@@ -134,6 +134,36 @@ function byIntensity<T extends WishlistItem>(items: T[]): T[] {
 }
 
 /** Saves grouped by city, with the city-less ones under "Unfiled". */
+/**
+ * Which city a trip's blend is about.
+ *
+ * Spec 7.6: with no destination chosen the blend is over everything; with one
+ * it narrows, because a save in Tokyo is noise on a Lisbon trip.
+ *
+ * The chosen destination is the answer whenever there is one. The title match
+ * below it is a fallback from before the destinations module existed — it reads
+ * the trip's name against cities people have actually saved, which is a guess,
+ * and a guess is still worth having for a trip called "Lisbon in May" that
+ * nobody has filled a destination board in for.
+ *
+ * Returning null means no narrowing, which is the safe direction to be wrong
+ * in: showing too much is a longer list, showing too little hides somebody's
+ * save from them.
+ */
+export function blendCity(
+  chosenCity: string | null,
+  title: string | null,
+  items: readonly WishlistItem[],
+): string | null {
+  const chosen = chosenCity?.trim()
+  if (chosen) return chosen
+  if (!title) return null
+
+  const cities = [...new Set(items.map((i) => i.city).filter((c): c is string => Boolean(c)))]
+  const lower = title.toLowerCase()
+  return cities.find((c) => lower.includes(c.toLowerCase())) ?? null
+}
+
 export function groupByCity<T extends WishlistItem>(items: readonly T[]): Record<string, T[]> {
   const groups: Record<string, T[]> = {}
   for (const item of items) {
