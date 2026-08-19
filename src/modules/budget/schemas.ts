@@ -57,6 +57,7 @@ export const expenseSchema = z.object({
   trip_id: emptyToNull(z.string().uuid()),
   itinerary_item_id: emptyToNull(z.string().uuid()),
   receipt_media_id: emptyToNull(z.string().uuid()),
+  accommodation_id: emptyToNull(z.string().uuid()),
   notes: emptyToNull(z.string().trim().max(2000)),
 })
 

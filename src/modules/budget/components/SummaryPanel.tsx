@@ -21,11 +21,14 @@ export function SummaryPanel({
   summary,
   destinationCurrency,
   onSetBudget,
+  onSetWeeklyBudget,
   savingBudget,
 }: {
   summary: Summary
   destinationCurrency?: string | null
   onSetBudget?: (categoryId: string | null, amount: number | null) => void
+  /** Overall, per week. `period = 'week'` has been in the schema since 0012. */
+  onSetWeeklyBudget?: (amount: number | null) => void
   savingBudget?: boolean
 }) {
   const { selfRef, partnerRef } = useCouple()
@@ -192,26 +195,62 @@ export function SummaryPanel({
           a daily line does not — under a fortnight it is two bars. */}
       {worthShowingWeeks(summary.days) && summary.byWeek.length > 0 && (
         <Card className="space-y-3 p-5">
-          <h3 className="text-sm font-medium">By week</h3>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="text-sm font-medium">By week</h3>
+            {onSetWeeklyBudget && (
+              <WeeklyBudgetControl
+                value={summary.weeklyBudget}
+                currency={summary.currency}
+                saving={savingBudget}
+                onSet={onSetWeeklyBudget}
+              />
+            )}
+          </div>
           <ul className="space-y-2">
             {summary.byWeek.map((week) => {
-              const peak = Math.max(...summary.byWeek.map((w) => w.total), 1)
+              // Scaled against the budget when there is one, so every bar is
+              // measured against the same line. Scaling against the busiest
+              // week instead makes an over-budget week look identical to a
+              // quiet one on a quiet trip.
+              const peak = week.budget
+                ? Math.max(week.budget, ...summary.byWeek.map((w) => w.total))
+                : Math.max(...summary.byWeek.map((w) => w.total), 1)
+              const over = week.budget !== null && week.total > week.budget
               return (
                 <li key={week.index} className="flex items-center gap-3 text-sm">
                   <span className="w-16 shrink-0 text-muted-foreground">Week {week.index}</span>
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-secondary">
+                  <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-secondary">
                     <div
-                      className="h-full rounded-full bg-accent"
-                      style={{ width: `${(week.total / peak) * 100}%` }}
+                      className={over ? 'h-full rounded-full bg-destructive' : 'h-full rounded-full bg-accent'}
+                      style={{ width: `${Math.min(100, (week.total / peak) * 100)}%` }}
                     />
+                    {week.budget !== null && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute top-0 h-full w-px bg-foreground/50"
+                        style={{ left: `${Math.min(100, (week.budget / peak) * 100)}%` }}
+                      />
+                    )}
                   </div>
-                  <span className="w-24 shrink-0 text-right tabular-nums">
+                  <span
+                    className={
+                      over
+                        ? 'w-24 shrink-0 text-right tabular-nums text-destructive'
+                        : 'w-24 shrink-0 text-right tabular-nums'
+                    }
+                  >
                     {formatMoney(week.total, summary.currency)}
                   </span>
                 </li>
               )
             })}
           </ul>
+          {summary.byWeek.some((w) => w.budget !== null) && (
+            <p className="text-xs text-muted-foreground">
+              The line is the weekly budget. A short final week gets a pro-rata share of it, so a
+              trip ending on a Wednesday is not flattered by four unspent days.
+            </p>
+          )}
         </Card>
       )}
 
@@ -266,5 +305,75 @@ function InDestinationCurrency({
       </span>{' '}
       in {destination}, at today&rsquo;s rate — indicative, not what each expense was fixed at.
     </p>
+  )
+}
+
+/**
+ * The weekly figure, set inline.
+ *
+ * One number for the whole week rather than one per category: per-category-per-
+ * week is four numbers to maintain for a question nobody asks, and the schema's
+ * unique index allows a single weekly row per category anyway.
+ */
+function WeeklyBudgetControl({
+  value,
+  currency,
+  saving,
+  onSet,
+}: {
+  value: number | null
+  currency: string
+  saving?: boolean
+  onSet: (amount: number | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+        onClick={() => {
+          setDraft(value === null ? '' : String(value))
+          setEditing(true)
+        }}
+      >
+        {value === null
+          ? 'Set a weekly budget'
+          : `Weekly budget ${formatMoney(value, currency)} — change`}
+      </button>
+    )
+  }
+
+  return (
+    <form
+      className="flex items-end gap-2"
+      onSubmit={(e) => {
+        e.preventDefault()
+        const trimmed = draft.trim()
+        // Empty clears it. Anything that is not a positive number is a typo,
+        // and saving a typo as a budget is worse than refusing it.
+        const amount = trimmed === '' ? null : Number(trimmed.replace(',', '.'))
+        if (amount !== null && (!Number.isFinite(amount) || amount <= 0)) return
+        onSet(amount)
+        setEditing(false)
+      }}
+    >
+      <Input
+        autoFocus
+        inputMode="decimal"
+        value={draft}
+        className="w-28"
+        aria-label={`Weekly budget in ${currency}`}
+        onChange={(e) => setDraft(e.target.value)}
+      />
+      <Button type="submit" size="sm" disabled={saving}>
+        Save
+      </Button>
+      <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)}>
+        Cancel
+      </Button>
+    </form>
   )
 }

@@ -479,3 +479,21 @@ describe('formatting', () => {
     expect(budgetProgress(200, 0)).toBeNull()
   })
 })
+
+describe('weekly budgets', () => {
+  it('gives a short final week a pro-rata share rather than the full figure', () => {
+    // A trip ending on a Wednesday has a three-day final week. Holding three
+    // days of spending against seven days of budget reports every trip as
+    // finishing comfortably under, which is a lie the app would tell weekly.
+    const weeks = weeksOf('2026-06-01', '2026-06-10', new Map(), 70000)
+    expect(weeks).toHaveLength(2)
+    expect(weeks[0]!.budget).toBe(700)
+    // Days 8-10 is three days: 700 * 3/7 = 300.
+    expect(weeks[1]!.budget).toBe(300)
+  })
+
+  it('leaves the budget null when none is set', () => {
+    const weeks = weeksOf('2026-06-01', '2026-06-14', new Map())
+    expect(weeks.every((w) => w.budget === null)).toBe(true)
+  })
+})

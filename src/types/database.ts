@@ -4,7 +4,7 @@
  *   npm run db:types
  *   # supabase gen types typescript --project-id <ref> > src/types/database.ts
  *
- * Generated from the live project after migrations 0001-0021. The aliases at
+ * Generated from the live project after migrations 0001-0022. The aliases at
  * the bottom are the only hand-written part: they are what the modules import,
  * and they are re-added after each regeneration.
  */
@@ -1106,6 +1106,7 @@ export type Database = {
       }
       expenses: {
         Row: {
+          accommodation_id: string | null
           amount: number
           amount_base: number | null
           category_id: string | null
@@ -1129,6 +1130,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          accommodation_id?: string | null
           amount: number
           amount_base?: number | null
           category_id?: string | null
@@ -1152,6 +1154,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          accommodation_id?: string | null
           amount?: number
           amount_base?: number | null
           category_id?: string | null
