@@ -24,7 +24,16 @@ export const MAX_ZOOM = 18
 export const WORLD_CENTER: LatLng = { lat: 20, lng: 0 }
 
 export const DEFAULT_FILTERS: MapFilters = {
-  layers: { itinerary: true, pool: true, wishlist: true },
+  layers: {
+    itinerary: true,
+    pool: true,
+    wishlist: true,
+    stay: true,
+    // Off by default. On a trip with three hundred photos the map becomes a
+    // heat map of wherever a phone was out, which buries the plan it is drawn
+    // on top of. Worth having, not worth leading with.
+    photo: false,
+  },
   day: null,
   personId: null,
   categoryId: null,

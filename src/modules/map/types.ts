@@ -1,7 +1,13 @@
 import type { DateOnly } from '@/lib/dates'
 
-/** Which list a pin came from. Drives the layer toggles and the pin's shape. */
-export type PinLayer = 'itinerary' | 'pool' | 'wishlist'
+/**
+ * Which list a pin came from. Drives the layer toggles and the pin's shape.
+ *
+ * `stay` and `photo` were reserved from the start and left out because neither
+ * module existed. Both do now, and a map of a trip that omits where they slept
+ * and where they took pictures is showing the plan rather than the trip.
+ */
+export type PinLayer = 'itinerary' | 'pool' | 'wishlist' | 'stay' | 'photo'
 
 export interface MapPin {
   id: string

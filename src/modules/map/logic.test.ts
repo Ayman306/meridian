@@ -50,7 +50,10 @@ describe('googleMapsUrl', () => {
 describe('applyFilters', () => {
   it('hides a layer that is switched off', () => {
     const pins = [pin({ layer: 'itinerary' }), pin({ layer: 'wishlist', date: null })]
-    const filters = { ...DEFAULT_FILTERS, layers: { itinerary: false, pool: true, wishlist: true } }
+    const filters = {
+      ...DEFAULT_FILTERS,
+      layers: { ...DEFAULT_FILTERS.layers, itinerary: false },
+    }
     expect(applyFilters(pins, filters).map((p) => p.layer)).toEqual(['wishlist'])
   })
 
@@ -194,5 +197,24 @@ describe('fallbackCenter', () => {
 
   it('falls back to the world', () => {
     expect(fallbackCenter(null)).toEqual(WORLD_CENTER)
+  })
+})
+
+describe('the stay and photo layers', () => {
+  it('leaves photos off by default', () => {
+    // A trip with three hundred geotagged photos becomes a heat map of
+    // wherever a phone was out, burying the plan it is drawn on top of. Worth
+    // having, not worth leading with.
+    expect(DEFAULT_FILTERS.layers.photo).toBe(false)
+    expect(DEFAULT_FILTERS.layers.stay).toBe(true)
+  })
+
+  it('filters them like any other layer', () => {
+    const pins = [pin({ layer: 'stay' }), pin({ layer: 'photo' })]
+    const onlyStays = {
+      ...DEFAULT_FILTERS,
+      layers: { ...DEFAULT_FILTERS.layers, stay: true, photo: false },
+    }
+    expect(applyFilters(pins, onlyStays).map((p) => p.layer)).toEqual(['stay'])
   })
 })

@@ -205,17 +205,32 @@ export function BlendPage({ tripId }: { tripId: string }) {
         </div>
       )}
 
-      <Section title="Your picks" items={blend.mine} render={(i) => card(i, true)} />
+      {/* Push-all is offered where "all of these" is one coherent decision:
+          everything you picked, everything they picked, everything nobody has
+          voted on. It is *not* offered on Clashes — pushing a place the other
+          person said no to is precisely the thing that needs a per-item choice,
+          and a bulk button there would make disagreement a single tap. */}
+      <Section
+        title="Your picks"
+        items={blend.mine}
+        render={(i) => card(i, true)}
+        onPushAll={pushSelected}
+        pushing={push.isPending}
+      />
       <Section
         title={`${partnerRef?.displayName ?? 'Their'} picks`}
         items={blend.theirs}
         render={(i) => card(i, true)}
+        onPushAll={pushSelected}
+        pushing={push.isPending}
       />
       <Section
         title="Undecided"
         hint="Their saves you have not voted on. Leaving them is fine."
         items={blend.undecided}
         render={(i) => card(i)}
+        onPushAll={pushSelected}
+        pushing={push.isPending}
       />
       <Section
         title="Clashes"
@@ -242,21 +257,39 @@ function Section({
   hint,
   items,
   render,
+  onPushAll,
+  pushing,
 }: {
   title: string
   hint?: string
   items: WishlistItemWithVerdicts[]
   render: (item: WishlistItemWithVerdicts) => React.ReactNode
+  /** Set on sections where pushing the lot is a sensible single decision. */
+  onPushAll?: (ids: string[]) => void
+  pushing?: boolean
 }) {
   if (items.length === 0) return null
   return (
     <section className="space-y-3">
-      <div>
-        <h2 className="text-sm font-semibold">
-          {title}
-          <span className="ml-2 font-normal text-muted-foreground">{items.length}</span>
-        </h2>
-        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="mr-auto">
+          <h2 className="text-sm font-semibold">
+            {title}
+            <span className="ml-2 font-normal text-muted-foreground">{items.length}</span>
+          </h2>
+          {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+        </div>
+        {onPushAll && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={pushing}
+            onClick={() => onPushAll(items.map((item) => item.id))}
+          >
+            <ArrowRight aria-hidden="true" />
+            Push all {items.length}
+          </Button>
+        )}
       </div>
       <div className="space-y-3">{items.map(render)}</div>
     </section>

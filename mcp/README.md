@@ -44,6 +44,44 @@ MERIDIAN_TOKEN=... -- npm --prefix /absolute/path/to/meridian run mcp`.
 If you would rather not put the token in a config file, write it to
 `~/.meridian/token` (mode 600) and leave `MERIDIAN_TOKEN` unset.
 
+## Running it remotely, from a phone
+
+The stdio server needs a laptop with a process running. `POST /api/mcp/rpc` is
+the same registry over HTTP, which is what a hosted client — the Claude mobile
+app among them — can reach.
+
+```
+Endpoint      https://<your-deployment>/api/mcp/rpc
+Auth header   Authorization: Bearer mrd_…
+```
+
+The token is the same personal access token from Settings → Connected
+assistants, and it is verified on **every** call rather than exchanged for a
+session. That costs one indexed lookup and is the entire reason revoking a
+token in Settings takes effect immediately instead of whenever a cache happens
+to expire.
+
+### Why there is no OAuth server
+
+The remote-MCP specification describes OAuth 2.1 with dynamic client
+registration. This deployment does not implement one, deliberately.
+
+Hand-rolling an authorization server — authorization codes, PKCE verification,
+client registration, refresh rotation — is a large amount of security-critical
+code whose failure modes are silent, and getting it subtly wrong is worse than
+not having it. The personal access token path already exists, is tested, is
+revocable, is scoped per module, and ends in the same ten-minute user JWT, with
+RLS as the boundary either way. Going over HTTP changes nothing about what a
+token can reach.
+
+The cost is real and worth stating: **a client that can only authenticate via
+OAuth, and cannot be configured with a bearer token, cannot use this
+endpoint.** Use the stdio server for those.
+
+If this deployment sits behind Vercel Deployment Protection, the endpoint needs
+a protection-bypass token like the cron routes do, or every request is answered
+by the login page rather than by the server.
+
 ## What it can do
 
 Forty-five tools across nine modules — every module the app has.
