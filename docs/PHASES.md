@@ -387,8 +387,8 @@ Spec: Module 11.
 - [x] Storage usage and "room for about N more photos"
 - [x] Auto-bucketing, same-moment pairing and the trip recap, all tested
 - [x] **Infinite scroll**, and *not* virtualisation — see the decision below.
-      (`@tanstack/react-virtual` was never actually a dependency; that line was
-      wrong.)
+      (`@tanstack/react-virtual` was a declared dependency that
+      nothing imported; it has been removed.)
 - [x] **Videos** — stored as uploaded with a poster frame in the thumb slot,
       and played with controls in the lightbox
 - [x] **The daily-exchange strip** — two rows, one per person, so a gap is

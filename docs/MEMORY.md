@@ -1857,11 +1857,15 @@ MCP's, and backfilled on choose for rows added before it existed.
 ### D110 — Not virtualising the gallery, and why the alternative was better
 
 The deferred list said `@tanstack/react-virtual` was installed and the grid
-should use it. Two things were wrong with that. The package was never actually a
-dependency, and virtualisation is the wrong tool here: the grid is grouped into
-day sections of varying height, which windowing libraries handle badly, and the
-real cost of an offscreen thumbnail is its decode — which `loading="lazy"`
-already avoids. Sixty DOM nodes per page is not what makes a gallery slow.
+should use it. The install part was true — it is in `package.json` — and an
+earlier version of this note claimed otherwise, which was simply wrong. What is
+true is that nothing ever imported it, so it was a dependency being carried for
+a feature that was never built, and it has now been removed.
+
+Virtualisation is still the wrong tool here: the grid is grouped into day
+sections of varying height, which windowing libraries handle badly, and the real
+cost of an offscreen thumbnail is its decode — which `loading="lazy"` already
+avoids. Sixty DOM nodes per page is not what makes a gallery slow.
 
 What the "Load more" button actually cost was a tap every sixty photos. An
 IntersectionObserver removes that, and the button stays as the fallback so a
