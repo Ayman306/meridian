@@ -3,9 +3,11 @@ export { TripListPage } from './pages/TripListPage'
 export { NewTripPage } from './pages/NewTripPage'
 export { TripDetailPage } from './pages/TripDetailPage'
 export { TripJourneyPage } from './pages/TripJourneyPage'
+export { TripBin } from './components/TripBin'
 export {
   useTrip,
   useTrips,
+  useDeletedTrips,
   useTripStatuses,
   useTripRealtime,
   useCreateTrip,

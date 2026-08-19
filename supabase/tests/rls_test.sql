@@ -1641,6 +1641,28 @@ select assert(
 
 -- ---------------------------------------------------------------------------
 \echo ''
+\echo '== work hours are readable by the other person =='
+-- The whole point of the overlay. These used to live on `user_settings`, whose
+-- policy is `user_id = auth.uid()` and nothing else, so the feature could only
+-- ever have drawn your own hours — the one case where you did not need telling.
+set request.jwt.claim.sub = :'ada_ada';
+update public.profiles set work_hours_start = '09:00', work_hours_end = '17:00'
+  where id = :'ada_ada';
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select work_hours_start from public.profiles where id = :'ada_ada') = '09:00',
+  'a partner can read the hours the overlay is drawn from'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.profiles where id = :'ada_ada') = 0,
+  'and a stranger still cannot see the profile at all'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
 \echo '== accommodations =='
 set request.jwt.claim.sub = :'ada_ada';
 

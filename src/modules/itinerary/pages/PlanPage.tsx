@@ -6,7 +6,7 @@
  */
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import {
   DndContext,
@@ -20,20 +20,22 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
-import { Plus } from 'lucide-react'
+import { CheckSquare, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState, ErrorState, SkeletonList } from '@/components/common/states'
 import { formatInZone, parseDateOnly, type DateOnly } from '@/lib/dates'
 import { pluralise } from '@/lib/utils'
 import { isLongStay, nights, useSetDayType, useTrip, type DayType } from '@/modules/trips'
+import { useCouple } from '@/providers/CoupleProvider'
 import {
+  useBulkMove,
   useCategories,
   useItems,
   useItineraryRealtime,
   useMoveItem,
 } from '../hooks'
-import { buildPlan, emptyDayTreatment, planDays, sortDayItems } from '../logic'
+import { buildPlan, emptyDayTreatment, planDays, sortDayItems, workBand } from '../logic'
 import { IdeaPool } from '../components/IdeaPool'
 import { DaySection } from '../components/DaySection'
 import { MonthGrid } from '../components/MonthGrid'
@@ -48,11 +50,13 @@ export function PlanPage() {
   const params = useParams<{ id: string }>()
   const tripId = params.id
   const { data: trip } = useTrip(tripId)
+  const { self, partner, tzSelf } = useCouple()
 
   const items = useItems(tripId)
   const categories = useCategories()
   const move = useMoveItem(tripId)
   const setDayType = useSetDayType(tripId)
+  const bulkMove = useBulkMove(tripId)
   useItineraryRealtime(tripId)
 
   const [editing, setEditing] = useState<{ item: ItineraryItem | null; date: DateOnly | null } | null>(
@@ -60,6 +64,10 @@ export function PlanPage() {
   )
   const [dragging, setDragging] = useState<ItineraryItem | null>(null)
   const [selectedDay, setSelectedDay] = useState<DateOnly | null>(null)
+  // Null means selection mode is off entirely. An empty set means it is on and
+  // nothing is picked yet — a distinction the day sections need, since one
+  // shows checkboxes and the other does not.
+  const [picked, setPicked] = useState<Set<string> | null>(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -76,6 +84,25 @@ export function PlanPage() {
     [trip?.days],
   )
 
+  // Both working days, moved into the trip's clock. Read from the profiles
+  // rather than user_settings, because the partner's hours are the ones worth
+  // knowing and user_settings is own-only (0021).
+  const people = useMemo(
+    () => [self, partner].filter((p): p is NonNullable<typeof p> => Boolean(p)),
+    [self, partner],
+  )
+  const bandsFor = useCallback(
+    (date: DateOnly) =>
+      people
+        .map((person) => workBand(person, date, trip?.timezone ?? tzSelf))
+        .filter((band): band is NonNullable<typeof band> => band !== null),
+    [people, trip?.timezone, tzSelf],
+  )
+  const personName = useCallback(
+    (id: string) => people.find((p) => p.id === id)?.display_name ?? 'Someone',
+    [people],
+  )
+
   const tripNights = trip ? nights(trip) : null
   const longStay = trip ? isLongStay(trip) : false
   const treatment = emptyDayTreatment(tripNights)
@@ -84,6 +111,20 @@ export function PlanPage() {
   if (items.error) return <ErrorState error={items.error} onRetry={() => void items.refetch()} />
 
   const cats = categories.data ?? []
+
+  const toggle = (id: string) =>
+    setPicked((current) => {
+      const next = new Set(current ?? [])
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  const movePicked = (date: DateOnly | null) => {
+    if (!picked || picked.size === 0) return
+    bulkMove.mutate({ ids: [...picked], date })
+    setPicked(new Set())
+  }
 
   const onDragEnd = (event: DragEndEvent) => {
     setDragging(null)
@@ -125,6 +166,23 @@ export function PlanPage() {
       onDragEnd={onDragEnd}
     >
       <div className="space-y-6">
+        {/* Selection is a mode rather than always-on. Checkboxes beside every
+            item on a plan somebody is reading is clutter; the same checkboxes
+            after they said "select" is the feature. */}
+        {days.length > 0 && (
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant={picked ? 'secondary' : 'ghost'}
+              aria-pressed={picked !== null}
+              onClick={() => setPicked(picked ? null : new Set())}
+            >
+              {picked ? <X aria-hidden="true" /> : <CheckSquare aria-hidden="true" />}
+              {picked ? 'Done selecting' : 'Select several'}
+            </Button>
+          </div>
+        )}
+
         <SuggestionTray tripId={tripId} />
 
         <IdeaPool
@@ -162,6 +220,10 @@ export function PlanPage() {
                 dayType={(dayTypes[selectedDay] ?? 'open') as DayType}
                 emptyTreatment={treatment}
                 isLongStay={longStay}
+                workBands={bandsFor(selectedDay)}
+                personName={personName}
+                selection={picked}
+                onToggleSelect={toggle}
                 onAdd={(date) => setEditing({ item: null, date })}
                 onOpen={(item) => setEditing({ item, date: null })}
                 onSetDayType={(date, dayType) => setDayType.mutate({ date, dayType })}
@@ -179,11 +241,42 @@ export function PlanPage() {
                 dayType={(dayTypes[date] ?? 'open') as DayType}
                 emptyTreatment={treatment}
                 isLongStay={longStay}
+                workBands={bandsFor(date)}
+                personName={personName}
+                selection={picked}
+                onToggleSelect={toggle}
                 onAdd={(d) => setEditing({ item: null, date: d })}
                 onOpen={(item) => setEditing({ item, date: null })}
                 onSetDayType={(d, dayType) => setDayType.mutate({ date: d, dayType })}
               />
             ))}
+          </div>
+        )}
+
+        {picked && picked.size > 0 && (
+          <div className="sticky bottom-16 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background/95 p-3 shadow-lg backdrop-blur md:bottom-4">
+            <span className="text-sm">{pluralise(picked.size, 'item')} selected</span>
+            <label className="flex items-center gap-2 text-sm">
+              <span className="sr-only">Move to day</span>
+              <select
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                value=""
+                onChange={(e) => e.target.value && movePicked(e.target.value)}
+              >
+                <option value="">Move to…</option>
+                {days.map((date) => (
+                  <option key={date} value={date}>
+                    {formatInZone(parseDateOnly(date), 'UTC', 'EEE d MMM')}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button size="sm" variant="outline" onClick={() => movePicked(null)}>
+              Back to the pool
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())}>
+              Clear
+            </Button>
           </div>
         )}
 

@@ -4,7 +4,7 @@
  *   npm run db:types
  *   # supabase gen types typescript --project-id <ref> > src/types/database.ts
  *
- * Generated from the live project after migrations 0001-0020. The aliases at
+ * Generated from the live project after migrations 0001-0021. The aliases at
  * the bottom are the only hand-written part: they are what the modules import,
  * and they are re-added after each regeneration.
  */
@@ -2111,6 +2111,8 @@ export type Database = {
           onboarded_at: string | null
           second_nationality: string | null
           timezone: string
+          work_hours_end: string | null
+          work_hours_start: string | null
           tracks_cycle: boolean | null
           updated_at: string
         }
@@ -2129,6 +2131,8 @@ export type Database = {
           onboarded_at?: string | null
           second_nationality?: string | null
           timezone?: string
+          work_hours_end?: string | null
+          work_hours_start?: string | null
           tracks_cycle?: boolean | null
           updated_at?: string
         }
@@ -2147,6 +2151,8 @@ export type Database = {
           onboarded_at?: string | null
           second_nationality?: string | null
           timezone?: string
+          work_hours_end?: string | null
+          work_hours_start?: string | null
           tracks_cycle?: boolean | null
           updated_at?: string
         }
@@ -2783,8 +2789,6 @@ export type Database = {
           user_id: string
           vault_lock_minutes: number
           work_days: number[] | null
-          work_hours_end: string | null
-          work_hours_start: string | null
           work_timezone: string | null
         }
         Insert: {
@@ -2801,8 +2805,6 @@ export type Database = {
           user_id: string
           vault_lock_minutes?: number
           work_days?: number[] | null
-          work_hours_end?: string | null
-          work_hours_start?: string | null
           work_timezone?: string | null
         }
         Update: {
@@ -2819,8 +2821,6 @@ export type Database = {
           user_id?: string
           vault_lock_minutes?: number
           work_days?: number[] | null
-          work_hours_end?: string | null
-          work_hours_start?: string | null
           work_timezone?: string | null
         }
         Relationships: [

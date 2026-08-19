@@ -17,6 +17,8 @@ import type { Profile } from '@/types/domain'
 const profile = (over: Partial<Profile> = {}): Profile => ({
   gender: null,
   tracks_cycle: null,
+  work_hours_start: null,
+  work_hours_end: null,
   id: 'u1',
   display_name: 'Sam',
   avatar_url: null,
