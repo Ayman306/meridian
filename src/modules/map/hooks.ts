@@ -1,10 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation } from '@tanstack/react-query'
 import { qk } from '@/lib/queryClient'
 import { ACCENT_COLORS } from '@/lib/constants'
 import { searchPlaces, type PlaceResult } from '@/lib/geocode'
+import { AppError } from '@/lib/errors'
+import type { ResolvedPlace } from '@/app/api/places/resolve/route'
 import { useCouple } from '@/providers/CoupleProvider'
 import type { PersonRef } from '@/types/domain'
 import * as api from './api'
@@ -88,6 +90,28 @@ export function usePlaceSearch(query: string) {
       const results = await searchPlaces(settled)
       await api.writeGeocodeCache(settled, results)
       return results
+    },
+  })
+}
+
+/**
+ * Turn a pasted Google Maps link into a place.
+ *
+ * The work happens in `/api/places/resolve` because a short link needs a
+ * redirect followed (CORS blocks that here) and reverse geocoding is a shared
+ * Nominatim budget that wants one identified caller, not one per browser tab.
+ */
+export function useResolvePlace() {
+  return useMutation({
+    mutationFn: async (url: string): Promise<ResolvedPlace> => {
+      const res = await fetch('/api/places/resolve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url }),
+      })
+      const body = (await res.json()) as ResolvedPlace & { error?: string }
+      if (!res.ok) throw new AppError(body.error ?? 'That link could not be read.', { kind: 'upstream' })
+      return body
     },
   })
 }

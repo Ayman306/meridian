@@ -12,6 +12,7 @@
  * claims to be part of a plan.
  */
 import { z } from 'zod'
+import { googleMapsUrlFor, parseGoogleMapsLink } from '@/lib/maps/googleMaps'
 import { defineTool, requireCouple } from './types'
 import type { AnyTool } from './types'
 
@@ -76,13 +77,39 @@ const addWishlistItem = defineTool({
       .describe('ISO 3166-1 alpha-2, uppercase. Omit rather than guessing.'),
     notes: z.string().nullable().default(null).describe('Why it is worth going.'),
     url: z.string().url().nullable().default(null).describe('A real link only. Never invent one.'),
+    maps_url: z
+      .string()
+      .url()
+      .nullable()
+      .default(null)
+      .describe(
+        'A Google Maps link, if the person gave you one. Coordinates are read out of it — never make one up, and never type coordinates you worked out yourself.',
+      ),
   }),
   async handler(ctx, input) {
     const coupleId = requireCouple(ctx)
 
+    // Coordinates come out of the link or not at all. A model asked where
+    // somewhere is will happily produce a plausible latitude, and a pin that is
+    // confidently in the wrong suburb is worse than no pin — so the only
+    // numbers written here are ones that were in a URL somebody pasted.
+    //
+    // A short link cannot be read without following a redirect, which needs the
+    // app's own server. Rather than resolve it here, the raw link is saved and
+    // the app fills the pin in when it is next opened.
+    const parsed = input.maps_url ? parseGoogleMapsLink(input.maps_url) : null
+    const lat = parsed?.lat ?? null
+    const lng = parsed?.lng ?? null
+
     const { data, error } = await ctx.supabase
       .from('wishlist_items')
       .insert({
+        lat,
+        lng,
+        maps_url:
+          lat !== null && lng !== null
+            ? googleMapsUrlFor(lat, lng, input.place_name ?? input.title)
+            : (input.maps_url ?? null),
         couple_id: coupleId,
         // Whose save it is. The assistant is acting for the person holding the
         // token, and the app shows saves by author, so this has to be them.
@@ -98,7 +125,14 @@ const addWishlistItem = defineTool({
       .single()
 
     if (error) throw new Error(error.message)
-    return `Saved "${input.title}" to the wishlist (${data.id}).`
+
+    const located =
+      lat !== null
+        ? ' Pin set from the link.'
+        : input.maps_url
+          ? ' The link was saved but held no coordinates — the app will resolve it.'
+          : ''
+    return `Saved "${input.title}" to the wishlist (${data.id}).${located}`
   },
 })
 

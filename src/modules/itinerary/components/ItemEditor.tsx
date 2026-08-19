@@ -4,13 +4,15 @@
  */
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Trash2 } from 'lucide-react'
+import { Link2, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Field, Input, Select, Textarea } from '@/components/ui/input'
 import { useCouple } from '@/providers/CoupleProvider'
+import { PlacePicker, PlaceSearch, useResolvePlace } from '@/modules/map'
+import { describeParseSource, isGoogleMapsLink, parseGoogleMapsLink } from '@/lib/maps/googleMaps'
 import { userMessage } from '@/lib/errors'
 import type { DateOnly } from '@/lib/dates'
 import { itemSchema, type ItemFormValues } from '../schemas'
@@ -34,6 +36,44 @@ export function ItemEditor({
   const { self, partner } = useCouple()
   const create = useCreateItem(tripId)
   const update = useUpdateItem(tripId)
+  const resolvePlace = useResolvePlace()
+
+  const [mapsInput, setMapsInput] = useState('')
+  const [placeNote, setPlaceNote] = useState<string | null>(null)
+  const [pinNote, setPinNote] = useState<string | null>(null)
+
+  /**
+   * Read a pasted Google Maps link into the location fields.
+   *
+   * The same path the wishlist form uses, deliberately — a place is a place,
+   * and somebody who has learned that pasting a link works on one screen should
+   * not find it does nothing on the other.
+   */
+  const onPasteMapsLink = async (url: string) => {
+    const trimmed = url.trim()
+    if (!trimmed) return
+
+    if (!isGoogleMapsLink(trimmed)) {
+      setPlaceNote('That is not a Google Maps link. Search for the place instead.')
+      return
+    }
+
+    const place = await resolvePlace.mutateAsync(trimmed).catch(() => null)
+    if (!place || place.lat === null) {
+      setPlaceNote('That map link could not be read — search for the place instead.')
+      return
+    }
+
+    form.setValue('lat', place.lat)
+    form.setValue('lng', place.lng)
+    if (place.address) form.setValue('address', place.address)
+    if (place.mapsUrl) form.setValue('maps_url', place.mapsUrl)
+    if (place.name && !form.getValues('place_name')) form.setValue('place_name', place.name)
+    if (place.name && !form.getValues('title')) form.setValue('title', place.name)
+
+    setPlaceNote(place.address ? `Found ${place.name ?? 'it'} — ${place.address}` : 'Pin set.')
+    setPinNote(describeParseSource(parseGoogleMapsLink(trimmed)))
+  }
   const remove = useDeleteItem(tripId)
 
   const form = useForm<ItemFormValues>({
@@ -106,9 +146,78 @@ export function ItemEditor({
         </div>
       )}
 
+      {/* A plan item without a location cannot be drawn on the map or routed
+          between, which is most of what the map module is for. The schema has
+          carried lat/lng since phase 3; until now nothing in the UI could
+          fill them, so an item added by hand was invisible on the map. */}
       <Field label="Place" hint="Optional" htmlFor="item-place">
         <Input id="item-place" {...form.register('place_name')} />
       </Field>
+
+      <Field
+        label="Map link"
+        hint="Paste a Google Maps link and the address and pin fill themselves"
+        htmlFor="item-maps"
+      >
+        <div className="flex gap-2">
+          <Input
+            id="item-maps"
+            placeholder="https://maps.app.goo.gl/…"
+            value={mapsInput}
+            onChange={(e) => setMapsInput(e.target.value)}
+            onBlur={(e) => void onPasteMapsLink(e.target.value)}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            disabled={resolvePlace.isPending}
+            onClick={() => void onPasteMapsLink(mapsInput)}
+          >
+            <Link2 aria-hidden="true" />
+            {resolvePlace.isPending ? 'Reading…' : 'Read'}
+          </Button>
+        </div>
+      </Field>
+      {placeNote && <p className="-mt-2 text-xs text-muted-foreground">{placeNote}</p>}
+
+      <Field label="Or search for it" htmlFor="item-place-search">
+        <PlaceSearch
+          id="item-place-search"
+          placeholder="Search for the place"
+          onPick={(place) => {
+            form.setValue('lat', place.lat)
+            form.setValue('lng', place.lng)
+            form.setValue('address', place.displayName)
+            if (!form.getValues('place_name')) form.setValue('place_name', place.name)
+            if (!form.getValues('title')) form.setValue('title', place.name)
+            setPinNote(null)
+            setPlaceNote(null)
+          }}
+        />
+      </Field>
+
+      <PlacePicker
+        lat={form.watch('lat') ?? null}
+        lng={form.watch('lng') ?? null}
+        title={form.watch('place_name') || form.watch('title') || ''}
+        address={form.watch('address') ?? null}
+        note={pinNote}
+        onMove={(at) => {
+          form.setValue('lat', at.lat)
+          form.setValue('lng', at.lng)
+          form.setValue('address', null)
+          form.setValue('maps_url', null)
+          setPinNote('Pin moved by hand.')
+        }}
+        onClear={() => {
+          form.setValue('lat', null)
+          form.setValue('lng', null)
+          form.setValue('address', null)
+          form.setValue('maps_url', null)
+          setPinNote(null)
+          setPlaceNote(null)
+        }}
+      />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Rough cost" htmlFor="item-cost">

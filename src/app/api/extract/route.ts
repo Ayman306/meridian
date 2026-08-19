@@ -10,6 +10,7 @@
  */
 import { NextResponse } from 'next/server'
 import { requireUser } from '@/lib/supabase/server'
+import { MAX_REDIRECTS, assertPublicUrl } from '@/lib/net/publicUrl'
 import { extractRequestSchema } from '@/modules/wishlist/schemas'
 
 export const dynamic = 'force-dynamic'
@@ -18,7 +19,6 @@ export const dynamic = 'force-dynamic'
 const TIMEOUT_MS = 6000
 /** OpenGraph tags live in <head>. Half a megabyte is generous for that. */
 const MAX_BYTES = 512 * 1024
-const MAX_REDIRECTS = 3
 
 export async function POST(request: Request) {
   const user = await requireUser()
@@ -112,61 +112,6 @@ async function readCapped(res: Response): Promise<string> {
     if (offset >= total) break
   }
   return new TextDecoder('utf-8').decode(joined)
-}
-
-/**
- * Public HTTP(S) only.
- *
- * The IP-literal checks catch the obvious attempts; a hostname that resolves to
- * a private address still gets through, which is why the handler returns only
- * OpenGraph tags and never the response body or status to the caller.
- */
-function assertPublicUrl(url: URL): void {
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error(`refused scheme ${url.protocol}`)
-  }
-
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
-
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal')) {
-    throw new Error('refused local host')
-  }
-  // Cloud metadata endpoints, the single most valuable thing to reach.
-  if (host === 'metadata.google.internal' || host === '169.254.169.254') {
-    throw new Error('refused metadata host')
-  }
-  if (isPrivateIpv4(host) || isPrivateIpv6(host)) throw new Error('refused private address')
-}
-
-function isPrivateIpv4(host: string): boolean {
-  const parts = host.split('.')
-  if (parts.length !== 4) return false
-  const octets = parts.map((p) => (/^\d{1,3}$/.test(p) ? Number(p) : NaN))
-  if (octets.some((n) => Number.isNaN(n) || n > 255)) return false
-
-  const [a, b] = octets as [number, number, number, number]
-  return (
-    a === 0 || // this network
-    a === 10 || // private
-    a === 127 || // loopback
-    (a === 169 && b === 254) || // link-local
-    (a === 172 && b >= 16 && b <= 31) || // private
-    (a === 192 && b === 168) || // private
-    (a === 100 && b >= 64 && b <= 127) || // carrier-grade NAT
-    a >= 224 // multicast and reserved
-  )
-}
-
-function isPrivateIpv6(host: string): boolean {
-  if (!host.includes(':')) return false
-  const h = host.toLowerCase()
-  // ::1 loopback, fc00::/7 unique-local, fe80::/10 link-local, and any
-  // IPv4-mapped form that hides a private v4 address inside a v6 literal.
-  if (h === '::' || h === '::1' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe8')) {
-    return true
-  }
-  const mapped = h.match(/(\d{1,3}(?:\.\d{1,3}){3})$/)
-  return mapped ? isPrivateIpv4(mapped[1]!) : false
 }
 
 // ---------------------------------------------------------------------------
