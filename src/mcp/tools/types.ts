@@ -82,3 +82,40 @@ export function requireCouple(ctx: McpContext): string {
   }
   return ctx.coupleId
 }
+
+/**
+ * Turn a place name into real coordinates.
+ *
+ * The single path by which any tool in this server acquires a location. Tools
+ * take a *name* and call this; none of them accepts a latitude, because a
+ * model asked for one will invent a plausible wrong answer and a pin that is
+ * confidently in the wrong suburb looks correct in every field a person reads.
+ *
+ * Returns nulls rather than throwing when nothing is found. A saved place with
+ * no pin is honest and fixable in the app; a saved place with a guessed pin is
+ * neither.
+ */
+export async function locate(query: string | null | undefined): Promise<{
+  lat: number | null
+  lng: number | null
+  address: string | null
+  city: string | null
+  countryCode: string | null
+  name: string | null
+}> {
+  const empty = { lat: null, lng: null, address: null, city: null, countryCode: null, name: null }
+  if (!query || query.trim().length < 2) return empty
+
+  const { searchPlaces } = await import('@/lib/geocode')
+  const [best] = await searchPlaces(query.trim()).catch(() => [])
+  if (!best) return empty
+
+  return {
+    lat: best.lat,
+    lng: best.lng,
+    address: best.displayName,
+    city: best.city,
+    countryCode: best.countryCode,
+    name: best.name,
+  }
+}

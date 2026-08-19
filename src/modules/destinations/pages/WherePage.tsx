@@ -276,9 +276,12 @@ function CandidateForm({
             picked ? 'text-muted-foreground' : 'text-[hsl(var(--warn))]',
           )}
         >
+          {/* Confirms it is located without reciting the numbers. Two decimals
+              of latitude is not something anybody can check, and the only
+              question here is whether the place was found at all. */}
           {picked
-            ? `${picked.country_code ?? '??'} · ${picked.lat?.toFixed(2)}, ${picked.lng?.toFixed(2)}`
-            : 'Pick from the search to get coordinates — without them there are no flight times'}
+            ? `Located${picked.country_code ? ` in ${picked.country_code}` : ''}`
+            : 'Pick one from the search — without a location there are no flight times'}
         </span>
       </div>
 

@@ -31,7 +31,7 @@ import { z } from 'zod'
 import { keyBetween } from '@/lib/fractional'
 import type { Json, UpdateDto } from '@/types/database'
 import type { TrayDraft, TrayDraftDay } from '@/types/domain'
-import { defineTool, requireCouple } from './types'
+import { defineTool, locate, requireCouple } from './types'
 import type { AnyTool } from './types'
 
 const getItinerary = defineTool({
@@ -99,6 +99,13 @@ const draftItemSchema = z.object({
     .default(null)
     .describe('Why this, or anything worth knowing. Kept verbatim for the person reading it.'),
   url: z.string().url().nullable().default(null).describe('A link, if you have a real one. Never invent one.'),
+  locate_query: z
+    .string()
+    .nullable()
+    .default(null)
+    .describe(
+      'The place to look up for this item, as specifically as you can. Each one is geocoded so the accepted plan can be drawn and routed on the map. Never pass coordinates.',
+    ),
 })
 
 const suggestItinerary = defineTool({
@@ -152,15 +159,28 @@ const suggestItinerary = defineTool({
     if (tripError) throw new Error(tripError.message)
     if (!trip) return 'No trip with that id, or it is not one you can see. Nothing was suggested.'
 
+    // Every drafted item is located before the draft is written, so a plan the
+    // couple accepts arrives with real pins rather than a list of names that
+    // cannot be drawn. Sequential rather than parallel: the geocoder is a
+    // shared, rate-limited budget and `searchPlaces` already queues on it.
+    const locations = new Map<string, Awaited<ReturnType<typeof locate>>>()
+    for (const day of input.days) {
+      for (const item of day.items) {
+        const query = item.locate_query ?? item.place_name
+        if (!query || locations.has(query)) continue
+        locations.set(query, await locate(query))
+      }
+    }
+
     const days: TrayDraftDay[] = input.days.map((day) => ({
       date: day.date,
       items: day.items.map((item) => ({
         wishlist_id: null,
         title: item.title,
         place_name: item.place_name,
-        lat: null,
-        lng: null,
-        address: null,
+        lat: locations.get(item.locate_query ?? item.place_name ?? '')?.lat ?? null,
+        lng: locations.get(item.locate_query ?? item.place_name ?? '')?.lng ?? null,
+        address: locations.get(item.locate_query ?? item.place_name ?? '')?.address ?? null,
         maps_url: null,
         category_id: null,
         notes: item.notes,
@@ -242,6 +262,13 @@ const addItineraryItem = defineTool({
       .default(null)
       .describe('HH:MM in the trip’s local time, if it has a known finish.'),
     place_name: z.string().nullable().default(null).describe('The venue, if there is one.'),
+    locate_query: z
+      .string()
+      .nullable()
+      .default(null)
+      .describe(
+        'The place to look up, as specifically as you can. The server geocodes it and attaches the real pin and address, so this item shows on the map. Never pass coordinates — this tool does not take them, deliberately.',
+      ),
     notes: z.string().nullable().default(null).describe('Anything worth knowing about it.'),
     url: z.string().url().nullable().default(null).describe('A real link only. Never invent one.'),
   }),
@@ -274,12 +301,20 @@ const addItineraryItem = defineTool({
       .limit(1)
       .maybeSingle()
 
+    // Located from a name, never from numbers the caller supplied. An item
+    // with no pin is invisible on the map, so this is what makes an
+    // AI-planned day routable rather than just a list of words.
+    const located = await locate(input.locate_query ?? input.place_name)
+
     const { data, error } = await ctx.supabase
       .from('itinerary_items')
       .insert({
         couple_id: coupleId,
         trip_id: input.trip_id,
         title: input.title,
+        lat: located.lat,
+        lng: located.lng,
+        address: located.address,
         scheduled_date: input.scheduled_date,
         start_time: input.start_time,
         end_time: input.end_time,
@@ -297,7 +332,8 @@ const addItineraryItem = defineTool({
     const when = input.scheduled_date
       ? `on ${input.scheduled_date}${input.start_time ? ` at ${input.start_time}` : ''}`
       : 'with no date yet'
-    return `Added "${input.title}" to ${trip.title} ${when} (${data.id}).`
+    const where = located.address ? ` Pinned at ${located.address}.` : ''
+    return `Added "${input.title}" to ${trip.title} ${when} (${data.id}).${where}`
   },
 })
 

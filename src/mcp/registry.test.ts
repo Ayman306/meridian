@@ -242,3 +242,38 @@ describe('the service role stays out of the tool path', () => {
     }
   })
 })
+
+describe('where a location can come from', () => {
+  it('lets no tool accept coordinates', () => {
+    // The invariant the whole places module exists to hold. Asked where a café
+    // is, a model produces a plausible latitude — correctly formatted, and
+    // often a kilometre out. A pin that is confidently wrong looks right in
+    // every field a person reads, and only the map shows it, which is the one
+    // thing nobody checks for a place they have not been to.
+    //
+    // So no tool takes one. Names go in, the geocoder decides where they are.
+    for (const tool of ALL_TOOLS) {
+      const schema = zodToJsonSchema(tool.inputSchema, { $refStrategy: 'none' })
+      const names = JSON.stringify(schema).match(/"(lat|lng|latitude|longitude|coordinates)"/g) ?? []
+      expect(`${tool.name}:${names.join(',')}`).toBe(`${tool.name}:`)
+    }
+  })
+
+  it('offers a way to look a place up instead', () => {
+    const find = ALL_TOOLS.find((t) => t.name === 'find_place')
+    expect(find).toBeDefined()
+    expect(find!.readOnly).toBe(true)
+  })
+
+  it('locates from a name on every tool that stores a place', () => {
+    // Each of these writes a location, so each must have a way to acquire one
+    // that is not the model's own arithmetic.
+    for (const name of ['add_wishlist_item', 'add_itinerary_item']) {
+      const tool = ALL_TOOLS.find((t) => t.name === name)
+      const schema = zodToJsonSchema(tool!.inputSchema, { $refStrategy: 'none' }) as {
+        properties?: Record<string, unknown>
+      }
+      expect(`${name}:${'locate_query' in (schema.properties ?? {})}`).toBe(`${name}:true`)
+    }
+  })
+})

@@ -86,7 +86,7 @@ allowed.
 And 0015 made it run unattended: the three sweeps are on pg_cron, and the
 dashboard finally fills the stay-allowance slot it reserved back in phase 5.
 
-Typecheck, lint, 771 unit tests, 206 database assertions and a production build
+Typecheck, lint, 774 unit tests, 206 database assertions and a production build
 pass.
 
 ### The two operator steps left
@@ -1460,6 +1460,59 @@ The MCP `add_wishlist_item` tool takes a map link too, and reads coordinates
 only out of it — never from the model. A model asked where somewhere is will
 produce a plausible latitude, and a pin confidently in the wrong suburb is worse
 than no pin at all.
+
+### D94 — Nobody types coordinates, and nobody is shown them either
+
+Latitude and longitude are machine facts. A person who reads
+"12.86980, 74.84300" has learned nothing they can check, and a person asked to
+*enter* it has been handed the app's job.
+
+No form ever had raw coordinate inputs — but three surfaces were still printing
+them back: `PlacePicker` fell through to `toFixed(5)` when it had no address,
+the trip map said "Add something here — 12.8698, 74.8430", and the destinations
+page confirmed a pick with two decimals of latitude. All three now show the
+address, or say plainly that there is no street address at that spot, which is
+a true and useful sentence where a pair of decimals is neither.
+
+**The address is derived, continuously.** An earlier version cleared the address
+when a pin moved, told the person in the UI that it would be looked up on save,
+and then never did it — so a moved pin saved with nothing. The lookup now lives
+inside `PlacePicker`, fired whenever there are coordinates and no address, so no
+form can forget it. That placement is the fix: the previous arrangement asked
+every caller to remember, and the first caller did not.
+
+Two supporting changes. `useReverseGeocode` rounds to five decimals for its
+cache key — about a metre — because not rounding misses the cache on every pixel
+of a drag. And search now leads in the itinerary editor, with "use my location"
+beside it: typing three letters of a name is the fastest route to a located
+place, and burying it under a field that asks somebody to go and fetch a URL
+made the clumsy path look like the intended one.
+
+### D95 — The model names the place; the geocoder decides where it is
+
+For the MCP to plan on the couple's behalf it has to be able to locate places.
+The tempting shape — let the tools take `lat` and `lng` — is the one that
+quietly breaks everything.
+
+Asked where a café is, a language model produces a latitude. It is plausible,
+correctly formatted, and often a kilometre out or in the wrong city. A pin that
+is confidently wrong is worse than no pin, because nothing about it looks
+wrong: the name is right, the address reads fine, and only the map shows the
+problem — which is exactly what nobody checks for a place they have not been to
+yet.
+
+So **no tool in the server accepts a coordinate**, and a test asserts it by
+walking every input schema for `lat`/`lng`/`latitude`/`longitude`. Instead
+there is `find_place`, and `locate_query` on everything that stores a location —
+including each item inside a `suggest_itinerary` draft, so a whole AI-planned
+day arrives with real pins and can actually be drawn and routed rather than
+being a list of words.
+
+One bug this surfaced: `searchPlaces` never sent a `User-Agent`. Browsers set
+one automatically, so it had always worked — and Nominatim refuses requests
+without it, which the MCP server geocoding from a laptop would have hit
+immediately. The failure would have read as "place search is unavailable"
+rather than as a missing header.
 
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 

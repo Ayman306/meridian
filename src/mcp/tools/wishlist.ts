@@ -13,7 +13,7 @@
  */
 import { z } from 'zod'
 import { googleMapsUrlFor, parseGoogleMapsLink } from '@/lib/maps/googleMaps'
-import { defineTool, requireCouple } from './types'
+import { defineTool, locate, requireCouple } from './types'
 import type { AnyTool } from './types'
 
 const listWishlist = defineTool({
@@ -82,8 +82,13 @@ const addWishlistItem = defineTool({
       .url()
       .nullable()
       .default(null)
+      .describe('A Google Maps link, if the person gave you one. The pin is read out of it.'),
+    locate_query: z
+      .string()
+      .nullable()
+      .default(null)
       .describe(
-        'A Google Maps link, if the person gave you one. Coordinates are read out of it — never make one up, and never type coordinates you worked out yourself.',
+        'The place to look up, as specifically as you can — "Cafe Younes, Balmatta Road, Mangalore". The server geocodes this and attaches the real pin and address. Use it whenever there is no map link. Never pass coordinates anywhere: this tool does not take them, on purpose.',
       ),
   }),
   async handler(ctx, input) {
@@ -98,8 +103,17 @@ const addWishlistItem = defineTool({
     // app's own server. Rather than resolve it here, the raw link is saved and
     // the app fills the pin in when it is next opened.
     const parsed = input.maps_url ? parseGoogleMapsLink(input.maps_url) : null
-    const lat = parsed?.lat ?? null
-    const lng = parsed?.lng ?? null
+
+    // A link is the most precise source, so it wins. Failing that the name is
+    // geocoded server-side. Either way the numbers come from somewhere that
+    // actually knows, never from the caller.
+    const located =
+      parsed?.lat === undefined || parsed?.lat === null
+        ? await locate(input.locate_query ?? `${input.title} ${input.city ?? ''}`.trim())
+        : null
+
+    const lat = parsed?.lat ?? located?.lat ?? null
+    const lng = parsed?.lng ?? located?.lng ?? null
 
     const { data, error } = await ctx.supabase
       .from('wishlist_items')
@@ -116,8 +130,9 @@ const addWishlistItem = defineTool({
         user_id: ctx.userId,
         title: input.title,
         place_name: input.place_name,
-        city: input.city,
-        country_code: input.country_code?.toUpperCase() ?? null,
+        city: input.city ?? located?.city ?? null,
+        country_code: input.country_code?.toUpperCase() ?? located?.countryCode ?? null,
+        address: located?.address ?? null,
         notes: input.notes,
         url: input.url,
       })
@@ -126,13 +141,13 @@ const addWishlistItem = defineTool({
 
     if (error) throw new Error(error.message)
 
-    const located =
-      lat !== null
-        ? ' Pin set from the link.'
-        : input.maps_url
-          ? ' The link was saved but held no coordinates — the app will resolve it.'
-          : ''
-    return `Saved "${input.title}" to the wishlist (${data.id}).${located}`
+    const where =
+      lat === null
+        ? ' No location found for it — it can be pinned in the app.'
+        : parsed?.lat
+          ? ' Pin set from the link.'
+          : ` Located at ${located?.address ?? 'the address found'}.`
+    return `Saved "${input.title}" to the wishlist (${data.id}).${where}`
   },
 })
 

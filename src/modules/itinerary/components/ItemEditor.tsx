@@ -11,7 +11,7 @@ import { Link2, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Field, Input, Select, Textarea } from '@/components/ui/input'
 import { useCouple } from '@/providers/CoupleProvider'
-import { PlacePicker, PlaceSearch, useResolvePlace } from '@/modules/map'
+import { PlacePicker, PlaceSearch, UseMyLocationButton, useResolvePlace } from '@/modules/map'
 import { describeParseSource, isGoogleMapsLink, parseGoogleMapsLink } from '@/lib/maps/googleMaps'
 import { userMessage } from '@/lib/errors'
 import type { DateOnly } from '@/lib/dates'
@@ -154,11 +154,41 @@ export function ItemEditor({
         <Input id="item-place" {...form.register('place_name')} />
       </Field>
 
-      <Field
-        label="Map link"
-        hint="Paste a Google Maps link and the address and pin fill themselves"
-        htmlFor="item-maps"
-      >
+      {/* Search first, deliberately. Typing three letters of a name is the
+          fastest route to a located place, and burying it under a field that
+          asks somebody to go and fetch a URL made the clumsy path look like
+          the intended one. */}
+      <Field label="Where is it?" hint="Start typing and pick it" htmlFor="item-place-search">
+        <PlaceSearch
+          id="item-place-search"
+          placeholder="Search for the place"
+          onPick={(place) => {
+            form.setValue('lat', place.lat)
+            form.setValue('lng', place.lng)
+            form.setValue('address', place.displayName)
+            if (!form.getValues('place_name')) form.setValue('place_name', place.name)
+            if (!form.getValues('title')) form.setValue('title', place.name)
+            setPinNote(null)
+            setPlaceNote(null)
+          }}
+        />
+      </Field>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <UseMyLocationButton
+          onLocated={(at) => {
+            form.setValue('lat', at.lat)
+            form.setValue('lng', at.lng)
+            form.setValue('address', null)
+            form.setValue('maps_url', null)
+            setPinNote(null)
+            setPlaceNote(null)
+          }}
+        />
+        <span className="text-xs text-muted-foreground">or paste a Google Maps link</span>
+      </div>
+
+      <Field label="Map link" hint="Optional — the pin and address fill themselves" htmlFor="item-maps">
         <div className="flex gap-2">
           <Input
             id="item-maps"
@@ -180,22 +210,6 @@ export function ItemEditor({
       </Field>
       {placeNote && <p className="-mt-2 text-xs text-muted-foreground">{placeNote}</p>}
 
-      <Field label="Or search for it" htmlFor="item-place-search">
-        <PlaceSearch
-          id="item-place-search"
-          placeholder="Search for the place"
-          onPick={(place) => {
-            form.setValue('lat', place.lat)
-            form.setValue('lng', place.lng)
-            form.setValue('address', place.displayName)
-            if (!form.getValues('place_name')) form.setValue('place_name', place.name)
-            if (!form.getValues('title')) form.setValue('title', place.name)
-            setPinNote(null)
-            setPlaceNote(null)
-          }}
-        />
-      </Field>
-
       <PlacePicker
         lat={form.watch('lat') ?? null}
         lng={form.watch('lng') ?? null}
@@ -207,7 +221,11 @@ export function ItemEditor({
           form.setValue('lng', at.lng)
           form.setValue('address', null)
           form.setValue('maps_url', null)
-          setPinNote('Pin moved by hand.')
+          setPinNote(null)
+        }}
+        onAddressResolved={(place) => {
+          form.setValue('address', place.displayName)
+          if (!form.getValues('place_name')) form.setValue('place_name', place.name)
         }}
         onClear={() => {
           form.setValue('lat', null)

@@ -2,13 +2,14 @@
 export { TripMapPage } from './pages/TripMapPage'
 export { AllMapPage } from './pages/AllMapPage'
 export { PlaceSearch } from './components/PlaceSearch'
-export { PlacePicker } from './components/PlacePicker'
+export { PlacePicker, UseMyLocationButton } from './components/PlacePicker'
 export {
   useMapData,
   usePlaceSearch,
   usePinPeople,
   useDebounced,
   useResolvePlace,
+  useReverseGeocode,
 } from './hooks'
 export {
   CLUSTER_MAX_ZOOM,

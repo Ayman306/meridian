@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { qk } from '@/lib/queryClient'
 import { ACCENT_COLORS } from '@/lib/constants'
-import { searchPlaces, type PlaceResult } from '@/lib/geocode'
+import { reverseGeocode, searchPlaces, type PlaceResult } from '@/lib/geocode'
 import { AppError } from '@/lib/errors'
 import type { ResolvedPlace } from '@/app/api/places/resolve/route'
 import { useCouple } from '@/providers/CoupleProvider'
@@ -112,6 +112,41 @@ export function useResolvePlace() {
       const body = (await res.json()) as ResolvedPlace & { error?: string }
       if (!res.ok) throw new AppError(body.error ?? 'That link could not be read.', { kind: 'upstream' })
       return body
+    },
+  })
+}
+
+/**
+ * The address for a pin, looked up automatically.
+ *
+ * Nobody should ever type coordinates, and nobody should ever be *shown* them
+ * either — so whenever a pin moves, the address that describes it has to be
+ * re-derived rather than left stale or blank. This is what makes that possible
+ * without every form remembering to do it.
+ *
+ * Coordinates are rounded to five decimals for the cache key, which is about a
+ * metre. Two pins that close have the same address, and not rounding would miss
+ * the cache on every pixel of a drag.
+ */
+export function useReverseGeocode(lat: number | null, lng: number | null) {
+  const enabled = lat !== null && lng !== null
+  const key = enabled ? `rev:${lat.toFixed(5)},${lng.toFixed(5)}` : 'rev:none'
+
+  return useQuery({
+    queryKey: qk.geocode(key),
+    enabled,
+    // A place does not move. Nothing about this goes stale inside a session.
+    staleTime: 60 * 60_000,
+    retry: false,
+    queryFn: async (): Promise<PlaceResult | null> => {
+      const cached = await api.readGeocodeCache(key)
+      if (cached) return cached[0] ?? null
+
+      const place = await reverseGeocode(lat!, lng!)
+      // Cached even when null — a pin in the sea has no address, and asking
+      // again on every render will not give it one.
+      await api.writeGeocodeCache(key, place ? [place] : [])
+      return place
     },
   })
 }

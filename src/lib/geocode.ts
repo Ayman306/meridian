@@ -20,6 +20,23 @@ export interface CityResult {
 let lastCall = 0
 let chain: Promise<unknown> = Promise.resolve()
 
+/**
+ * What Nominatim wants to see on every request.
+ *
+ * The `User-Agent` is not optional. Nominatim's usage policy requires an
+ * identifiable one and refuses requests without it — which a browser sets for
+ * us and Node does not. That distinction only started mattering when the MCP
+ * server began geocoding from a laptop rather than from a page, and the failure
+ * would have looked like "place search is unavailable" rather than like a
+ * missing header. Browsers ignore an attempt to set it, so this is harmless
+ * there and necessary everywhere else.
+ */
+const NOMINATIM_HEADERS = {
+  Accept: 'application/json',
+  'Accept-Language': 'en',
+  'User-Agent': 'Meridian/1.0 (travel planner; https://github.com/Ayman306/meridian)',
+} as const
+
 /** Serialise calls and space them at least GEOCODE_MIN_INTERVAL_MS apart. */
 function throttled<T>(fn: () => Promise<T>): Promise<T> {
   const run = chain.then(async () => {
@@ -62,7 +79,7 @@ export async function searchCity(query: string, signal?: AbortSignal): Promise<C
 
     const res = await fetch(url, {
       signal: signal ?? null,
-      headers: { Accept: 'application/json', 'Accept-Language': 'en' },
+      headers: { ...NOMINATIM_HEADERS },
     })
     if (!res.ok) {
       throw new AppError('City search is unavailable right now.', {
@@ -95,7 +112,7 @@ export async function searchPlaces(query: string, signal?: AbortSignal): Promise
 
     const res = await fetch(url, {
       signal: signal ?? null,
-      headers: { Accept: 'application/json', 'Accept-Language': 'en' },
+      headers: { ...NOMINATIM_HEADERS },
     })
     if (!res.ok) {
       throw new AppError('Place search is unavailable right now.', {
@@ -188,7 +205,7 @@ export async function reverseGeocode(
 
     const res = await fetch(url, {
       signal: signal ?? null,
-      headers: { Accept: 'application/json', 'Accept-Language': 'en' },
+      headers: { ...NOMINATIM_HEADERS },
     })
     if (!res.ok) {
       throw new AppError('Could not look up that address.', {
