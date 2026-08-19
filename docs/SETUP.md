@@ -137,12 +137,18 @@ in the project settings, and deploy. Then:
 
 - add the deployed origin to Google's authorised origins and to Supabase's
   redirect URLs, both with `/auth/callback`
-- add an `APP_URL` repository secret in GitHub pointing at the deployed origin
+- confirm the cron job appears under **Project → Settings → Cron Jobs**
 
 That last one matters more than it looks. A free Supabase project pauses after
 about seven days idle, and a couple who plan a trip in March and fly in June
-would find the app dead when they came back. The keep-alive workflow pings
-`/api/health` every two days to prevent it.
+would find the app dead when they came back. `vercel.json` declares a daily
+cron against `/api/health`, which calls the `health()` RPC and so genuinely
+wakes Postgres rather than only proving Next is up.
+
+This used to be a GitHub Action, and moved because Actions bills minutes on
+private repositories and stops silently when they run out — a poor foundation
+for the one job that keeps the app alive. `docs/CI.md` covers that move and
+what replaced the rest of CI.
 
 ---
 

@@ -15,7 +15,8 @@
     "db:bundle": "node scripts/build-setup.mjs",
     "db:test": "./supabase/tests/run.sh",
     "mcp": "tsx mcp/stdio.ts",
-    "mcp:doctor": "node scripts/mcp-doctor.mjs"
+    "mcp:doctor": "node scripts/mcp-doctor.mjs",
+    "verify": "node scripts/verify.mjs"
   },
   "license": "MIT",
   "private": true,

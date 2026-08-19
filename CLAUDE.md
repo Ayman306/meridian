@@ -64,7 +64,12 @@ npm run db:test     # migrations + RLS assertions against a scratch Postgres
 npm run db:bundle   # regenerate supabase/setup.sql
 node scripts/build-icons.mjs  # regenerate the PWA icon set from one SVG
 npm run build
+npm run verify   # everything CI used to run, locally — see docs/CI.md
+node scripts/install-hooks.mjs  # run verify before every push
 ```
+
+CI runs on pull requests only. Actions bills minutes on private repos, so
+`npm run verify` is the real gate — see `docs/CI.md`.
 
 ## Branch
 

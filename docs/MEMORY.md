@@ -1928,6 +1928,45 @@ The id deleted comes from the verified session and never from the request body.
 A handler that accepted a user id would be an authenticated user's ability to
 delete anybody, which is the worst bug that file could have.
 
+### D114 — CI moved off GitHub Actions, and the keep-alive moved first
+
+Actions bills minutes on private repositories, and when the allowance is gone
+workflows do not queue or warn — they never start. Two things depended on it,
+and only one was urgent.
+
+**The keep-alive was the urgent one.** A free Supabase project pauses after
+about seven days idle, silently. That ping is the single thing standing between
+a trip planned in March and a dead app in June, and it was resting on a quota
+that can run out without a notification. It is now a Vercel cron in
+`vercel.json`, hitting the same `/api/health` — which calls the `health()` RPC,
+so it wakes Postgres rather than only proving Next is up. Hobby fires it daily
+rather than every two days, which is still comfortably inside the window, and
+Vercel invokes its own crons internally so Deployment Protection cannot 401 it
+the way it could the Action.
+
+**CI became `npm run verify`.** The same six steps in the same order, stopping
+at the first failure. It is arguably better placed than CI was: it fails on the
+machine that made the mistake, before the push, rather than five minutes later
+in a tab already closed. `scripts/install-hooks.mjs` wires it to `pre-push`,
+opt-in — a postinstall that writes into `.git` unasked is how a repo loses
+somebody's trust.
+
+The one step that can be skipped rather than failed is `db:test`, which needs a
+local Postgres. It is reported loudly and counted separately, never folded into
+the passes, because the RLS assertions are the checks most worth having and a
+skip is not a pass.
+
+**And a real bug found on the way.** `ci.yml` triggered on `push: ['**']` *and*
+`pull_request`, so every push to a branch with a PR open ran the entire suite
+twice — the check-run list on PR #18 shows two of each job. Half the minutes
+this project has ever spent bought nothing. Fixed to pull requests plus main,
+with `cancel-in-progress` so a second push supersedes the first rather than
+leaving three runs going that nobody will read.
+
+Two escape routes are documented rather than taken, because both are the
+owner's call: Actions is free and unlimited on public repositories, and
+self-hosted runners are not billed even on private ones.
+
 ---
 
 ## Deviations from the spec
