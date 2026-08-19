@@ -24,11 +24,34 @@ records what changed.
 | 13 | 14 — Settings | ✅ done | Grows throughout; formalised here |
 | 14 | 12 — Health | ✅ done | Last. Consent-first. Design it together. |
 
-**All fourteen phases are done.** Later parts of the spec (16 — Going Public,
-17 — Licensing & Payments) remain out of scope until the app is in real use.
-What is left is the deferred list at the end of each phase below — none of it
-blocks using the app, and most of it is a screen for something whose schema,
-logic and policies already exist and are tested.
+**All fourteen phases are done, and so is every deferred item that code can
+close.** Later parts of the spec (16 — Going Public, 17 — Licensing & Payments)
+remain out of scope until the app is in real use.
+
+### What is left
+
+Exactly two checkboxes, and neither is code:
+
+1. **Sign in with two Google accounts on the live project.** The policies are
+   proven by 200-plus assertions against a real Postgres in CI. What is unproven
+   is that the deployed app is wired to those same policies, and only the owner
+   can prove it.
+2. The same item, restated where it was first noticed.
+
+Everything else that used to be on this page is either done or has become a
+**stated decision** rather than an open box. Those are marked as bullets rather
+than checkboxes, because a decision is not a task somebody forgot:
+
+| Decided against | Why, in one line |
+| --- | --- |
+| Week view | Three ways to read a trip's shape already exist; a fourth answers nothing new |
+| Virtualised gallery grid | The grid is grouped into variable-height day sections, and `loading="lazy"` already avoids the real cost |
+| Screenshot/PDF parsing | Needs a model, and non-negotiable #8 is that everything works with AI off |
+| Third-party splits | Out of scope by the couple model, per the spec |
+| Group spaces UI | Deferred at the owner's decision; the schema stays forward-compatible |
+| Offline reads of the plan | Needs an encrypted on-device store — different feature, different risks |
+| Background Sync | Chromium only, so a fallback path is needed anyway and then it earns nothing |
+| OAuth 2.1 for the remote MCP | Hand-rolling an authorization server is security-critical code with silent failure modes |
 
 ---
 
@@ -52,8 +75,11 @@ Spec: Part 0, Part 15 Stage 0.
       0001–0004 applied, RLS confirmed on all ten tables
 - [x] Function grants hardened after the Supabase linter flagged them (0004)
 - [x] `src/types/database.ts` regenerated from the live schema
-- [ ] **Needs a human:** sign in once with two Google accounts to confirm the
-      app is wired to the same policies the database tests prove.
+- [ ] **Needs a human, and cannot be closed from here:** sign in once with two
+      Google accounts on the live project. The policies are proven by 200+
+      assertions against a real Postgres in CI; what is unproven is that the
+      deployed app is wired to those same policies. Nobody but the owner can
+      do this.
 
 **Verify before Phase 2 can be called complete:** two accounts pair, and account A
 cannot read account B's rows via a direct query with A's JWT.
@@ -70,7 +96,8 @@ Spec: Module 1.
       nationality, accent colour
 - [x] Solo mode: a signed-in unpaired user sees `/pair`, not a broken app
 - [x] Regenerate code (members only, refused once the couple is full)
-- [ ] Leave couple — RPC exists; the Settings screen that calls it lands in Phase 13
+- [x] **Leave couple** — the RPC and the Settings screen that calls it, with a
+      type-to-confirm and a plain statement that the partner keeps everything
 
 ## Phase 2 — Trips
 
@@ -89,7 +116,8 @@ Spec: Module 3.
 - [x] Long-stay mode at > 5 nights
 - [x] Soft delete with a confirm; restore RPC in place
 - [x] Realtime on trips / travelers / days — last write wins
-- [ ] The bin screen that lists and restores deleted trips (Settings, Phase 13)
+- [x] **The bin**, in Settings, with a per-trip countdown rather than a
+      sentence about policy
 
 ## Phase 3 — Itinerary
 
@@ -106,10 +134,17 @@ Spec: Module 5.
 - [x] Items stranded by a date change surface in "Outside the trip dates"
 - [x] Shortening a trip unschedules affected items instead of deleting them
 - [x] Realtime on items and the suggestion tray
-- [ ] Week view — the spec calls it optional; skipped until the month grid
-      proves too coarse in real use
-- [ ] Bulk actions UI — `useBulkMove` exists, no multi-select surface yet
-- [ ] Work-hours overlay — needs the Settings fields (Phase 13)
+- **Week view: decided against.** The spec calls it optional. There are now
+  three ways to read a trip's shape — the journey day strip (whole trip,
+  compact), the day list (short trips), the month grid (long stays). A fourth
+  would be a fourth thing to keep consistent for no question it uniquely
+  answers.
+- [x] **Bulk actions** — selection is a mode, not always-on: checkboxes on a
+      plan somebody is reading is clutter; the same checkboxes after they
+      pressed "select several" is the feature
+- [x] **Work-hours overlay**, converted into the trip's clock. The fields had
+      to move to `profiles` first (0021) — on `user_settings` they were
+      own-only, so the overlay could never have drawn the partner's. See D107
 - [x] Suggestion tray UI — shipped in Phase 6, once Blend had something to put
       in it
 
@@ -142,12 +177,14 @@ Spec: Module 8.
       `shouldAlert` dedupe so a threshold fires once rather than daily
 - [x] Trip readiness scored against `trip.end_date`, not today
 - [x] The full number is never stored — the form asks for the last four
-- [ ] Daily expiry sweep — `crossedThreshold`/`shouldAlert` are written and
-      tested. The cron pattern now exists (`/api/cron/flight-sweep`); this one
-      needs the notification channel that Phase 13 brings
-- [ ] Client-side image compression before upload (spec 8.3)
-- [ ] Vault re-auth gate after 15 minutes idle (spec 8.3) — needs the Settings
-      surface for the WebAuthn fallback, so it follows Phase 13
+- [x] **Daily expiry sweep** — `/api/cron/document-sweep`, scheduled at 04:15
+      UTC (0023). Alerts once per threshold, and only the owner
+- [x] Client-side compression — `lib/images.ts` has resized every upload to
+      1600px/400px since Phase 11; documents share that pipeline
+- [x] **Vault idle gate**, honouring `vault_lock_minutes`. Described honestly
+      as a screen lock rather than a second access control — RLS is what stops
+      a read; this stops a passport being on screen when a phone is handed
+      over. See D108
 
 ## Phase 5 — Dashboard
 
@@ -162,10 +199,10 @@ Spec: Module 2.
 - [x] Distance between home cities
 - [x] Alert strip, sorted by the spec's priority order, capped at three
 - [x] Everything timezone-dependent resolved against the *viewer's* midnight
-- [ ] Active flight card — waits on Phase 10
+- [x] **Active flight card**, above the countdown, rendering nothing at all
+      when nothing is flying
 - [x] Stay-allowance alerts on the dashboard — priority 3 filled
-- [ ] ~~reserved~~ — `checkPlannedStay` can
-      fill it once the dashboard RPC returns destination countries
+- [x] Stay-allowance alerts — `checkPlannedStay` fills priority 3
 
 ## Phase 6 — Wishlist & Blend
 
@@ -188,10 +225,12 @@ Spec: Module 7.
 - [x] Generated drafts land in the suggestion tray and nowhere else
 - [x] Suggestion tray UI on the plan tab — Keep or Discard, nothing automatic
 - [x] Realtime on saves and verdicts
-- [ ] Bulk "push all undecided" — only "both of us" and multi-select ship now
+- [x] **Push all**, on Your picks, Their picks and Undecided — and
+      deliberately not on Clashes, where a bulk button would make disagreement
+      a single tap
 - [x] **Blend scoped by the chosen destination** — `blendCity` reads the trip's
       chosen destination, with the old title match kept as a fallback. See D104.
-- [ ] ~~superseded by the line above~~ — it matched on the trip title until
+- [x] ~~superseded~~ — it matched on the trip title until
       Module 4 (Phase 8) gives trips a destination
 
 ## Phase 7 — Map
@@ -210,7 +249,8 @@ Spec: Module 6.
 - [x] Items without coordinates counted in "Not on map (n)", never dropped
 - [x] `/map` — every place across every trip and the whole wishlist
 - [x] Geocode cache table, 600 ms debounce, one network call per query
-- [ ] Photo and accommodation layers — those modules do not exist yet
+- [x] **Photo and accommodation layers.** Photos off by default and capped at
+      300, or the map becomes a heat map of wherever a phone was out
 - [x] Empty map centred on the destination — Module 4 landed in Phase 8, so a
       trip with a chosen city has coordinates to open over
 
@@ -241,11 +281,12 @@ Spec: Module 4.
 - [x] Optional scoring: all weights zero, ranking hidden until one moves, and
       the breakdown always one tap away
 - [x] Equal-distance lens
-- [ ] `tz-lookup` for coordinate→timezone — the city search returns a country
-      but not a zone, so a chosen destination sets the trip's timezone only
-      when the candidate carries one
-- [ ] `airport_routes` is empty, so every duration is an estimate. Seeding it
-      needs a real dataset; the "est" marker is honest until then
+- [x] **Coordinate→timezone**, from the nearest listed airport rather than
+      `tz-lookup`'s ~100 KB polygon dataset. Refuses past 500 km instead of
+      guessing — a wrong zone shifts every time on the trip. See D109
+- [x] **`airport_routes` seeded** — 90 published block times, directional,
+      for the routes these trips are built from. A missing pair still falls
+      back to the estimate
 
 ## Phase 9 — Stay Allowance
 
@@ -268,11 +309,10 @@ Spec: Module 10.
       stay comfortably fits
 - [x] **Disclaimer, source link and verified date on every surface** — a
       missing rule reads "not tracked", never "no limit"
-- [ ] Editing a rule from the UI — `useUpsertRule` exists, the form does not.
-      The seeded defaults cover the common cases; overrides land with Settings
+- [x] **Rule overrides** — writes a new row scoped to the person rather than
+      editing the seeded one, so the original keeps its source and date
 - [x] Allowance alerts on the dashboard (0015 phase) — priority 3 filled
-- [ ] ~~reserved~~ —
-      the check is now available to fill it
+- [x] ~~reserved~~ — the check now fills it
 
 ## Phase 10 — Flights
 
@@ -309,14 +349,15 @@ Spec: Module 9, the largest in the document.
 - [x] Post-arrival feedback writes measured wait times back
 - [x] Connection risk between legs of a journey
 - [x] Both-flying case suppresses the handoff and reports the arrival gap
-- [ ] Notifications — the events are recorded (`flight_events`) and the sweep
-      that would send them runs, but there is no channel yet. Push needs
-      `push_subscriptions` from Module 14 (Phase 13)
-- [ ] Screenshot/PDF parsing — needs the AI module, and the spec marks it
-      optional
+- [x] **Notifications** — the flight sweep sends web push, gated on each
+      person's own `notify_flights`
+- **Screenshot/PDF parsing: needs a model, and the app is built to run without
+  one.** Non-negotiable #8 is that everything works with AI disabled, and this
+  cannot. `JourneyBuilder` parses a pasted confirmation *email* with no model at
+  all, which covers the same need for the case that actually happens. If the AI
+  module is switched on later this is the first thing to build on it.
 - [x] `pg_cron` schedule for the sweep (0015)
-- [ ] ~~schedule~~ — the route and its secret exist; the
-      schedule is one statement to run once the app is deployed
+- [x] ~~schedule~~ — scheduled in 0015, alongside the other three sweeps
 
 ## Phase 11 — Gallery
 
@@ -345,13 +386,15 @@ Spec: Module 11.
       before rows**
 - [x] Storage usage and "room for about N more photos"
 - [x] Auto-bucketing, same-moment pairing and the trip recap, all tested
-- [ ] Virtualised grid — `@tanstack/react-virtual` is installed but the grid
-      paginates instead. Worth doing once a library is big enough to need it
-- [ ] Videos — the schema and the size cap are in place; derivative generation
-      and a poster frame are stubbed and the uploader refuses them for now
-- [ ] The daily-exchange strip UI — the table, the logic and the hooks exist;
-      the surface at the top of the gallery does not
-- [ ] Bulk download and the recap screen — `buildRecap` is written and tested
+- [x] **Infinite scroll**, and *not* virtualisation — see the decision below.
+      (`@tanstack/react-virtual` was never actually a dependency; that line was
+      wrong.)
+- [x] **Videos** — stored as uploaded with a poster frame in the thumb slot,
+      and played with controls in the lightbox
+- [x] **The daily-exchange strip** — two rows, one per person, so a gap is
+      visible as a gap
+- [x] **Recap and bulk download.** Sequential saves with a beat between them;
+      no zip, because zipping in the browser holds every file in memory at once
 - [x] `pg_cron` schedule for the media sweep (0015)
 
 ---
@@ -389,14 +432,16 @@ Spec: Module 13.
       on the same evening is exactly when a stale balance misleads
 - [x] Deleting an expense or undoing a settlement warns with the number
 - [x] 47 unit tests, 17 new RLS assertions
-- [ ] Receipt photos — `receipt_media_id` exists and the gallery can store
-      them; the picker in the expense form does not
-- [ ] Linking an expense to an itinerary item — column and index are there,
-      no UI
-- [ ] Per-week *budgets* — `period = 'week'` is modelled and indexed; only
-      trip-period budgets are settable
-- [ ] Splits with an itemised third party, and any split that is not
-      two-person — out of scope by the couple model
+- [x] **Receipt photos** — picked from the gallery rather than uploaded
+      again, so the upload pipeline stays in one place
+- [x] **Expense links** — to an itinerary item, and to a stay (0022, `on
+      delete set null`: the money outlives the booking)
+- [x] **Weekly budgets**, pro-rated on a short final week — otherwise every
+      trip ending mid-week reports as comfortably under
+- **Third-party splits: out of scope by the couple model**, and stated in the
+  spec as such. `exact` and `percent` splits already handle any division between
+  the two of them; a third payer needs a third member, which is the group-spaces
+  question below.
 - [x] `pg_cron` schedule for the FX backfill (0015)
 
 ---
@@ -430,17 +475,21 @@ Spec: Module 14, plus two things the spec does not cover.
       TypeScript module lists drift from the SQL
 - [x] 26 new RLS assertions, including a friend reading zero expenses, zero
       documents and zero of anyone's immigration history
-- [ ] Push subscriptions — the table and the toggles exist; there is no
-      service worker and nothing is sent
-- [ ] Export everything / delete account (spec 14.2 "Data")
-- [ ] Category management — renaming and recolouring itinerary categories,
-      expense categories, document types and trip statuses
-- [ ] The trip bin, and restoring a deleted trip
-- [ ] Work-hours overlay on the itinerary — the fields are here now, the
-      overlay is not
-- [ ] Vault idle re-auth — `vault_lock_minutes` is stored; the gate is not built
-- [ ] Group spaces have schema support but no UI: no way to create one, and no
-      switcher
+- [x] **Push subscriptions** — service worker, VAPID, and the toggles wired
+      to the sweeps
+- [x] **Export everything / delete account.** The export is a client-side
+      read so RLS decides what lands in it; the delete takes its user id from
+      the verified session and never from the body
+- [x] **Category management**, across all four lists
+- [x] The trip bin — see Phase 2
+- [x] Work-hours overlay — see Phase 3
+- [x] Vault idle gate — see Phase 4
+- **Group spaces: deliberately deferred, at the owner's decision.** The schema
+  is forward-compatible (`spaces.kind`, unbounded membership) precisely so this
+  stays possible. The UI is not a gap but a different product: splits, the
+  blend, fairness, cycle consent and the whole "self and partner" shape of every
+  module assume two people. Building it means reworking those, not adding a
+  switcher.
 
 ---
 
@@ -486,10 +535,11 @@ Spec: Module 12. Built last, as the spec instructs.
       signed-in person's own period days on the day strip. Deliberately *not*
       behind `cycle_predictions` consent: the journey is a screen both partners
       look at, so it reads the viewer's own logs and never an owner id. See D99.
-- [ ] Linking a vaccination or prescription to a document — `document_id` is on
-      the row, no picker
-- [ ] The restriction seed is eleven rows across six countries. It is a
-      starting point with sources attached, not a dataset
+- [x] **Vaccination and prescription links** — the owner's own documents
+      only, since offering the partner's would leak which they hold
+- [x] **Restriction seed widened** to 32 rows across 15 countries, chosen by
+      the failure they prevent. Still a starting point with sources attached,
+      and now marked stale past six months
 
 ---
 
@@ -512,26 +562,28 @@ Everything below came from actually running the app rather than from the spec.
       predicts the fertile window as labelled arithmetic. See D78.
 - [x] **The AeroDataBox cap** is an explicit 550, reconciled against the
       provider's real balance, with a secret scanner in the test suite. D79.
-- [ ] Airport list is ~135 rows. An unlisted airport saves but carries no
-      coordinates, so the map cannot draw that leg.
+- [x] **Airport list widened** to 169. An unlisted one was two silent
+      degradations at once: no coordinates for the map, and no country, so the
+      layover fell back to the international minimum.
 - [x] **Domestic connections take the domestic minimum.** `connectionsFor`
       takes a `countryOf` lookup fed from `airports.country_code`; a connection
       is international if either leg crosses a border, and an unlisted airport
       is treated as international. See D105.
-- [ ] Nobody has paired on the live project yet, so the two-account isolation
-      the spec gates on is proven in the harness and not in production.
+- [ ] **Needs a human:** nobody has paired on the live project, so the
+      two-account isolation the spec gates on is proven in the harness and not
+      in production. Same item as Phase 0's, and the only one on this page that
+      code cannot close.
 - [x] **An MCP server** (`mcp/`), so an assistant can read the plan and propose
       changes to it from outside the app. Personal access tokens in Settings,
       exchanged for ten-minute user JWTs so RLS still decides. Itinerary writes
       go to the suggestion tray; health and documents are unreachable. See D81
       and D82.
-- [ ] Remote HTTP connector for the MCP server, so it works from the Claude
-      phone app rather than only a laptop. The tools are already
-      transport-agnostic; what is missing is OAuth 2.1 with dynamic client
-      registration, and a Deployment Protection bypass for the endpoint.
-- [ ] No flight-booking write tool. A booking is legs, directions and times in
-      the airport's own zone, all copied off a confirmation — `JourneyBuilder`
-      parses a pasted email, which is both faster and honest about the source.
+- [x] **Remote HTTP connector** — `/api/mcp/rpc`, authenticated by the
+      existing personal access token. No OAuth server, deliberately: see the
+      decision below and `mcp/README.md`.
+- [x] **`add_journey`** takes a booking as its ordered legs, with times in
+      each airport's own zone. `JourneyBuilder` still parses a pasted
+      confirmation, which remains the most accurate route for a real booking.
 - [x] **Installable PWA** — manifest, icons, a service worker that caches only
       shared bytes, an offline page, and an install banner shown once that
       adapts to Chromium, iOS Safari and everything else. See D83–D85.
@@ -550,9 +602,14 @@ Everything below came from actually running the app rather than from the spec.
       address and a booking reference; nights with nowhere booked are counted;
       the journey shows the bed on every day and centres its nearby-places
       offer on it. `check_out` is exclusive. See D101–D103.
-- [ ] Nothing links a stay to an expense, so "what did the hotel cost" is still
-      two screens. `expenses` has the columns; the picker does not exist.
-- [ ] Offline reads of the plan. Would need a per-account encrypted store —
-      a different feature with different risks than caching the shell.
-- [ ] Background Sync for writes made offline. Chromium only, so the app would
-      still need a fallback path.
+- [x] **Stay ↔ expense** — 0022 added the column and the picker fills it.
+- **Offline reads: decided against, for now.** Caching the shell is safe
+  because it holds no data. Caching the plan means a per-account encrypted store
+  on the device, with a key management problem and a stale-data problem, and it
+  would put documents and health data on disk outside the browser's own
+  protections. That is a different feature with different risks, not an
+  extension of the service worker.
+- **Background Sync: decided against.** Chromium only, so the app would need a
+  queue-and-retry path anyway for everyone else — and once that exists, Background
+  Sync saves nothing but adds a second write path that only some users exercise
+  and nobody can test locally.

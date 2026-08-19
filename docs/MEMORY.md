@@ -12,12 +12,12 @@ work up next — including a future session with no memory of this one.
 
 | | |
 | --- | --- |
-| Phase | **All 14 done. Sweeps scheduled.** |
-| Next | Two operator steps below, then use it. The rest is the deferred list in `PHASES.md`. |
+| Phase | **All 14 done, and every deferred item that code can close.** |
+| Next | Two operator steps below, then use it. `PHASES.md` now has exactly two open boxes and both need a human, not a commit. |
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0020, live |
+| Migrations applied | 0001–0025, live |
 | Deployed | Vercel, `meridian-ay-za.vercel.app` |
 
 ### What runs today
@@ -1793,6 +1793,140 @@ Two things it deliberately does not do. Nothing re-checks anything — the rule
 may well still be correct, and what changes is only how much weight a reader
 puts on it. And a *missing* `verified_on` is not stale: it was never claimed to
 be checked at all, so saying "6 months old" about it would be inventing a fact.
+
+### D107 — Work hours were on the wrong table, so the overlay could not work
+
+The work-day overlay exists so neither of them plans a lunch through the
+other's stand-up. That requires reading the **partner's** hours, and the columns
+were on `user_settings`, whose policy is `user_id = auth.uid()` and nothing
+else. So the feature could only ever have drawn your own hours — the one case
+where you do not need to be told.
+
+Widening that policy would hand a partner the whole settings row, including
+notification toggles and the vault timeout. Instead the two columns moved to
+`profiles` (0021), which is already couple-readable and is exactly where
+facts-about-a-person-the-other-one-needs already live: timezone, home city,
+nationality. Work hours are that class of fact.
+
+`workBand` then does the conversion the feature actually needed. Work hours are
+wall-clock in the person's **own** zone; the itinerary is wall-clock in the
+**trip's**. Someone working 09:00–17:00 in Toronto is unavailable 14:00–22:00 on
+a Lisbon trip, and drawing the Toronto times would tell their partner the
+afternoon was free when it is the one part that is not. Offsets are read per
+date so a band spanning a DST change lands where it is, and a day spilling past
+midnight is clipped rather than wrapped — a bar that restarts at the top of the
+same day reads as two shifts.
+
+### D108 — The vault lock says what it is, which is less than it looks like
+
+`vault_lock_minutes` was stored from Phase 13 and enforced by nothing: a setting
+that quietly did nothing, which is worse than not offering it, because somebody
+set it to five and believed it.
+
+The gate is now real, and the copy is careful. It is a **screen lock, not an
+access control.** RLS is what stops anybody reading those rows; this stops a
+passport scan being on screen when a phone is handed over or left on a table.
+Saying so matters because a re-auth prompt implies a stronger guarantee than it
+gives — the data is already fetched, and anyone with the device and the
+browser's storage could reach it regardless.
+
+There is also no password to re-enter, because sign-in is Google OAuth. Asking
+for one would mean inventing a second credential to store, which is a worse
+position than the one being defended. So it clears the screen and needs a
+deliberate action to bring it back, which is the whole of what it can honestly
+offer. Signing out is offered alongside, and that one does end the session.
+
+### D109 — A timezone from the nearest airport, and a refusal past 500 km
+
+Choosing a destination sets the trip's timezone, and `choose_destination` can
+only copy what is on the candidate row — which the city search never fills in.
+So trips kept UTC and every itinerary time on them was read in the wrong zone.
+
+`tz-lookup` is the obvious fix and ships a ~100 KB polygon dataset. That is a
+poor trade in a PWA bundle for a lookup that happens once per trip. The airports
+table is already loaded, already carries IANA zones, and a city anybody flies to
+has an airport near it — which is the entire population of things this is asked
+about. Widening that table to 169 rows (0024) made it good enough.
+
+Past 500 km it returns null rather than guessing. The nearest airport is then
+likely across a zone boundary, and a wrong timezone silently shifts every time
+on the trip by an hour or more — far worse than an unset one, which the app
+already handles. Resolved in `addCandidate` so every path gets it including the
+MCP's, and backfilled on choose for rows added before it existed.
+
+### D110 — Not virtualising the gallery, and why the alternative was better
+
+The deferred list said `@tanstack/react-virtual` was installed and the grid
+should use it. Two things were wrong with that. The package was never actually a
+dependency, and virtualisation is the wrong tool here: the grid is grouped into
+day sections of varying height, which windowing libraries handle badly, and the
+real cost of an offscreen thumbnail is its decode — which `loading="lazy"`
+already avoids. Sixty DOM nodes per page is not what makes a gallery slow.
+
+What the "Load more" button actually cost was a tap every sixty photos. An
+IntersectionObserver removes that, and the button stays as the fallback so a
+browser without one cannot strand somebody halfway through a library.
+
+The general shape is worth keeping: a deferred item is a hypothesis about what
+would help, and it is worth re-deriving before implementing rather than treating
+the list as a specification.
+
+### D111 — Settings that did nothing are worse than settings that do not exist
+
+Three separate cases turned up in one sweep, all the same bug:
+`vault_lock_minutes` was stored and never enforced (D108); `work_hours_*` was
+editable and unreadable by the only person who needed it (D107); and
+`distance_unit` was on the settings screen while every distance in the app was
+rendered in kilometres regardless.
+
+Each is worse than the feature being absent, because a control that appears to
+work is one somebody relies on. `formatDistance` now takes a unit and
+`useDistanceUnit` supplies it, which is a small change whose value is entirely
+in the setting no longer lying.
+
+Worth generalising: a column added "for later" and a UI control wired to it are
+two different commitments, and shipping the second without the first is the
+failure mode this project produced three times.
+
+### D112 — Remote MCP without an authorization server, stated as a trade
+
+The remote-MCP specification describes OAuth 2.1 with dynamic client
+registration. `/api/mcp/rpc` takes the personal access token the app already
+issues, as a bearer credential, and does not implement one.
+
+Hand-rolling an authorization server — authorization codes, PKCE verification,
+client registration, refresh rotation — is a large amount of security-critical
+code whose failure modes are silent. Getting it subtly wrong is worse than not
+having it, and there is nobody here to review it. The PAT path already exists,
+is tested, is revocable from Settings, is scoped per module, and ends in the
+same ten-minute user JWT. Going over HTTP changes nothing about what a token can
+reach: RLS is the boundary either way.
+
+The token is re-verified on **every** call rather than exchanged for a session,
+which costs one indexed lookup and is the entire reason revoking a token takes
+effect immediately.
+
+The cost is real and is written down in `mcp/README.md` rather than papered
+over: a client that can only authenticate via OAuth cannot use this endpoint,
+and should use stdio.
+
+### D113 — Deleting an account does not delete the trip
+
+`/api/account/delete` erases the sign-in, the profile, and everything keyed on
+the person: cycle logs, health records, documents, tokens, subscriptions.
+Shared data survives — trips, itineraries, photos, expenses — and that is not an
+oversight.
+
+A trip belongs to the couple. Erasing it because one person left would delete
+the other person's memories along with their own, which is not a right either of
+them has. `leave_couple` already encodes exactly this, so the deletion runs it
+first, **as the user**, rather than inventing a second answer to the same
+question — running it with the service role would bypass the very logic that
+protects the partner's copy.
+
+The id deleted comes from the verified session and never from the request body.
+A handler that accepted a user id would be an authenticated user's ability to
+delete anybody, which is the worst bug that file could have.
 
 ---
 
