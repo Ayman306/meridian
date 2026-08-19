@@ -18,6 +18,7 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { EmptyState, ErrorState, SkeletonList } from '@/components/common/states'
 import { cn } from '@/lib/utils'
+import { useDocuments } from '@/modules/documents'
 import { formatDateOnly, todayIn } from '@/lib/dates'
 import { freshness } from '@/lib/advisory'
 import { useCouple } from '@/providers/CoupleProvider'
@@ -46,6 +47,9 @@ export function MedicationsPanel({
   const today = todayIn(tzSelf)
   const records = useHealthRecords(ownerId)
   const restrictions = useRestrictions(trip?.countryCode ?? null)
+  // Only this person's own documents — see the note beside the picker.
+  const documents = useDocuments()
+  const myDocuments = (documents.data ?? []).filter((doc) => doc.owner_id === ownerId)
   const add = useAddRecord()
   const remove = useDeleteRecord()
 
@@ -55,6 +59,7 @@ export function MedicationsPanel({
   const [dosage, setDosage] = useState('')
   const [perDay, setPerDay] = useState('')
   const [remaining, setRemaining] = useState('')
+  const [documentId, setDocumentId] = useState('')
 
   if (records.isLoading) return <SkeletonList rows={3} />
   if (records.error) return <ErrorState error={records.error} title="That did not load" />
@@ -216,6 +221,35 @@ export function MedicationsPanel({
               </>
             )}
 
+            {/* The certificate itself. `document_id` has been on the row since
+                Phase 14 with no picker, so a yellow fever card could sit in the
+                vault and the vaccination record beside it could not point at
+                it — which is the one moment you need both: at a border.
+
+                Only the owner's own documents are offered. A vaccination record
+                is owner-private, and letting it reference the partner's
+                paperwork would leak which documents they hold. */}
+            {(kind === 'vaccination' || kind === 'medication') && myDocuments.length > 0 && (
+              <div className="space-y-1">
+                <label htmlFor="record-document" className="text-sm">
+                  {kind === 'vaccination' ? 'Certificate' : 'Prescription'} in the vault
+                </label>
+                <select
+                  id="record-document"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  value={documentId}
+                  onChange={(e) => setDocumentId(e.target.value)}
+                >
+                  <option value="">Not linked</option>
+                  {myDocuments.map((doc) => (
+                    <option key={doc.id} value={doc.id}>
+                      {doc.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="flex gap-2">
               <Button
                 disabled={!label.trim() || add.isPending}
@@ -227,6 +261,7 @@ export function MedicationsPanel({
                       dosage: dosage.trim() || null,
                       doses_per_day: perDay ? Number(perDay) : null,
                       quantity_remaining: remaining ? Number(remaining) : null,
+                      document_id: documentId || null,
                     },
                     {
                       onSuccess: () => {
@@ -235,6 +270,7 @@ export function MedicationsPanel({
                         setDosage('')
                         setPerDay('')
                         setRemaining('')
+                        setDocumentId('')
                       },
                     },
                   )
