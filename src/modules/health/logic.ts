@@ -19,9 +19,18 @@
  * - **"Not checked" is never "safe."** A substance with no restriction row
  *   returns `null`, and the copy for that state says the check was not done.
  */
-import { addDaysTo, daysBetween, type DateOnly } from '@/lib/dates'
+import {
+  addDaysTo,
+  dateRange,
+  daysBetween,
+  parseDateOnly,
+  toDateOnly,
+  type DateOnly,
+} from '@/lib/dates'
 import type {
   CycleLog,
+  DayMark,
+  PredictedCycle,
   FertilityWindow,
   HealthRecord,
   MedicationRestriction,
@@ -415,4 +424,218 @@ export function showsCycle(profile: {
     return profile.tracks_cycle
   }
   return profile.gender === 'female'
+}
+
+// ---------------------------------------------------------------------------
+// The calendar: several cycles ahead, and what each day is
+// ---------------------------------------------------------------------------
+
+/** Used for the length of a projected period when nothing has been logged. */
+export const DEFAULT_PERIOD_DAYS = 5
+
+/** How far ahead the calendar will project. Beyond this the estimate is noise. */
+export const MAX_PROJECTED_CYCLES = 6
+
+/**
+ * How long a period lasts, averaged over the ones with an end date.
+ *
+ * Logs without `ended_on` are skipped rather than counted as one day — a
+ * period somebody has not finished recording is unknown, not short.
+ */
+export function averagePeriodDays(logs: CycleLog[]): number {
+  const lengths = logs.map(periodLength).filter((n): n is number => n !== null && n > 0)
+  if (lengths.length === 0) return DEFAULT_PERIOD_DAYS
+  return Math.max(1, Math.round(mean(lengths)))
+}
+
+/**
+ * The next several cycles.
+ *
+ * Each one is the previous start plus the average length, which is the only
+ * honest way to extend a single prediction — there is no extra information
+ * about cycle three that cycle one did not already contain.
+ *
+ * **The variance grows, and that is the point.** Cycle three's start is the sum
+ * of three cycle lengths, so its error is three errors compounded. For
+ * independent errors that is `spread * sqrt(n)`, not `spread`, and drawing
+ * cycle six with the same confidence as cycle one would be the calendar telling
+ * a lie it could easily avoid. Six is the cap for the same reason: past that
+ * the window is wider than the cycle and the drawing says nothing.
+ *
+ * Returns an empty array when there is no prediction to build on, because a
+ * projection anchored to nothing is worse than an empty calendar.
+ */
+export function predictCycles(
+  logs: CycleLog[],
+  count = 3,
+  now?: DateOnly,
+): PredictedCycle[] {
+  const prediction = predict(logs)
+  if (!prediction.available) return []
+
+  const fertility = predictFertility(prediction, logs)
+  const luteal = fertility?.lutealDays ?? DEFAULT_LUTEAL_DAYS
+  const periodDays = averagePeriodDays(logs)
+  const wanted = Math.min(Math.max(count, 1), MAX_PROJECTED_CYCLES)
+
+  const cycles: PredictedCycle[] = []
+
+  for (let i = 1; i <= wanted; i++) {
+    const start = addDaysTo(prediction.nextStart, prediction.averageLength * (i - 1))
+    // Compounded, not repeated. See the note above.
+    const variance = Math.round(prediction.variance * Math.sqrt(i))
+    const ovulation = addDaysTo(start, -luteal)
+
+    cycles.push({
+      index: i,
+      start,
+      periodEnd: addDaysTo(start, periodDays - 1),
+      earliest: addDaysTo(start, -variance),
+      latest: addDaysTo(start, variance),
+      ovulation,
+      fertileFrom: addDaysTo(ovulation, -FERTILE_BEFORE),
+      fertileTo: addDaysTo(ovulation, FERTILE_AFTER),
+      variance,
+      isEstimate: true,
+    })
+  }
+
+  // A projection that has already been overtaken by the calendar is not a
+  // projection. This happens whenever somebody stops logging for a while.
+  return now ? cycles.filter((c) => c.latest >= now) : cycles
+}
+
+const emptyMark = (): DayMark => ({
+  period: false,
+  periodStart: false,
+  predictedPeriod: false,
+  fertile: false,
+  ovulation: false,
+  ovulationObserved: false,
+  cycleIndex: null,
+})
+
+/**
+ * What every day between two dates is, as far as the calendar is concerned.
+ *
+ * Logged days are written after projected ones so that a fact always overwrites
+ * a guess on the same square. That ordering is the whole reason this is one
+ * function rather than the component checking four lists: a day that was both
+ * predicted and then actually logged must read as logged, and getting that
+ * backwards would show somebody a prediction for a period they already had.
+ */
+export function calendarMarks(
+  logs: CycleLog[],
+  cycles: PredictedCycle[],
+  from: DateOnly,
+  to: DateOnly,
+): Map<DateOnly, DayMark> {
+  const marks = new Map<DateOnly, DayMark>()
+  const at = (date: DateOnly): DayMark => {
+    const existing = marks.get(date)
+    if (existing) return existing
+    const fresh = emptyMark()
+    marks.set(date, fresh)
+    return fresh
+  }
+  const inRange = (date: DateOnly) => date >= from && date <= to
+
+  // Projections first, so a real log can overwrite them below.
+  for (const cycle of cycles) {
+    for (const day of dateRange(cycle.fertileFrom, cycle.fertileTo)) {
+      if (!inRange(day)) continue
+      const mark = at(day)
+      mark.fertile = true
+      mark.cycleIndex = cycle.index
+    }
+    if (inRange(cycle.ovulation)) {
+      const mark = at(cycle.ovulation)
+      mark.ovulation = true
+      mark.cycleIndex = cycle.index
+    }
+    for (const day of dateRange(cycle.start, cycle.periodEnd)) {
+      if (!inRange(day)) continue
+      const mark = at(day)
+      mark.predictedPeriod = true
+      mark.cycleIndex = cycle.index
+    }
+  }
+
+  for (const log of logs) {
+    for (const day of cycleDays(log)) {
+      if (!inRange(day)) continue
+      const mark = at(day)
+      mark.period = true
+      // A day that actually happened is not also a prediction.
+      mark.predictedPeriod = false
+      if (day === log.started_on) mark.periodStart = true
+    }
+    if (log.ovulation_on && inRange(log.ovulation_on)) {
+      const mark = at(log.ovulation_on)
+      mark.ovulationObserved = true
+      mark.ovulation = false
+    }
+  }
+
+  return marks
+}
+
+/**
+ * The squares of a month grid, including the neighbouring days that fill the
+ * first and last weeks.
+ *
+ * Those neighbours are returned rather than left blank because a period that
+ * straddles the end of a month should be visible on both, and a grid with
+ * holes in it reads as missing data.
+ */
+export function monthGrid(monthStart: DateOnly, weekStartsOn = 1): DateOnly[] {
+  const first = parseDateOnly(monthStart)
+  const year = first.getFullYear()
+  const month = first.getMonth()
+
+  const firstOfMonth = new Date(year, month, 1)
+  const lastOfMonth = new Date(year, month + 1, 0)
+
+  // How many days of the previous month are needed to reach the week's start.
+  const lead = (firstOfMonth.getDay() - weekStartsOn + 7) % 7
+  const gridStart = toDateOnly(new Date(year, month, 1 - lead))
+
+  const total = lead + lastOfMonth.getDate()
+  // Always whole weeks, so the grid is rectangular.
+  const cells = Math.ceil(total / 7) * 7
+
+  return Array.from({ length: cells }, (_, i) => addDaysTo(gridStart, i))
+}
+
+/** Shift a month reference by whole months, keeping the first of the month. */
+export function shiftMonth(monthStart: DateOnly, by: number): DateOnly {
+  const d = parseDateOnly(monthStart)
+  return toDateOnly(new Date(d.getFullYear(), d.getMonth() + by, 1))
+}
+
+/** The first of the month a date falls in. */
+export function monthOf(date: DateOnly): DateOnly {
+  const d = parseDateOnly(date)
+  return toDateOnly(new Date(d.getFullYear(), d.getMonth(), 1))
+}
+
+/**
+ * One line describing a projected cycle, carrying its own uncertainty.
+ *
+ * Separate from `describePrediction` because that one speaks about the single
+ * next cycle in the present tense. This one has to say *which* cycle it is,
+ * and a range rather than a day once the variance has grown past a few days.
+ */
+export function describeProjectedCycle(cycle: PredictedCycle): string {
+  const when =
+    cycle.variance > 3
+      ? `${cycle.earliest} to ${cycle.latest}`
+      : cycle.variance === 0
+        ? // Every logged gap was identical. "Give or take 0 days" reads as a
+          // guarantee, which no estimate from six data points is.
+          `around ${cycle.start}`
+        : `around ${cycle.start}, give or take ${cycle.variance} ${cycle.variance === 1 ? 'day' : 'days'}`
+
+  const ordinal = cycle.index === 1 ? 'Next' : `${cycle.index} cycles ahead`
+  return `${ordinal}: ${when}. Fertile window ${cycle.fertileFrom} to ${cycle.fertileTo}, ovulation near ${cycle.ovulation}.`
 }

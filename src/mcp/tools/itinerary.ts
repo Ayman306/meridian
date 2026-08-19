@@ -1,24 +1,36 @@
 /**
- * Reading the plan, and proposing changes to it.
+ * Reading the plan, and changing it.
  *
- * The asymmetry here is the point and is not negotiable (spec Part 15, #5).
- * Reads are direct. Writes are not: `suggest_itinerary` puts a draft in the
- * suggestion tray and stops. Somebody opens the app, looks at it, and presses
- * accept — and only then does `acceptSuggestion` turn it into real items.
+ * Two kinds of write live here, and the line between them is the whole point
+ * (spec Part 15, #5).
  *
- * It would be one line to insert into `itinerary_items` from here. The reason
- * not to is that this is a plan two people share. An assistant that quietly
- * rewrites it produces a trip nobody agreed to, and the person who did not ask
- * for the change finds out by discovering their evening has moved. The tray
- * costs one tap and makes every generated change something a human said yes to.
+ * **Generated plans go to the tray.** `suggest_itinerary` writes a draft to
+ * `suggestion_tray` and stops. Somebody opens the app, looks at it, and presses
+ * accept — and only then does `acceptSuggestion` turn it into real items. It
+ * would be one line to insert directly instead. The reason not to is that this
+ * is a plan two people share: an assistant that invents a week and writes it in
+ * produces a trip nobody agreed to, and the person who did not ask finds out by
+ * discovering their evening has moved.
  *
- * The tool description tells the model this explicitly, because a model that
- * believes it wrote to the plan will report back that the plan was updated —
- * and that would be a lie the person only catches later.
+ * **Dictated items are written directly.** "Put dinner at Cafe Younes on the
+ * Tuesday" is not generated content — it is one thing the person has already
+ * decided, and routing their own sentence through a review queue is ceremony
+ * rather than safety. So `add_itinerary_item`, `update_itinerary_item` and
+ * `remove_itinerary_item` write straight through.
+ *
+ * The test that keeps these honest is not "does it insert" — it is which tool
+ * does. `suggest_itinerary` must never touch `itinerary_items`, and a caller
+ * looping `add_itinerary_item` to build a day has evaded the rule rather than
+ * followed it, which is why its description says so in as many words.
+ *
+ * `suggest_itinerary` also tells the model, explicitly, that the plan was not
+ * changed — because a model that believes it wrote will report that it did, and
+ * the person only catches that later.
  */
 import { z } from 'zod'
+import { keyBetween } from '@/lib/fractional'
+import type { Json, UpdateDto } from '@/types/database'
 import type { TrayDraft, TrayDraftDay } from '@/types/domain'
-import type { Json } from '@/types/database'
 import { defineTool, requireCouple } from './types'
 import type { AnyTool } from './types'
 
@@ -186,4 +198,201 @@ const suggestItinerary = defineTool({
   },
 })
 
-export const itineraryTools: AnyTool[] = [getItinerary, suggestItinerary]
+
+
+/**
+ * Adding one item directly, which is not a contradiction of the tray rule.
+ *
+ * Non-negotiable #5 is about *generated* content: a model that invents a
+ * week of plans and writes them into a shared itinerary produces a trip nobody
+ * agreed to. "Put dinner at Cafe Younes on the Tuesday" is not that — it is the
+ * person dictating one thing they have already decided, and routing their own
+ * sentence through a review queue is ceremony rather than safety.
+ *
+ * The line, then: bulk plans go to the tray via `suggest_itinerary`; single
+ * named items the person asked for are written here. If you find yourself
+ * calling this in a loop to build a day, that is `suggest_itinerary`.
+ */
+const addItineraryItem = defineTool({
+  name: 'add_itinerary_item',
+  module: 'trips',
+  title: 'Add one plan item',
+  description:
+    'Add a single item the person has actually asked for, directly to the itinerary. For a generated day-plan use suggest_itinerary instead, which goes to the review tray — do NOT call this repeatedly to build one out.',
+  readOnly: false,
+  inputSchema: z.object({
+    trip_id: z.string().uuid().describe('From list_trips.'),
+    title: z.string().min(1).describe('What it is.'),
+    scheduled_date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable()
+      .default(null)
+      .describe('YYYY-MM-DD, or omit to leave it unscheduled on the trip.'),
+    start_time: z
+      .string()
+      .regex(/^\d{2}:\d{2}$/)
+      .nullable()
+      .default(null)
+      .describe('HH:MM in the trip’s own local time. Needs a date — a time on no day means nothing.'),
+    end_time: z
+      .string()
+      .regex(/^\d{2}:\d{2}$/)
+      .nullable()
+      .default(null)
+      .describe('HH:MM in the trip’s local time, if it has a known finish.'),
+    place_name: z.string().nullable().default(null).describe('The venue, if there is one.'),
+    notes: z.string().nullable().default(null).describe('Anything worth knowing about it.'),
+    url: z.string().url().nullable().default(null).describe('A real link only. Never invent one.'),
+  }),
+  async handler(ctx, input) {
+    const coupleId = requireCouple(ctx)
+
+    if (input.start_time && !input.scheduled_date) {
+      // The database has a constraint for this; catching it here gives the
+      // model something it can act on instead of a Postgres error string.
+      return 'A time needs a date. Give scheduled_date as well, or leave the time off.'
+    }
+
+    const { data: trip, error: tripError } = await ctx.supabase
+      .from('trips')
+      .select('id, title')
+      .eq('id', input.trip_id)
+      .is('deleted_at', null)
+      .maybeSingle()
+    if (tripError) throw new Error(tripError.message)
+    if (!trip) return 'No trip with that id, or it is not one you can see. Nothing was added.'
+
+    // Appended after whatever is already there. One fractional key, so this is
+    // a single insert and never a rewrite of siblings.
+    const { data: last } = await ctx.supabase
+      .from('itinerary_items')
+      .select('sort_key')
+      .eq('trip_id', input.trip_id)
+      .is('deleted_at', null)
+      .order('sort_key', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const { data, error } = await ctx.supabase
+      .from('itinerary_items')
+      .insert({
+        couple_id: coupleId,
+        trip_id: input.trip_id,
+        title: input.title,
+        scheduled_date: input.scheduled_date,
+        start_time: input.start_time,
+        end_time: input.end_time,
+        place_name: input.place_name,
+        notes: input.notes,
+        url: input.url,
+        proposed_by: ctx.userId,
+        source: 'manual',
+        sort_key: keyBetween(last?.sort_key ?? null, null),
+      })
+      .select('id')
+      .single()
+    if (error) throw new Error(error.message)
+
+    const when = input.scheduled_date
+      ? `on ${input.scheduled_date}${input.start_time ? ` at ${input.start_time}` : ''}`
+      : 'with no date yet'
+    return `Added "${input.title}" to ${trip.title} ${when} (${data.id}).`
+  },
+})
+
+const updateItineraryItem = defineTool({
+  name: 'update_itinerary_item',
+  module: 'trips',
+  title: 'Change a plan item',
+  description:
+    'Edit or move one existing item — retitle it, move it to another day or time, or mark it booked or done. Only the fields you pass are touched. Get ids from get_itinerary.',
+  readOnly: false,
+  inputSchema: z.object({
+    item_id: z.string().uuid().describe('From get_itinerary.'),
+    title: z.string().min(1).nullable().default(null).describe('Rename it.'),
+    scheduled_date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable()
+      .default(null)
+      .describe('Move it to this day.'),
+    start_time: z
+      .string()
+      .regex(/^\d{2}:\d{2}$/)
+      .nullable()
+      .default(null)
+      .describe('HH:MM in the trip’s local time.'),
+    end_time: z
+      .string()
+      .regex(/^\d{2}:\d{2}$/)
+      .nullable()
+      .default(null)
+      .describe('HH:MM in the trip’s local time.'),
+    state: z
+      .enum(['idea', 'accepted', 'booked', 'done', 'skipped'])
+      .nullable()
+      .default(null)
+      .describe('Where it has got to. `booked` means paid for or reserved.'),
+    notes: z.string().nullable().default(null).describe('Replaces the existing note.'),
+  }),
+  async handler(ctx, input) {
+    requireCouple(ctx)
+
+    const patch: UpdateDto<'itinerary_items'> = {}
+    if (input.title !== null) patch.title = input.title
+    if (input.scheduled_date !== null) patch.scheduled_date = input.scheduled_date
+    if (input.start_time !== null) patch.start_time = input.start_time
+    if (input.end_time !== null) patch.end_time = input.end_time
+    if (input.state !== null) patch.state = input.state
+    if (input.notes !== null) patch.notes = input.notes
+    if (Object.keys(patch).length === 0) return 'Nothing to change — no fields were given.'
+
+    const { data, error } = await ctx.supabase
+      .from('itinerary_items')
+      .update(patch)
+      .eq('id', input.item_id)
+      .is('deleted_at', null)
+      .select('id, title')
+      .maybeSingle()
+    if (error) throw new Error(error.message)
+    if (!data) return 'No item with that id, or it is not one you can change.'
+
+    return `Updated "${data.title}": ${Object.keys(patch).join(', ')}.`
+  },
+})
+
+const removeItineraryItem = defineTool({
+  name: 'remove_itinerary_item',
+  module: 'trips',
+  title: 'Remove a plan item',
+  description:
+    'Take an item off the itinerary. It is soft-deleted, so it can be restored in the app for thirty days — nothing is destroyed here.',
+  readOnly: false,
+  inputSchema: z.object({
+    item_id: z.string().uuid().describe('From get_itinerary.'),
+  }),
+  async handler(ctx, input) {
+    requireCouple(ctx)
+
+    const { data, error } = await ctx.supabase
+      .from('itinerary_items')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', input.item_id)
+      .is('deleted_at', null)
+      .select('id, title')
+      .maybeSingle()
+    if (error) throw new Error(error.message)
+    if (!data) return 'No item with that id, or it was already removed.'
+
+    return `Removed "${data.title}". It is recoverable in the app for thirty days.`
+  },
+})
+
+export const itineraryTools: AnyTool[] = [
+  getItinerary,
+  suggestItinerary,
+  addItineraryItem,
+  updateItineraryItem,
+  removeItineraryItem,
+]

@@ -29,6 +29,7 @@ import {
   predictFertility,
 } from '../logic'
 import { useCycles, useDeleteCycle, useLogCycle, usePrediction, useUpdateCycle } from '../hooks'
+import { CycleCalendar } from './CycleCalendar'
 import type { Flow } from '../types'
 
 const FLOWS: Flow[] = ['light', 'medium', 'heavy']
@@ -63,6 +64,24 @@ export function CyclePanel({
 
   return (
     <div className="space-y-4">
+      {/* The calendar goes first. It answers "when am I due" at a glance, which
+          is the question this screen exists for; the cards below are the
+          detail somebody reads second. */}
+      <CycleCalendar
+        cycles={rows}
+        readOnly={readOnly}
+        onLogStart={(date) => log.mutate({ started_on: date, ended_on: null, flow: null })}
+        onSetEnd={(cycleLog, date) => update.mutate({ id: cycleLog.id, patch: { ended_on: date } })}
+        onSetOvulation={(cycleLog, date) =>
+          update.mutate({ id: cycleLog.id, patch: { ovulation_on: date } })
+        }
+        // Correcting a start edits the row rather than adding one. The
+        // projections downstream are derived, so they move on their own.
+        onSetStart={(cycleLog, date) =>
+          update.mutate({ id: cycleLog.id, patch: { started_on: date } })
+        }
+        onRemove={(cycleLog) => remove.mutate(cycleLog.id)}
+      />
       <Card className="space-y-2 p-5">
         <h3 className="text-sm font-medium">Next one</h3>
         <p className="text-sm text-muted-foreground">{describePrediction(prediction)}</p>

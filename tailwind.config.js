@@ -31,6 +31,12 @@ export default {
           DEFAULT: 'hsl(var(--accent))',
           foreground: 'hsl(var(--accent-foreground))',
         },
+        cycle: {
+          period: 'hsl(var(--cycle-period))',
+          'period-foreground': 'hsl(var(--cycle-period-foreground))',
+          fertile: 'hsl(var(--cycle-fertile))',
+          ovulation: 'hsl(var(--cycle-ovulation))',
+        },
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))',

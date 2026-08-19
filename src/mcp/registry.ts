@@ -7,24 +7,28 @@
  * wrap the same array. That is the whole reason the registry is separate from
  * the server.
  *
- * ## What is deliberately absent
+ * ## Sensitive modules are opt-in, not off-limits
  *
- * **Health.** There is no health tool and there is not going to be one by
- * accident — `FORBIDDEN_MODULES` refuses the module outright and a test asserts
- * no registered tool claims it. Cycle logs and medications are owner-private,
- * enforced in the database by consent rows that a partner has to be granted
- * explicitly (0014). Handing that to an assistant would route someone's medical
- * history through a model on the strength of a config file, and no plausible
- * travel question is worth it.
+ * Health and documents were refused outright in the first version of this
+ * server. They are now reachable, but only by a token whose owner ticked them
+ * deliberately, and never by default.
  *
- * **Documents.** Passport and visa numbers, behind signed URLs that expire in
- * five minutes. Same reasoning: an assistant that can read the vault is an
- * assistant that can be talked into reading it aloud.
+ * The reasoning for the change: a personal access token *is* its owner. RLS
+ * restricts every health read to `owner_id = auth.uid()`, and the health tools
+ * narrow it again in the query itself, so the only person whose cycle logs a
+ * token can reach is the person who created the token. Refusing that outright
+ * was not protecting a partner — it was overriding the owner's own choice about
+ * their own data.
  *
- * Both are `SENSITIVE_MODULES` in the settings module, which is where the
- * app-wide judgement about them already lives. Allowance is sensitive too, but
- * it is somebody's immigration history rather than a secret, so it is merely
- * off by default rather than refused — a token can be scoped to it on purpose.
+ * What genuinely changes when these are granted is that the data reaches an AI
+ * provider. That is a real decision with real consequences, so it is made
+ * explicitly, in Settings, next to a sentence that says so — rather than being
+ * quietly included in a default that nobody reads.
+ *
+ * Two properties still hold regardless of scope, and are asserted in the
+ * tests: a token can never reach the *other* person's health data, and
+ * documents expose metadata only — never a storage path, never a signed URL,
+ * never a document number.
  */
 import type { ModuleName } from '@/modules/settings/types'
 import { ALL_MODULES } from '@/modules/settings/logic'
@@ -34,18 +38,27 @@ import { itineraryTools } from './tools/itinerary'
 import { wishlistTools } from './tools/wishlist'
 import { budgetTools } from './tools/budget'
 import { flightTools } from './tools/flights'
+import { destinationTools } from './tools/destinations'
+import { allowanceTools } from './tools/allowance'
+import { healthTools } from './tools/health'
+import { documentTools } from './tools/documents'
+import { galleryTools } from './tools/gallery'
+import { trayTools } from './tools/tray'
+import { dashboardTools } from './tools/dashboard'
 
 /**
- * Modules no token may ever be scoped to, however the caller asks.
+ * Modules a token may reach only when its owner ticked them on purpose.
  *
- * Enforced here rather than only in the UI that mints tokens, because the UI is
- * one caller and this is the gate everything passes through.
+ * Kept out of the default scope rather than out of the system. Granting one
+ * means that module's data can travel to whatever model the token is plugged
+ * into, which is the owner's call to make and nobody else's — but it should
+ * never happen because somebody accepted a default.
  */
-export const FORBIDDEN_MODULES: ModuleName[] = ['health', 'documents']
+export const SENSITIVE_TOKEN_MODULES: ModuleName[] = ['health', 'documents']
 
-/** What a new token gets when nobody narrows it: everything not forbidden. */
+/** What a new token gets when nobody narrows it: everything but the sensitive. */
 export const DEFAULT_TOKEN_MODULES: ModuleName[] = ALL_MODULES.filter(
-  (m) => !FORBIDDEN_MODULES.includes(m),
+  (m) => !SENSITIVE_TOKEN_MODULES.includes(m),
 )
 
 export const ALL_TOOLS: AnyTool[] = [
@@ -54,27 +67,33 @@ export const ALL_TOOLS: AnyTool[] = [
   ...wishlistTools,
   ...budgetTools,
   ...flightTools,
+  ...destinationTools,
+  ...allowanceTools,
+  ...galleryTools,
+  ...trayTools,
+  ...dashboardTools,
+  // Sensitive. Present in the registry, but never in a default scope — see
+  // SENSITIVE_TOKEN_MODULES above.
+  ...healthTools,
+  ...documentTools,
 ]
 
-/** Modules that can be granted and would actually produce tools. */
-export const GRANTABLE_MODULES: ModuleName[] = ALL_MODULES.filter(
-  (m) => !FORBIDDEN_MODULES.includes(m) && ALL_TOOLS.some((tool) => tool.module === m),
+/** Every module that would actually produce tools, sensitive ones included. */
+export const GRANTABLE_MODULES: ModuleName[] = ALL_MODULES.filter((m) =>
+  ALL_TOOLS.some((tool) => tool.module === m),
 )
 
 /**
  * The tools a token may use.
  *
- * A forbidden module in the granted list is dropped rather than raising: tokens
- * outlive the code, and if a later migration ever wrote `health` into a row,
- * the correct behaviour is to quietly not offer health tools — not to break
- * every call the token makes.
+ * An unrecognised module in the granted list is dropped rather than raising:
+ * tokens outlive the code, and a row naming a module a later version removed
+ * should quietly offer nothing for it rather than break every call the token
+ * makes.
  */
 export function toolsFor(granted: readonly string[]): AnyTool[] {
   const allowed = new Set(
-    granted.filter(
-      (m): m is ModuleName =>
-        (ALL_MODULES as string[]).includes(m) && !(FORBIDDEN_MODULES as string[]).includes(m),
-    ),
+    granted.filter((m): m is ModuleName => (ALL_MODULES as string[]).includes(m)),
   )
   return ALL_TOOLS.filter((tool) => allowed.has(tool.module))
 }

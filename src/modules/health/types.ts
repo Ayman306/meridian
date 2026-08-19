@@ -71,3 +71,52 @@ export interface FertilityWindow {
 
 /** Whether the cycle section applies to this person. */
 export type CycleVisibility = 'shown' | 'hidden'
+
+/**
+ * One projected cycle. The calendar draws these; nothing is written to the
+ * database for them.
+ *
+ * `confidence` degrades as the projection reaches further out, because the
+ * error in cycle three is the error of three cycles compounded — see
+ * `predictCycles`.
+ */
+export interface PredictedCycle {
+  /** 1 is the next one, 2 the one after, and so on. */
+  index: number
+  start: DateOnly
+  /** Last day the period is expected to cover, from the average logged length. */
+  periodEnd: DateOnly
+  earliest: DateOnly
+  latest: DateOnly
+  ovulation: DateOnly
+  fertileFrom: DateOnly
+  fertileTo: DateOnly
+  /** Days either side. Grows with `index`. */
+  variance: number
+  /** Always true — none of these is a record of anything that happened. */
+  isEstimate: true
+}
+
+/**
+ * What one day on the calendar is.
+ *
+ * Every flag is independent because they genuinely overlap: a fertile day can
+ * also be the ovulation day, and a logged period day can sit inside a window
+ * that was predicted for a different week.
+ */
+export interface DayMark {
+  /** A period that was actually logged. */
+  period: boolean
+  /** First day of a logged period. */
+  periodStart: boolean
+  /** A projected period day. Never drawn the same as a logged one. */
+  predictedPeriod: boolean
+  /** Inside a projected fertile window. */
+  fertile: boolean
+  /** The projected ovulation day. */
+  ovulation: boolean
+  /** An ovulation the person recorded. Outranks a projection on the same day. */
+  ovulationObserved: boolean
+  /** Which projected cycle produced the marks, if any. */
+  cycleIndex: number | null
+}

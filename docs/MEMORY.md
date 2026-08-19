@@ -86,7 +86,7 @@ allowed.
 And 0015 made it run unattended: the three sweeps are on pg_cron, and the
 dashboard finally fills the stay-allowance slot it reserved back in phase 5.
 
-Typecheck, lint, 689 unit tests, 206 database assertions and a production build
+Typecheck, lint, 731 unit tests, 206 database assertions and a production build
 pass.
 
 ### The two operator steps left
@@ -1279,6 +1279,120 @@ Every message is tagged with the flight id, so three slips leave one
 notification showing the current answer rather than a history of the slippage.
 Endpoints returning 404 or 410 are deleted: the push service is saying that
 browser is gone, and retrying forever against it is the alternative.
+
+### D87 — The MCP server covers the app, and the tray rule got sharper
+
+The first cut was ten tools over five modules, mostly reads — against 175 api
+functions over fourteen. Trips could be listed but not created, the itinerary
+could be read but not edited, flights had no writes at all, and destinations,
+allowance, health and documents had nothing. Thirty tools over eight modules
+now.
+
+Expanding it forced the tray rule to be stated more precisely than "nothing
+auto-inserts". The rule was never about inserts — it is about *generated*
+content. A model that invents a week and writes it into a shared plan produces
+a trip nobody agreed to; "put dinner at Cafe Younes on the Tuesday" is one
+thing the person already decided, and routing their own sentence through a
+review queue is ceremony.
+
+So the invariant changed shape. It used to be "no tool inserts into
+`itinerary_items`". It is now two: only the itinerary module may write them at
+all, and **no direct-write trips tool may accept a list of items** — bulk means
+generated, and generated means the tray. `add_journey` still takes its legs as
+an array, because a connection is one booking and splitting it would let half a
+journey exist, which is why that invariant is scoped to the trips module rather
+than applied to every array anywhere.
+
+Two modules are read-only on purpose rather than unfinished. Allowance rules
+carry a `verified_on` date and a source URL because they change without notice,
+and a Schengen rule rewritten from a model's memory is the confident, plausible,
+wrong answer that gets somebody stopped at a border. Documents return metadata
+only — never `storage_path`, never a signed URL, never `number_last4`. Signed
+URLs live 300 seconds precisely so they cannot outlive the moment they were
+needed; minting one into a model's context defeats the mechanism entirely.
+
+### D88 — Health is the owner's to give, so it became opt-in rather than banned
+
+`FORBIDDEN_MODULES` hard-blocked health and documents. That was the right first
+move and the wrong permanent one, and the argument that changed it is simple: a
+personal access token *is* its owner. RLS restricts health to
+`owner_id = auth.uid()`, so the only person whose cycle logs a token can reach
+is the person who created the token. Refusing that was not protecting a partner
+— it was overriding somebody's choice about their own data.
+
+`SENSITIVE_TOKEN_MODULES` replaces it. Never in a default scope, always
+tickable, and the Settings copy says at the moment of ticking that the data will
+reach whichever AI service the token is plugged into — because that, not the
+database boundary, is what actually changes.
+
+Two guarantees got *stronger* in the process, and both are tested. Health
+queries pin `owner_id` to the caller in the query itself, not only through RLS:
+0014 lets a partner read a scope they were granted consent for, which is right
+in the app and wrong here, since consent was given so a person could look with
+their own eyes rather than so an assistant could sweep up what they were
+trusted with. And there is no health delete tool at all —
+`delete_all_health_data()` is irreversible by design, and a tool for it would
+put total erasure one hallucinated call away.
+
+### D89 — Complete coverage, and the one tool deliberately still missing
+
+Thirty-nine tools over nine modules — every module the app has. The last gaps
+closed were photos, the suggestion tray from the reading side, wishlist
+verdicts, budgets, and a `get_overview` that leans on the same `dashboard()`
+RPC the home screen uses, so the assistant and the screen cannot drift about
+what is next.
+
+**There is no accept tool, and there will not be one.** `list_suggestions`
+shows what is waiting and `dismiss_suggestion` clears one out, but accepting is
+absent on purpose. A server that could both write a draft and accept it has a
+direct write to the itinerary with two extra steps — which is worse than an
+honest direct write, because the result looks reviewed. Dismissing is fine: the
+worst case is a suggestion nobody wanted going away, and it changes no plan.
+
+Two more deliberate omissions, for the same family of reason. `vote_on_wishlist_item`
+always votes as the caller and takes no user id — two verdicts exist precisely
+because they are two people's, and one that could answer for both empties the
+feature. And photos return captions and dates but never `path_original` or a
+signed URL, on the same 300-second argument as documents.
+
+### D90 — The cycle is a calendar, and an estimate is drawn as an estimate
+
+The cycle screen was a list of dates and one sentence. It answered "when is the
+next one" in prose and nothing else — which is the wrong shape for a question
+whose answer is a set of days.
+
+Now a month grid. Four things are drawn and they are deliberately not
+interchangeable: a **logged** period is solid, a **projected** one is outlined
+and dashed, the fertile window is a wash behind the day, and ovulation is a dot
+— filled when she recorded it, hollow when the app worked it out.
+
+Solid versus dashed is carrying spec 12.7. On a calendar, "never render an
+estimate as a fact" is mostly a statement about borders: a filled square and an
+outlined one read as different kinds of claim before any legend is consulted,
+which is what a glance needs. `calendarMarks` writes projections first and logs
+second so a fact always overwrites a guess on the same square — a period logged
+where one was predicted must read as logged, and getting that ordering backwards
+would show somebody a prediction for a period they already had.
+
+**The variance grows with distance, which is the honest part.** Cycle three's
+start is three cycle lengths summed, so it carries three errors, not one. For
+independent errors that is `spread × √n`, and drawing cycle six as confidently
+as cycle one would be a lie the calendar could trivially avoid. Six is the cap
+for the same reason: past that the window is wider than the cycle and the
+drawing says nothing. Projections already overtaken by the calendar are dropped,
+so somebody who stopped logging does not open the app to a prediction for last
+spring.
+
+Editing lives on the calendar rather than in a separate form, because the
+calendar is where the mistake is noticed. Tapping the day a period actually
+started is more direct than finding a date field, and — the point — correcting a
+projection is the *same gesture* as logging a new one. A correction is not a
+special case; it is the truth arriving later. Everything downstream is derived,
+so a corrected start moves every estimate after it with no extra machinery.
+
+One wording fix worth recording: a perfectly regular logger produces a variance
+of zero, and "give or take 0 days" reads as a guarantee. No estimate from six
+data points is one, so the phrase is dropped rather than printed with a zero.
 
 ### D26 — Function EXECUTE was revoked from PUBLIC (migration 0004)
 

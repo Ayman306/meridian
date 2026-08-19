@@ -46,34 +46,76 @@ If you would rather not put the token in a config file, write it to
 
 ## What it can do
 
-| Tool | Module | Writes? |
+Thirty-nine tools across nine modules — every module the app has.
+
+| Module | Tools | Writes |
 | --- | --- | --- |
-| `list_trips`, `get_trip` | trips | no |
-| `get_itinerary` | trips | no |
-| `suggest_itinerary` | trips | **to the tray only** |
-| `list_wishlist` | wishlist | no |
-| `add_wishlist_item` | wishlist | yes |
-| `get_budget` | money | no |
-| `log_expense` | money | yes |
-| `list_flights` | flights | no |
+| **trips** | `get_overview`, `list_trips`, `get_trip`, `create_trip`, `update_trip`, `set_trip_day`, `get_itinerary`, `suggest_itinerary`, `add_itinerary_item`, `update_itinerary_item`, `remove_itinerary_item`, `list_suggestions`, `dismiss_suggestion` | 8 of 13 |
+| **money** | `get_budget`, `log_expense`, `list_settlements`, `record_settlement`, `set_budget`, `get_budgets` | 3 of 6 |
+| **flights** | `list_flights`, `add_journey`, `update_flight`, `remove_flight` | 3 of 4 |
+| **wishlist** | `list_wishlist`, `add_wishlist_item`, `vote_on_wishlist_item`, `remove_wishlist_item` | 3 of 4 |
+| **destinations** | `list_destinations`, `add_destination`, `choose_destination` | 2 of 3 |
+| **photos** | `list_photos`, `list_albums` | read-only |
+| **allowance** | `list_allowance_rules`, `list_entries` | read-only |
+| **health** *(opt-in)* | `list_cycles`, `log_cycle`, `list_health_records`, `add_health_record` | 2 of 4 |
+| **documents** *(opt-in)* | `list_documents` | read-only |
 
-### Nothing lands on an itinerary by itself
+Start with `get_overview` for open questions — it answers in one call what
+otherwise takes four.
 
-`suggest_itinerary` writes to the **suggestion tray**, not to the plan. It shows
-up in the trip for one of you to accept or dismiss, and only becomes real
-itinerary items when somebody presses accept. This is non-negotiable #5 in
-`CLAUDE.md`, and there is a test that fails if any tool ever inserts into
-`itinerary_items` directly.
+### A generated plan is not a dictated one
 
-The other two writes — a wishlist save and an expense — are immediate, because
-those are you dictating a fact rather than an assistant generating a plan.
+`suggest_itinerary` writes to the **suggestion tray**, not to the plan. It
+appears in the trip for one of you to accept, and only then becomes real items.
+That is non-negotiable #5, and a test fails if any tool outside the itinerary
+module writes `itinerary_items`, or if a direct-write trips tool ever accepts a
+*list* of items — bulk means generated, and generated means the tray.
 
-### What it cannot do, ever
+Single items are different. "Put dinner at Cafe Younes on the Tuesday" is one
+thing the person already decided, so `add_itinerary_item` writes it straight
+through. Looping that call to build a day is evading the rule, and the tool
+description says so.
 
-**Health and documents are unreachable.** Not "off by default" — a token cannot
-be scoped to them, the tools do not exist, and `registry.test.ts` fails if one
-is ever added. Cycle logs, medications, passport and visa numbers stay in the
-app.
+### No accept tool, on purpose
+
+`list_suggestions` shows what is waiting in the tray and `dismiss_suggestion`
+clears one out, but nothing accepts. An assistant that could both write a draft
+and accept it has a direct write to the itinerary with two extra steps — worse
+than an honest direct write, because it looks reviewed. Accepting happens in the
+app, by a person, looking at it.
+
+### Read-only on purpose
+
+**Photos** are metadata only — captions, dates, favourites. Never the image and
+never a link: `path_original` is a key into a private bucket reached by signed
+URLs that expire in 300 seconds.
+
+**Allowance** rules are copied from official sources with a `verified_on` date.
+A Schengen rule rewritten from a model's memory is the confident, plausible,
+wrong answer that gets somebody stopped at a border — so those are read-only,
+and every response carries the source, the date and the disclaimer.
+
+**Documents** are metadata only: label, country, expiry. Never the storage path,
+never a signed URL (they last 300 seconds precisely so they cannot outlive the
+moment), never even the last four digits of a number.
+
+### Health and documents are opt-in, not off-limits
+
+These were refused outright in the first version. They are now reachable, but
+only by a token whose owner ticked them, and never by default.
+
+A token *is* its owner. RLS restricts health to `owner_id = auth.uid()`, and the
+health tools narrow it again in the query itself — so a token can only ever read
+the health data of whoever created it. Not their partner's, even where consent
+was granted in the app: consent was given so a person could look with their own
+eyes, not so an assistant could sweep up what they were trusted with. A test
+asserts that filter is on every health query.
+
+What genuinely changes when you grant these is that the data reaches an AI
+provider. Settings says so plainly at the moment you tick the box.
+
+There is no health delete tool. `delete_all_health_data()` is irreversible by
+design, and a tool for it would put total erasure one hallucinated call away.
 
 ## How the credential works
 

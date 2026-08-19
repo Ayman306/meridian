@@ -19,7 +19,11 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { EmptyState, ErrorState, SkeletonList } from '@/components/common/states'
-import { DEFAULT_TOKEN_MODULES, FORBIDDEN_MODULES, GRANTABLE_MODULES } from '@/mcp/registry'
+import {
+  DEFAULT_TOKEN_MODULES,
+  GRANTABLE_MODULES,
+  SENSITIVE_TOKEN_MODULES,
+} from '@/mcp/registry'
 import { cn } from '@/lib/utils'
 import { MODULE_LABELS } from '../logic'
 import { useAccessTokens, useCreateAccessToken, useRevokeAccessToken } from '../hooks'
@@ -52,10 +56,13 @@ export function AssistantsPanel() {
           you, sees only what you can see, and can be revoked here at any time.
         </p>
         <p className="text-sm text-muted-foreground">
-          Nothing an assistant proposes goes straight onto an itinerary — suggestions land in the
-          trip’s tray for one of you to accept.{' '}
-          {FORBIDDEN_MODULES.map((m) => MODULE_LABELS[m]).join(' and ')} are never reachable by a
-          token, whatever it is scoped to.
+          A generated day-plan never goes straight onto an itinerary — it lands in the trip’s tray
+          for one of you to accept. Single things you dictate are saved directly.
+        </p>
+        <p className="text-sm text-muted-foreground">
+          {SENSITIVE_TOKEN_MODULES.map((m) => MODULE_LABELS[m]).join(' and ')} are off unless you
+          tick them, and a token can only ever reach your own — never your partner’s, whatever the
+          two of you have shared with each other in the app.
         </p>
       </Card>
 
@@ -132,6 +139,21 @@ export function AssistantsPanel() {
               Narrower is better. A token scoped to trips cannot be talked into reading your
               spending, because those tools do not exist for it.
             </p>
+
+            {/* Said at the moment of choosing, not buried in a preamble above.
+                Ticking one of these is the one decision here with a consequence
+                outside the app. */}
+            {modules.some((m) => SENSITIVE_TOKEN_MODULES.includes(m)) && (
+              <p className="rounded-md bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">
+                You have ticked{' '}
+                {modules
+                  .filter((m) => SENSITIVE_TOKEN_MODULES.includes(m))
+                  .map((m) => MODULE_LABELS[m])
+                  .join(' and ')}
+                . Whatever this token reads there is sent to whichever AI service you connect it to.
+                That is yours to decide — this is only saying it plainly.
+              </p>
+            )}
           </fieldset>
 
           <div className="flex gap-2">
