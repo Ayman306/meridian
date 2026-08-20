@@ -1723,6 +1723,83 @@ select assert_raises(
 
 -- ---------------------------------------------------------------------------
 \echo ''
+\echo '== the activity feed, and who it names =='
+set request.jwt.claim.sub = :'ada_ada';
+
+select assert(
+  exists (select 1 from public.activity_feed() where event = 'stay_booked'),
+  'the feed reports a stay somebody booked'
+);
+select assert(
+  (select actor_id from public.activity_feed() where event = 'stay_booked' limit 1) = :'ada_ada'::uuid,
+  'and names who booked it, so the client can say "they" rather than "someone"'
+);
+
+-- Both partners see the same shared events. The *filtering* to "not mine" is a
+-- client decision, because the same feed is also how an assistant answers
+-- "what has happened lately" — where excluding the caller would be wrong.
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  exists (select 1 from public.activity_feed() where event = 'stay_booked'),
+  'the partner sees it too'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.activity_feed()) = 0,
+  'and a stranger sees nothing at all, because RLS is the filter'
+);
+
+set request.jwt.claim.sub = :'ada_ada';
+-- The window matters: a feed with no floor would dump a couple's whole history
+-- into a morning summary.
+select assert(
+  (select count(*) from public.activity_feed(now() + interval '1 day')) = 0,
+  'a floor in the future returns nothing rather than everything'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== a webhook secret is never readable, by anyone =='
+insert into public.integrations (couple_id, name, url, secret, created_by)
+values (:'ada_couple', 'Our Discord', 'https://example.com/hook', 'sh_notarealsecret', :'ada_ada');
+
+select assert(
+  (select count(*) from public.integrations) = 1,
+  'an integration is visible to the couple that made it'
+);
+
+-- The same shape as access_tokens (0019): anything that can select the secret
+-- can forge a signature, and no screen has ever needed to.
+select assert_raises(
+  'select secret from public.integrations',
+  'permission denied',
+  'not even its owner can read the signing secret back'
+);
+select assert(
+  (select url from public.integrations) = 'https://example.com/hook',
+  'though everything else about it is readable, which is what the panel shows'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.integrations) = 0,
+  'a stranger sees no integration of theirs'
+);
+set request.jwt.claim.sub = :'ada_ada';
+
+-- Plain http would send a signed payload over the wire in clear text.
+select assert_raises(
+  format(
+    'insert into public.integrations (couple_id, name, url, secret) values (%L, %L, %L, %L)',
+    :'ada_couple', 'Insecure', 'http://example.com/hook', 'sh_x'
+  ),
+  'integration_url_is_https',
+  'and a plain http endpoint is refused outright'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
 \echo '== search finds only what the caller may read =='
 -- The whole design of `search_everything` is that it is SECURITY INVOKER, so
 -- RLS does the filtering. That is worth proving rather than trusting: a search

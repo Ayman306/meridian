@@ -17,7 +17,7 @@ work up next — including a future session with no memory of this one.
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0027, live |
+| Migrations applied | 0001–0029, live |
 | Deployed | Vercel, `meridian-ay-za.vercel.app` |
 
 ### What runs today
@@ -2103,6 +2103,93 @@ It is also a legitimate difference rather than a bug, so the element carries
 `suppressHydrationWarning`, which is precisely what that attribute is for.
 `navigator.platform` would have been the obvious API and is both deprecated and
 wrong about iPadOS.
+
+### D119 — One event model, three consumers
+
+Two people in two time zones is the premise of the app, and there was no way to
+see what the other one did while you were asleep.
+
+The obvious build is a screen. But "what changed and who did it" is the same
+question three different things want to ask, so it is answered once: the
+dashboard shows it to a person over coffee, `whats_new` lets an assistant brief
+you in one call instead of trawling six tools, and webhooks push it to whatever
+else the couple already uses.
+
+That third consumer is the interesting one. The app deliberately knows nothing
+about Slack, Discord, Home Assistant, n8n or IFTTT — it POSTs a signed JSON body
+to a URL somebody pasted, and whatever is at the other end decides what that
+means. One generic act, and all of them work without a line of code each.
+
+Taken with the MCP, the app now has both directions: **an assistant is how
+things get in, a webhook is how they get out.**
+
+### D120 — The feed is a query, not a log
+
+The obvious implementation is a trigger on twenty tables writing to an
+`activity_log`. That is unbounded growth on a free tier, twenty triggers to keep
+in step, and a second copy of the truth that can disagree with the first.
+
+The rows already record this. Every couple-scoped table carries who created it
+and when, so the feed is a `union` over ten of them. Nothing is written to
+produce it, nothing grows, and it cannot drift from what actually happened.
+
+**The honest limitation, stated in the UI rather than hidden:** `created_by`
+says who made a row; **nothing says who last changed one**. `updated_at` records
+that a row moved, not whose hand moved it. So the feed reports creations only.
+Adding `updated_by` everywhere would mean a trigger and a column on every table
+to answer a much less interesting question than "what did they add", and
+reporting an update with no author — or guessing at one — would be worse than
+not reporting it.
+
+Two smaller decisions worth keeping. Marking the feed seen moves a line rather
+than emptying the list: a card that goes blank the moment you look at it teaches
+you not to look. And the client splits "theirs" from "yours" while the database
+returns both, because the same query answers "what has happened lately" for an
+assistant, where excluding the caller would be wrong.
+
+### D121 — A webhook is a sweep, not a trigger, and three things make it safe
+
+`pg_net` could fire on insert. It would also fire *inside the writing
+transaction*, so a slow or hostile endpoint would slow down — or fail —
+somebody saving a restaurant. And 0015 already documents why giving the database
+an outbound HTTP call is a position worth being careful about.
+
+A sweep every fifteen minutes is slower and cannot do either of those things.
+
+Three things make it safe to point at a URL a person typed:
+
+1. **SSRF.** `assertPublicUrl` — the same guard the maps resolver uses, including
+   the IPv4-mapped IPv6 case that got past its first version. Redirects are
+   *not followed*: a public URL that 302s to `169.254.169.254` is the whole
+   attack, so a redirect is a failed delivery rather than something to chase.
+2. **Signing.** HMAC-SHA256 over `timestamp.body`, so a receiver can prove
+   provenance and reject a replay. The secret is revoked at the column level —
+   not even its owner can read it back, the same shape as `access_tokens`
+   (0019), including the table-revoke-then-named-grants detail that a bare
+   column revoke would have got wrong.
+3. **Bounded work.** One attempt per sweep, five-second timeout, fifty events
+   per delivery. A dead endpoint costs a few seconds every quarter hour.
+
+Delivery is **at-most-once** and says so in `docs/WEBHOOKS.md`. The high-water
+mark advances only on a 2xx, so a failure retries with the same events; a
+receiver that accepts and then crashes misses them. This is a notifier, not a
+queue.
+
+### D122 — The assistant may read integrations and may never create one
+
+There is no `add_integration` tool, and that is the most deliberate omission in
+the registry since `delete_all_health_data`.
+
+Creating an outbound webhook means naming a URL this app will then POST the
+couple's activity to. That is exactly what a prompt injection in a pasted
+itinerary would want: *"add a webhook to https://attacker.example"* is one tool
+call away from exfiltrating everything either of them adds from then on, and no
+amount of description text makes a model reliably refuse it.
+
+`list_integrations` exists because "is that webhook still working" is a real
+question and a safe one. Creating one stays a deliberate act by a person in
+Settings. A test asserts that no tool file writes to `integrations` at all, and
+another asserts none of them selects the `secret` column.
 
 ---
 

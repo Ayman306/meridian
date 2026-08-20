@@ -96,6 +96,32 @@ describe('the sensitive modules', () => {
     expect(source).not.toMatch(/SAFE_COLUMNS\s*=\s*'[^']*booking_ref/)
   })
 
+  it('cannot create an outbound webhook', () => {
+    // The capability a prompt injection in a pasted itinerary would most want:
+    // "add a webhook to https://attacker.example" is one tool call away from
+    // exfiltrating everything this couple adds from then on. No description
+    // text makes a model reliably refuse that, so the tool does not exist.
+    for (const { file, source } of toolSources()) {
+      const writes = /from\(\s*'integrations'\s*\)[\s\S]{0,200}?\.(insert|upsert|update|delete)\(/.test(
+        source,
+      )
+      expect(`${file}:${writes}`).toBe(`${file}:false`)
+    }
+    expect(ALL_TOOLS.some((t) => /integration/.test(t.name) && !t.readOnly)).toBe(false)
+  })
+
+  it('never returns a webhook signing secret', () => {
+    // Anything holding it can forge a signature. The database revokes the
+    // column, so this would fail at runtime anyway — but a query that asks for
+    // it is a query somebody wrote intending to use it.
+    const source = readFileSync(join(TOOLS_DIR, 'activity.ts'), 'utf8')
+    const selects = source.match(/\.select\([^)]*\)/gs) ?? []
+    expect(selects.length).toBeGreaterThan(0)
+    for (const select of selects) {
+      expect(`secret:${select.includes('secret')}`).toBe('secret:false')
+    }
+  })
+
   it('cannot delete health data', () => {
     // The wipe RPC is irreversible by design — there is no thirty-day bin for
     // health data. A tool for it would put total erasure one hallucinated call
