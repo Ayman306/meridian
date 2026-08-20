@@ -1723,6 +1723,55 @@ select assert_raises(
 
 -- ---------------------------------------------------------------------------
 \echo ''
+\echo '== realtime actually broadcasts =='
+-- Six modules subscribed to `postgres_changes` from their own phase onward, and
+-- none of them ever received one: `supabase_realtime` was an empty publication,
+-- so Postgres had nothing to send. Nothing errored and nothing logged, which is
+-- what let it survive that long.
+--
+-- Asserted per table rather than as a count, so adding a module and forgetting
+-- to publish its table fails with the table's name in the message.
+reset role;
+do $$
+declare
+  name text;
+begin
+  foreach name in array array[
+    'trips', 'trip_days', 'trip_destinations', 'itinerary_items',
+    'accommodations', 'wishlist_items', 'expenses', 'flights',
+    'media', 'documents', 'entry_exit_log'
+  ] loop
+    if not exists (
+      select 1 from pg_publication_tables
+       where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = name
+    ) then
+      raise exception 'FAILED: % is not in the supabase_realtime publication, so nothing subscribing to it will ever fire', name;
+    end if;
+  end loop;
+  raise notice '  ok   every table with a realtime hook is actually published';
+end $$;
+
+-- And the ones deliberately left out. Health is owner-private and only its
+-- owner can change it; a second device is not a collaboration scenario worth
+-- opening a broadcast surface for.
+do $$
+declare
+  name text;
+begin
+  foreach name in array array['cycle_logs', 'health_records', 'access_tokens'] loop
+    if exists (
+      select 1 from pg_publication_tables
+       where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = name
+    ) then
+      raise exception 'FAILED: % is published, and nothing should be broadcasting it', name;
+    end if;
+  end loop;
+  raise notice '  ok   health and credentials are deliberately not published';
+end $$;
+set role authenticated;
+
+-- ---------------------------------------------------------------------------
+\echo ''
 \echo '== leaving =='
 set request.jwt.claim.sub = :'bo_bo';
 select public.leave_couple();

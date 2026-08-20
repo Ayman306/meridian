@@ -45,6 +45,7 @@ import {
 } from '../logic'
 import {
   useAddCandidate,
+  useDestinationsRealtime,
   useBoardReference,
   useChooseDestination,
   useDestinations,
@@ -59,6 +60,7 @@ export function WherePage({ tripId }: { tripId: string }) {
   const { self, partner, selfRef, partnerRef, tzSelf } = useCouple()
   const { data: trip } = useTrip(tripId)
   const destinations = useDestinations(tripId)
+  useDestinationsRealtime(tripId)
   const wishlistCities = useWishlistCities()
   const weightsQuery = useWeights()
   const saveWeights = useSaveWeights()

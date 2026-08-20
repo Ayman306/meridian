@@ -22,6 +22,8 @@ import { DualTime } from '@/components/DualTime'
 import { PersonBadge } from '@/components/PersonBadge'
 import { APP_NAME } from '@/lib/constants'
 import { cn } from '@/lib/utils'
+import { MAIN_CONTENT_ID } from './ids'
+import { RouteAnnouncer } from './RouteAnnouncer'
 
 /**
  * `short` is what the bottom bar uses.
@@ -79,6 +81,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-dvh pb-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom))]">
+      {/* The first focusable thing on every page. Without it a keyboard user
+          tabs through eleven navigation items before reaching the content, on
+          every single page — which is the kind of tax that makes an app
+          unusable rather than merely awkward.
+
+          Visible only while focused: `sr-only` until `focus:not-sr-only` puts
+          it back, which is the one place that pattern is correct. */}
+      <a
+        href={`#${MAIN_CONTENT_ID}`}
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-ring"
+      >
+        Skip to content
+      </a>
+
+      <RouteAnnouncer />
+
       <header className="sticky top-0 z-20 border-b border-border bg-background/85 backdrop-blur">
         <div className="container flex h-16 items-center justify-between gap-4">
           <div className="flex items-center gap-6">
@@ -117,7 +135,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <main className="container py-6">{children}</main>
+      {/* `tabIndex={-1}` keeps <main> out of everybody's tab order while still
+          letting the skip link and the route announcer move focus here. */}
+      <main id={MAIN_CONTENT_ID} tabIndex={-1} className="container py-6 focus:outline-none">
+        {children}
+      </main>
 
       {/* `env(safe-area-inset-bottom)` is not decoration: with viewport-fit set
           to cover, the bar's last row otherwise sits underneath the home
@@ -126,7 +148,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           app is installed and that toolbar is gone. */}
       <nav
         className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
-        aria-label="Main"
+        // Distinct from the header's landmark. Two navigations both announced
+        // as "Main" are two things a screen-reader user cannot tell apart in a
+        // landmark list, even though only one is visible at a time.
+        aria-label="Sections"
       >
         <div className="flex snap-x overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {nav.map(({ href, label, short, icon: Icon, exact }) => (

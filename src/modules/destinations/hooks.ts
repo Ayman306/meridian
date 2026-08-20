@@ -6,6 +6,7 @@ import { qk } from '@/lib/queryClient'
 import { useAuth } from '@/providers/AuthProvider'
 import { useCouple } from '@/providers/CoupleProvider'
 import type { UpdateDto } from '@/types/database'
+import { useCoupleRealtime } from '@/lib/realtime'
 import * as api from './api'
 import type { ScoreWeights } from './types'
 
@@ -15,6 +16,30 @@ export function useDestinations(tripId: string | undefined) {
     queryFn: () => api.listDestinations(tripId!),
     enabled: Boolean(tripId),
   })
+}
+
+/**
+ * The destination board is the one screen built for two people disagreeing.
+ *
+ * Adding a candidate, rejecting one, or choosing one are all moves in a
+ * conversation, and a board that shows a stale version of it is a board where
+ * one of them argues against a candidate the other already withdrew.
+ */
+export function useDestinationsRealtime(tripId: string | undefined) {
+  const qc = useQueryClient()
+  const { coupleId } = useCouple()
+
+  useCoupleRealtime(
+    'destinations',
+    coupleId,
+    [{ table: 'trip_destinations', filterColumn: 'couple_id' }],
+    () => {
+      void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'destinations' })
+      // Choosing a destination writes the trip's timezone, so the trip itself
+      // is stale too.
+      if (tripId) void qc.invalidateQueries({ queryKey: qk.trip(tripId) })
+    },
+  )
 }
 
 export function useAddCandidate(tripId: string) {

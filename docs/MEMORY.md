@@ -17,7 +17,7 @@ work up next — including a future session with no memory of this one.
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0025, live |
+| Migrations applied | 0001–0026, live |
 | Deployed | Vercel, `meridian-ay-za.vercel.app` |
 
 ### What runs today
@@ -1970,6 +1970,77 @@ leaving three runs going that nobody will read.
 Two escape routes are documented rather than taken, because both are the
 owner's call: Actions is free and unlimited on public repositories, and
 self-hosted runners are not billed even on private ones.
+
+### D115 — Realtime has never worked, in any module, since Phase 2
+
+Six modules have had a realtime hook since their own phase — trips, itinerary,
+wishlist, flights, gallery, budget. Each opens a channel, subscribes to
+`postgres_changes`, tears it down on unmount, gets the dependency array right.
+All of it correct. **None of it has ever fired.**
+
+`supabase_realtime` was an empty publication, and Postgres only emits change
+events for tables that are in one:
+
+```sql
+select tablename from pg_publication_tables where pubname = 'supabase_realtime';
+-- zero rows
+```
+
+So "two people editing one trip at the same time is normal, not an edge case"
+was true as a design statement and false as a behaviour. The second person's
+change appeared when the first navigated — which is exactly what would have
+happened with no realtime at all. Nothing errored. Nothing logged. The code
+looked finished, and reviewed as finished, for eleven phases.
+
+This is D111's pattern — something stored and never read — and the most
+expensive instance of it here, because six modules were built assuming it
+worked. It was found only because adding a seventh hook prompted the question
+"where does membership actually get configured", which nothing in the repo
+answered.
+
+Two things now make it impossible to regress quietly. The publication is
+populated by migration (0026) rather than by a click in a dashboard, so it is
+in version control like everything else. And `rls_test.sql` asserts membership
+per table, by name, so adding a module and forgetting to publish its table
+fails the suite with the table's name in the message — rather than shipping a
+feature that silently does nothing.
+
+The test harness creates the publication itself for the same reason: without
+it, 0026 takes its "not present, skipping" branch and the assertions pass by
+never running, which is the identical failure one level up.
+
+Health tables and `access_tokens` are asserted *absent*. Health is
+owner-private, only its owner can change it, and a second device is not a
+collaboration scenario worth opening a broadcast surface for.
+
+### D116 — The shell was unusable by keyboard, and said nothing when it moved
+
+Two gaps that the per-module accessibility checklist could not catch, because
+neither lives in a module.
+
+There was **no skip link**. Eleven navigation items, so a keyboard user tabbed
+through all eleven before reaching the content — on every page, every time.
+That is the kind of tax that makes an app unusable rather than merely awkward.
+
+And a client-side route change **announced nothing**. The browser does not
+reload, so assistive technology is told nothing, and focus stays on the link
+that was clicked — a link which usually no longer exists in the new page, so
+focus falls back to `<body>` and the keyboard position is lost entirely.
+
+`RouteAnnouncer` does both halves, because either alone is insufficient: focus
+moves to `<main>` so the tab order resets to content rather than chrome, *and*
+the page name goes into a polite live region, because focusing a container is
+not reliably spoken across screen readers. It is deliberately silent on first
+load — the browser already announces a page load, and stealing focus from the
+top of a page somebody just arrived at is the bug this prevents, not one to
+introduce.
+
+Route names are derived rather than tabled: a table would need every route
+including the dynamic ones and would go stale on the next screen. UUIDs are
+dropped, because thirty-six characters read aloud is worse than saying nothing.
+
+Also fixed: both `<nav>` landmarks were labelled "Main", so a screen reader's
+landmark list showed two identical entries with no way to tell them apart.
 
 ---
 

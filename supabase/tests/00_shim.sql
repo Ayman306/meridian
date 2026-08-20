@@ -103,3 +103,16 @@ $$;
 grant usage on schema storage to anon, authenticated;
 grant select, insert, update, delete on storage.objects to authenticated;
 grant select on storage.buckets to anon, authenticated;
+
+/* ---------------------------------------------------------------------------
+   The realtime publication.
+
+   Supabase creates `supabase_realtime` on every project; a plain Postgres has
+   no such object. Creating it here is not cosmetic — without it, migration 0026
+   takes its "not present, skipping" branch and the assertions about which
+   tables broadcast would pass by never running.
+
+   That is precisely the failure 0026 exists to fix: six modules subscribing to
+   an empty publication, with nothing erroring and nothing logged.
+   --------------------------------------------------------------------------- */
+create publication supabase_realtime;

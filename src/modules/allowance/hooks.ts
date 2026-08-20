@@ -7,6 +7,7 @@ import { todayIn } from '@/lib/dates'
 import { useAuth } from '@/providers/AuthProvider'
 import { useCouple } from '@/providers/CoupleProvider'
 import type { UpdateDto } from '@/types/database'
+import { useCoupleRealtime } from '@/lib/realtime'
 import * as api from './api'
 import { checkPlannedStay, ruleFor, staysForRule, suggestFromTrip } from './logic'
 import type { AllowanceCheck, LogSuggestion } from './types'
@@ -56,6 +57,33 @@ export function useDeleteLogEntry() {
     mutationFn: (id: string) => api.deleteLogEntry(id),
     onSuccess: () => invalidate(qc),
   })
+}
+
+/**
+ * A border crossing either of you logs changes both of your day counts.
+ *
+ * Not because you share an allowance — you do not, the counts are per person —
+ * but because the screen shows both, and a stale one is a number somebody might
+ * book a flight against.
+ */
+export function useAllowanceRealtime() {
+  const qc = useQueryClient()
+  const { coupleId } = useCouple()
+
+  useCoupleRealtime(
+    'allowance',
+    coupleId,
+    [
+      { table: 'entry_exit_log', filterColumn: 'couple_id' },
+      // Overrides are couple-scoped too, and a partner adding one for their own
+      // passport changes what this screen should show for them.
+      { table: 'allowance_rules', filterColumn: 'couple_id' },
+    ],
+    () => {
+      void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith('allowance') })
+      void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith('entr') })
+    },
+  )
 }
 
 export function useUpsertRule() {

@@ -24,6 +24,7 @@ import { AllowanceBar } from '../components/AllowanceBar'
 import { LogEditor } from '../components/LogEditor'
 import {
   useAllowanceRules,
+  useAllowanceRealtime,
   useDeleteLogEntry,
   useEntryLog,
   useLogEntry,
@@ -41,6 +42,7 @@ import type { AllowanceRule, EntryExitLog } from '../types'
 export function AllowancePage() {
   const { self, partner, selfRef, partnerRef, tzSelf } = useCouple()
   const rules = useAllowanceRules()
+  useAllowanceRealtime()
   const log = useEntryLog()
   const suggestions = useLogSuggestions()
   const addEntry = useLogEntry()
