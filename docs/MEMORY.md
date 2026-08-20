@@ -17,7 +17,7 @@ work up next — including a future session with no memory of this one.
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0026, live |
+| Migrations applied | 0001–0027, live |
 | Deployed | Vercel, `meridian-ay-za.vercel.app` |
 
 ### What runs today
@@ -2041,6 +2041,68 @@ dropped, because thirty-six characters read aloud is worse than saying nothing.
 
 Also fixed: both `<nav>` landmarks were labelled "Main", so a screen reader's
 landmark list showed two identical entries with no way to tell them apart.
+
+### D117 — Search is one SECURITY INVOKER function, and that is the whole design
+
+Eleven navigation destinations and no way to search across them. After three
+years this app holds hundreds of saved places and thousands of expenses, and the
+only way to find "that restaurant in Lisbon" was to remember which tab it was
+under. The one gap that got *worse* with time; everything else deferred was
+flat-cost.
+
+`search_everything` unions eight tables and is deliberately **not** `security
+definer`. It runs as the caller, so every select inside it is judged by the
+policies the app already relies on: a document the partner has not shared is not
+found because the partner cannot read the row, not because the function
+remembered to exclude it.
+
+A definer function here would have been the most dangerous object in the schema
+— a search endpoint reading every couple's rows and trusting itself to filter —
+and the difference is one keyword. `rls_test.sql` proves it: a stranger
+searching the exact word that matches the other couple's save gets zero rows.
+
+**Trigram, not full-text.** `media` already carries a `search_tsv` and full-text
+is better when you know the words. This is the other case: people misremember
+names, so "alfama" should find "Pensão Alfama" and a half-typed "Pastelar"
+should still match. One matching strategy across eight tables also beats two
+that rank differently from each other.
+
+The prefix bonus matters more than it looks. Somebody typing "bor" almost
+certainly means the thing that *starts* with it, not the one that merely
+contains those letters — so a prefix match is worth half a point of similarity,
+and the test asserts a prefix match outranks a mere containment.
+
+Health is excluded, in the function rather than in the client. A box that
+surfaces a medication while somebody is looking for a restaurant is not a
+feature, and a filter in the client is a filter somebody can remove without
+noticing.
+
+### D118 — Two React mistakes the linter caught, and one it could not
+
+Writing the palette produced three bugs worth recording, because all three are
+the same misconception in different clothes: treating derivable values as state
+to be synchronised.
+
+**Resetting on open.** The first version returned `null` when closed, so the
+component stayed mounted and kept its query and results; an effect cleared them
+on open. The fix is not a better effect — it is not existing. The parent mounts
+it only while open, so closing genuinely resets it and there is no window where
+the two disagree.
+
+**Resetting the highlight.** An effect set the cursor to zero whenever results
+changed. Without it, index 3 of the old list silently becomes index 3 of the new
+one and enter opens something nobody looked at. With it, there is a render where
+the cursor points into the wrong list. The answer is to store *which list* the
+index belongs to and derive the cursor: when the signature no longer matches,
+the answer is zero, computed rather than corrected.
+
+**And the one the linter could not see.** The ⌘K/Ctrl K hint reads
+`navigator.userAgent` during render, so the server renders one thing and the
+client another — a real hydration mismatch, not caught by typecheck or lint.
+It is also a legitimate difference rather than a bug, so the element carries
+`suppressHydrationWarning`, which is precisely what that attribute is for.
+`navigator.platform` would have been the obvious API and is both deprecated and
+wrong about iPadOS.
 
 ---
 

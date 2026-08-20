@@ -4,7 +4,7 @@
  *   npm run db:types
  *   # supabase gen types typescript --project-id <ref> > src/types/database.ts
  *
- * Generated from the live project after migrations 0001-0022. The aliases at
+ * Generated from the live project after migrations 0001-0027. The aliases at
  * the bottom are the only hand-written part: they are what the modules import,
  * and they are re-added after each regeneration.
  */
@@ -3112,6 +3112,18 @@ export type Database = {
       }
       regenerate_invite_code: { Args: never; Returns: string }
       schedule_sweeps: { Args: never; Returns: undefined }
+      search_everything: {
+        Args: { q: string; max_results?: number }
+        Returns: {
+          kind: string
+          id: string
+          title: string
+          subtitle: string | null
+          trip_id: string | null
+          occurred: string | null
+          rank: number
+        }[]
+      }
       seed_categories: { Args: { target: string }; Returns: undefined }
       seed_document_types: { Args: { target: string }; Returns: undefined }
       seed_trip_statuses: { Args: { target: string }; Returns: undefined }

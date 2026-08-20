@@ -1723,6 +1723,68 @@ select assert_raises(
 
 -- ---------------------------------------------------------------------------
 \echo ''
+\echo '== search finds only what the caller may read =='
+-- The whole design of `search_everything` is that it is SECURITY INVOKER, so
+-- RLS does the filtering. That is worth proving rather than trusting: a search
+-- endpoint that reads every couple's rows and filters them itself would be the
+-- most dangerous object in the schema, and the difference is one keyword.
+set request.jwt.claim.sub = :'ada_ada';
+
+insert into public.wishlist_items (couple_id, user_id, title, city)
+values (:'ada_couple', :'ada_ada', 'Pastelaria Alfama', 'Lisbon');
+
+-- 'Alfama' is deliberately a word that appears in two different tables by this
+-- point in the suite: the stay booked above, and the save just inserted. One
+-- query returning both is the entire point of the feature, so it is what gets
+-- asserted rather than a single row.
+select assert(
+  (select count(distinct kind) from public.search_everything('alfama')) >= 2,
+  'one query returns matches from more than one kind of thing'
+);
+select assert(
+  exists (select 1 from public.search_everything('alfama') where kind = 'stay')
+    and exists (select 1 from public.search_everything('alfama') where kind = 'saved'),
+  'and names which kind each match is, so the client can link to it'
+);
+
+-- Misspelt on purpose. Trigram matching is the reason this is not full-text:
+-- people misremember the name of the place they are looking for.
+select assert(
+  exists (select 1 from public.search_everything('Pastelar') where kind = 'saved'),
+  'a partial word still matches'
+);
+
+-- The prefix bonus: 'Pastelaria Alfama' starts with the query, 'Pensao Alfama'
+-- does not, so the one somebody almost certainly means ranks first.
+select assert(
+  (select kind from public.search_everything('pastelaria') order by rank desc limit 1) = 'saved',
+  'a prefix match outranks a mere containment'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.search_everything('alfama')) = 0,
+  'a stranger searching the same word finds nothing at all'
+);
+
+set request.jwt.claim.sub = :'ada_ada';
+-- One character is half the library, not a search.
+select assert(
+  (select count(*) from public.search_everything('a')) = 0,
+  'a one-character query returns nothing rather than everything'
+);
+
+-- Soft-deleted rows stay out. A place in the bin must not come back through a
+-- side door.
+update public.wishlist_items set deleted_at = now() where title = 'Pastelaria Alfama';
+select assert(
+  not exists (select 1 from public.search_everything('pastelaria') where kind = 'saved'),
+  'a deleted save is not findable'
+);
+update public.wishlist_items set deleted_at = null where title = 'Pastelaria Alfama';
+
+-- ---------------------------------------------------------------------------
+\echo ''
 \echo '== realtime actually broadcasts =='
 -- Six modules subscribed to `postgres_changes` from their own phase onward, and
 -- none of them ever received one: `supabase_realtime` was an empty publication,

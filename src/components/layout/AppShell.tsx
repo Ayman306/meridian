@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
@@ -15,6 +15,7 @@ import {
   HeartPulse,
   Timer,
   Wallet,
+  Search,
 } from 'lucide-react'
 import { useCouple } from '@/providers/CoupleProvider'
 import { useAccess } from '@/providers/AccessProvider'
@@ -24,6 +25,7 @@ import { APP_NAME } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import { MAIN_CONTENT_ID } from './ids'
 import { RouteAnnouncer } from './RouteAnnouncer'
+import { SearchPalette } from '@/modules/search'
 
 /**
  * `short` is what the bottom bar uses.
@@ -60,6 +62,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // have led to a screen with no rows in it anyway.
   const nav = NAV.filter((item) => item.module === null || can(item.module))
 
+  const [searchOpen, setSearchOpen] = useState(false)
+
+  // Mac says ⌘K, everything else says Ctrl K — which the server cannot know, so
+  // it renders the Ctrl form and the client corrects it. That is a genuine
+  // hydration difference rather than a bug, which is exactly what
+  // `suppressHydrationWarning` on the element is for.
+  //
+  // `userAgentData`/`userAgent` rather than `navigator.platform`, which is
+  // deprecated and lies about iPadOS.
+  const shortcutHint = useMemo(
+    () =>
+      typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent)
+        ? '\u2318K'
+        : 'Ctrl K',
+    [],
+  )
+
   const isActive = (href: string, exact: boolean) =>
     exact ? pathname === href : pathname.startsWith(href)
 
@@ -77,6 +96,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     document.documentElement.classList.add('has-bottom-nav')
     return () => document.documentElement.classList.remove('has-bottom-nav')
+  }, [])
+
+  // Anyone who searches twice will search a hundred times, so it opens from
+  // anywhere. Bound on the document rather than a field, because the whole
+  // point is not having to reach for one first.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() === 'k' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [])
 
   return (
@@ -121,6 +154,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="flex items-center gap-4">
+            {/* Deliberately beside the clocks rather than in the nav: search is
+                not a destination, and putting it in the row of destinations
+                makes it look like one. */}
+            <button
+              onClick={() => setSearchOpen(true)}
+              aria-label="Search everything"
+              className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-secondary/60"
+            >
+              <Search className="size-4" aria-hidden="true" />
+              <span className="hidden lg:inline">Search</span>
+              <kbd
+                suppressHydrationWarning
+                className="hidden rounded border border-border px-1 text-xs lg:inline"
+              >
+                {shortcutHint}
+              </kbd>
+            </button>
+
             <DualTime
               tzSelf={tzSelf}
               tzPartner={tzPartner}
@@ -137,6 +188,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* `tabIndex={-1}` keeps <main> out of everybody's tab order while still
           letting the skip link and the route announcer move focus here. */}
+      <SearchPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
+
       <main id={MAIN_CONTENT_ID} tabIndex={-1} className="container py-6 focus:outline-none">
         {children}
       </main>
