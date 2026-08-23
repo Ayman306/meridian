@@ -2191,6 +2191,38 @@ question and a safe one. Creating one stays a deliberate act by a person in
 Settings. A test asserts that no tool file writes to `integrations` at all, and
 another asserts none of them selects the `secret` column.
 
+### D123 — A skill file, because a tool description cannot say "read this first"
+
+`skills/meridian/SKILL.md` is a guide book for the model on the other end of the
+MCP server, and it exists because of a gap the tool descriptions cannot close.
+
+A description is attached to one tool and is read when that tool is being
+considered. It can say what `add_stay` does, and it does — including that
+`check_out` is exclusive, which is the single most expensive mistake available
+here. What it cannot say is *"read `get_trip_journey` before you suggest
+anything"*, or *"lead the morning summary with what the partner did, because the
+user was there for their own edits"*, or *"do not net two currencies against
+each other"*. Those are rules that span tools, and there is nowhere in the tool
+list to put them.
+
+Three things went in that are not derivable from the registry at all: which tool
+to reach for first given the shape of the question, how to read the journey
+output (what `kept clear on purpose` means, why arrivals print at the front of a
+day regardless of clock time), and what the error strings actually indicate —
+"there is no couple set up on this account yet" is solo mode and a normal state,
+not a failure to route around.
+
+The tool tables in it are transcribed from `src/mcp/registry.ts` by hand rather
+than generated, which is a real maintenance cost and is stated in
+`skills/README.md`: a stale skill is worse than no skill, because a model will
+trust a confident guide over the tool list it was actually handed. Treat it as
+part of the MCP surface, not as documentation about it.
+
+Generating it at build time was considered and dropped. Two thirds of the value
+is the parts that are *not* in the registry — the recipes, the failure table,
+the phrasing — and a generator would either lose those or become a second place
+to write them.
+
 ---
 
 ## Deviations from the spec
