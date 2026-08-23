@@ -121,39 +121,123 @@ export type Database = {
       }
       access_tokens: {
         Row: {
+          client_id: string | null
           created_at: string
           expires_at: string | null
           id: string
+          kind: string
           last_used_at: string | null
           modules: string[]
           name: string
           prefix: string
+          // Selectable only by the service role — the grant is revoked for
+          // `authenticated` in 0019 and 0030. Present here because the
+          // handlers that may read them are typed against this file.
+          previous_refresh_hash: string | null
+          refresh_token_hash: string | null
           revoked_at: string | null
           token_hash: string
           user_id: string
         }
         Insert: {
+          client_id?: string | null
           created_at?: string
           expires_at?: string | null
           id?: string
+          kind?: string
           last_used_at?: string | null
           modules?: string[]
           name: string
           prefix: string
+          previous_refresh_hash?: string | null
+          refresh_token_hash?: string | null
           revoked_at?: string | null
           token_hash: string
           user_id: string
         }
         Update: {
+          client_id?: string | null
           created_at?: string
           expires_at?: string | null
           id?: string
+          kind?: string
           last_used_at?: string | null
           modules?: string[]
           name?: string
           prefix?: string
+          previous_refresh_hash?: string | null
+          refresh_token_hash?: string | null
           revoked_at?: string | null
           token_hash?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      oauth_clients: {
+        Row: {
+          client_id: string
+          client_name: string
+          created_at: string
+          id: string
+          last_used_at: string | null
+          redirect_uris: string[]
+        }
+        Insert: {
+          client_id: string
+          client_name: string
+          created_at?: string
+          id?: string
+          last_used_at?: string | null
+          redirect_uris: string[]
+        }
+        Update: {
+          client_id?: string
+          client_name?: string
+          created_at?: string
+          id?: string
+          last_used_at?: string | null
+          redirect_uris?: string[]
+        }
+        Relationships: []
+      }
+      oauth_codes: {
+        Row: {
+          client_id: string
+          code_challenge: string
+          code_hash: string
+          consumed_at: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          issued_token_id: string | null
+          modules: string[]
+          redirect_uri: string
+          user_id: string
+        }
+        Insert: {
+          client_id: string
+          code_challenge: string
+          code_hash: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at: string
+          id?: string
+          issued_token_id?: string | null
+          modules?: string[]
+          redirect_uri: string
+          user_id: string
+        }
+        Update: {
+          client_id?: string
+          code_challenge?: string
+          code_hash?: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          issued_token_id?: string | null
+          modules?: string[]
+          redirect_uri?: string
           user_id?: string
         }
         Relationships: []

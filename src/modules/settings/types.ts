@@ -43,7 +43,17 @@ export interface InviteInput {
  * level (0019), so it is not merely omitted from this type, it cannot be
  * selected. The raw token exists once, in the browser that made it.
  */
-export type AccessToken = Omit<Tables<'access_tokens'>, 'token_hash' | 'user_id'>
+/**
+ * A credential as its owner sees it.
+ *
+ * The three hash columns are omitted rather than merely unselected: 0019 and
+ * 0030 revoke the SELECT grant on each of them, so asking for one fails at the
+ * database. Keeping them out of the type means a screen cannot try.
+ */
+export type AccessToken = Omit<
+  Tables<'access_tokens'>,
+  'token_hash' | 'user_id' | 'refresh_token_hash' | 'previous_refresh_hash'
+>
 
 export interface AccessTokenInput {
   name: string

@@ -166,7 +166,8 @@ export async function acceptInvite(code: string): Promise<string> {
 // Personal access tokens — credentials for an assistant, not a session to share
 // ---------------------------------------------------------------------------
 
-const TOKEN_COLUMNS = 'id, name, prefix, modules, created_at, last_used_at, expires_at, revoked_at'
+const TOKEN_COLUMNS =
+  'id, name, prefix, modules, kind, client_id, created_at, last_used_at, expires_at, revoked_at'
 
 export async function listAccessTokens(): Promise<AccessToken[]> {
   // RLS narrows this to the caller's own rows; `token_hash` is not in the

@@ -7,7 +7,18 @@ import { ErrorState } from '@/components/common/states'
 import { AppError } from '@/lib/errors'
 import { APP_NAME } from '@/lib/constants'
 
-export function LoginPage({ callbackError = null }: { callbackError?: string | null }) {
+export function LoginPage({
+  callbackError = null,
+  next = '/',
+}: {
+  callbackError?: string | null
+  /**
+   * Where to land afterwards. Set when sign-in interrupted something — an
+   * assistant's authorisation flow, most of all, where bouncing to the
+   * dashboard would silently abandon a connection the person was making.
+   */
+  next?: string
+}) {
   // Sign-in state is settled on the server before this renders, so there is
   // no redirect to do here.
   const { signIn } = useAuth()
@@ -23,7 +34,7 @@ export function LoginPage({ callbackError = null }: { callbackError?: string | n
     setPending(true)
     setError(null)
     try {
-      await signIn()
+      await signIn(next)
     } catch (e) {
       setError(e)
       setPending(false)

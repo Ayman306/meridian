@@ -21,7 +21,8 @@ interface AuthContextValue {
   user: User | null
   /** True until the initial session read resolves — not on every refresh. */
   isLoading: boolean
-  signIn: () => Promise<void>
+  /** `next` is where to land after Google, for a flow that began elsewhere. */
+  signIn: (next?: string) => Promise<void>
   signOut: () => Promise<void>
 }
 
@@ -77,7 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       user: session?.user ?? null,
       isLoading,
-      signIn: () => authApi.signInWithGoogle(),
+      signIn: (next?: string) => authApi.signInWithGoogle(authApi.callbackUrl(next ?? '/')),
       signOut: async () => {
         await authApi.signOut()
         queryClient.clear()

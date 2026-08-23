@@ -5,26 +5,20 @@
  * reached over the wire, which is what the Claude mobile app and any hosted
  * client can talk to.
  *
- * ## Authentication, and why there is no OAuth server here
+ * ## Two ways to authenticate, and one thing they both become
  *
- * The remote-MCP specification describes OAuth 2.1 with dynamic client
- * registration. This endpoint instead takes the personal access token the app
- * already issues, as a bearer credential, and that is a deliberate choice
- * rather than a shortcut:
+ * A personal access token in an `Authorization` header is the simple path, and
+ * the one to prefer when a client can be configured with one.
  *
- *   - Hand-rolling an authorization server — authorization codes, PKCE
- *     verification, client registration, refresh rotation — is a large amount
- *     of security-critical code whose failure modes are silent. Getting it
- *     subtly wrong is worse than not having it.
- *   - The PAT path already exists, is tested, is revocable from Settings, is
- *     scoped per module, and ends in the same ten-minute JWT. Nothing about
- *     going over HTTP changes what a token may reach: RLS is still the
- *     boundary.
+ * For clients that can only do OAuth — the hosted surfaces, which cannot be
+ * handed a bearer header by a person — there is now an authorization server
+ * alongside this endpoint (0030, `/api/oauth/*`). This route did not change to
+ * accommodate it, and that is the design: an OAuth grant *is* a row in
+ * `access_tokens`, so `authenticate()` below cannot tell the two apart and does
+ * not need to. One credential shape, one expiry check, one revoke.
  *
- * So: one credential, one place to revoke it, no new secret store. If a client
- * requires OAuth and cannot be configured with a bearer token, it cannot use
- * this endpoint — and that is stated in `mcp/README.md` rather than papered
- * over with an authorization server nobody reviewed.
+ * The 401 below advertises the authorization server via RFC 9728, which is how
+ * a client with no credential finds its way to the consent screen.
  *
  * ## Why the token is verified on every call
  *
@@ -152,11 +146,26 @@ export async function POST(request: Request) {
   }
 
   if (!ctx) {
-    // A 401 with WWW-Authenticate, so a client that does understand OAuth is
-    // told plainly that a bearer token is what this endpoint wants.
+    // A 401 that tells an OAuth-capable client where to go.
+    //
+    // `resource_metadata` is RFC 9728, and it is the hinge of the whole
+    // connector flow: a client with no credential fetches that document,
+    // finds the authorization server, registers itself, and sends its user to
+    // the consent screen — with nothing typed by a person. Without this
+    // parameter the same client sees an opaque 401 and stops.
+    //
+    // A bearer token still works and is still the simpler path. This header
+    // costs nothing to a client that has one.
+    const origin = new URL(request.url).origin
     return NextResponse.json(
       { jsonrpc: '2.0', id: id ?? null, error: { code: -32001, message: 'That token is not valid.' } },
-      { status: 401, headers: { 'WWW-Authenticate': 'Bearer realm="meridian"' } },
+      {
+        status: 401,
+        headers: {
+          'WWW-Authenticate':
+            `Bearer realm="meridian", resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+        },
+      },
     )
   }
 
