@@ -1641,6 +1641,55 @@ select assert(
 
 -- ---------------------------------------------------------------------------
 \echo ''
+\echo '== the authorization server keeps its own secrets =='
+-- 0030 added an OAuth flow. Three things must hold for it, and none of them is
+-- enforced by a handler — they are enforced here, which is why they are tested
+-- here.
+
+set request.jwt.claim.sub = :'ada_ada';
+
+-- 1. The two OAuth tables have RLS on and no policies at all, so a signed-in
+--    person reaches nothing in them. Not "sees their own" — nothing. Only the
+--    service role, inside the handlers, ever touches these.
+select assert(
+  (select count(*) from public.oauth_clients) = 0,
+  'a signed-in person cannot list registered OAuth clients'
+);
+select assert(
+  (select count(*) from public.oauth_codes) = 0,
+  'nor any authorization code, including their own'
+);
+
+select assert_raises(
+  $$insert into public.oauth_clients (client_id, client_name, redirect_uris)
+      values ('mrdc_x', 'Mine', array['https://evil.example/cb'])$$,
+  'violates row-level security',
+  'and cannot register a client by writing the table directly'
+);
+
+-- 2. A refresh token is exactly as unreadable as an access token hash. Anything
+--    that can select it can mint a fresh grant, which makes revocation a
+--    suggestion rather than a fact.
+select assert_raises(
+  'select refresh_token_hash from public.access_tokens',
+  'permission denied',
+  'the owner cannot read a refresh token hash back'
+);
+select assert_raises(
+  'select previous_refresh_hash from public.access_tokens',
+  'permission denied',
+  'nor the one it replaced, which is just as usable'
+);
+
+-- 3. The columns Settings genuinely needs are readable, so the panel can tell
+--    an approved app from a token somebody typed.
+select assert(
+  (select count(*) from public.access_tokens where kind = 'pat') = 1,
+  'but kind is readable, so a grant can be told from a hand-made token'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
 \echo '== work hours are readable by the other person =='
 -- The whole point of the overlay. These used to live on `user_settings`, whose
 -- policy is `user_id = auth.uid()` and nothing else, so the feature could only

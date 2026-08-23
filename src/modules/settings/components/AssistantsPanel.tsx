@@ -206,7 +206,19 @@ export function AssistantsPanel() {
             {(tokens.data ?? []).map((token) => (
               <li key={token.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate">{token.name}</p>
+                  <p className="flex items-center gap-2 truncate">
+                    {token.name}
+                    {/* An app grant looks the same in this table as a token
+                        typed into a config file, because it is the same row.
+                        Saying which is which matters anyway: one you can
+                        re-create from memory, the other has to be re-approved
+                        by whatever asked for it. */}
+                    {token.kind === 'oauth' && (
+                      <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        approved app
+                      </span>
+                    )}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     <code className="font-mono">{token.prefix}…</code>
                     {' · '}

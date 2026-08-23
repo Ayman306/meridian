@@ -61,22 +61,56 @@ session. That costs one indexed lookup and is the entire reason revoking a
 token in Settings takes effect immediately instead of whenever a cache happens
 to expire.
 
-### Why there is no OAuth server
+### OAuth, and why the earlier answer changed
 
-The remote-MCP specification describes OAuth 2.1 with dynamic client
-registration. This deployment does not implement one, deliberately.
+This file used to say there was no OAuth server, deliberately. There is one
+now, and the reasoning for the reversal belongs here rather than in a commit
+message nobody reads.
 
-Hand-rolling an authorization server — authorization codes, PKCE verification,
-client registration, refresh rotation — is a large amount of security-critical
-code whose failure modes are silent, and getting it subtly wrong is worse than
-not having it. The personal access token path already exists, is tested, is
-revocable, is scoped per module, and ends in the same ten-minute user JWT, with
-RLS as the boundary either way. Going over HTTP changes nothing about what a
-token can reach.
+The original argument still holds on its own terms: hand-rolling an
+authorization server is a large amount of security-critical code whose failure
+modes are silent. What was wrong was the *comparison*. The choice was never
+"OAuth or something simpler" — it was "OAuth or the app is unreachable from a
+phone", because a hosted client cannot be handed a bearer header by a person.
+Read that way, the cost of not having one was the larger cost.
 
-The cost is real and worth stating: **a client that can only authenticate via
-OAuth, and cannot be configured with a bearer token, cannot use this
-endpoint.** Use the stdio server for those.
+**A grant is a personal access token that a consent screen created.** That is
+the design, and it is what keeps the addition small:
+
+| | |
+| --- | --- |
+| Where a grant lives | `access_tokens` — the same table, the same hash discipline |
+| What `/api/mcp/rpc` had to change | Nothing. It cannot tell a grant from a PAT |
+| How it is revoked | Settings → Connected assistants, the button that already existed |
+| What it becomes | The same ten-minute user JWT, with RLS as the boundary |
+
+What is genuinely new is two tables and two rules: an authorization code is
+single-use and lives sixty seconds, and a redirect URI is matched exactly. Those
+are the whole added surface, and `src/lib/oauth.test.ts` is 25 assertions about
+them — including the RFC 7636 worked example, and every near-miss redirect that
+has ever been somebody's vulnerability.
+
+Deliberately **not** built, because these are the parts that go wrong: no client
+secrets (public clients with PKCE only), no implicit grant, no password grant,
+no `plain` PKCE method.
+
+```
+Discovery     GET  /.well-known/oauth-authorization-server
+              GET  /.well-known/oauth-protected-resource
+Registration  POST /api/oauth/register          RFC 7591, public clients only
+Authorize     GET  /oauth/authorize             the consent screen
+Token         POST /api/oauth/token             authorization_code + refresh
+```
+
+A bearer token still works and is still the simpler path when a client can take
+one. Nothing about the PAT flow changed.
+
+#### Replay is answered, not just refused
+
+An authorization code presented twice revokes the token the first presentation
+produced. A refresh token that has already been rotated away, presented again,
+revokes the whole grant. In both cases refusing alone would leave an attacker's
+credential quietly working if they got there first.
 
 If this deployment sits behind Vercel Deployment Protection, the endpoint needs
 a protection-bypass token like the cron routes do, or every request is answered

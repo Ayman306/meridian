@@ -2223,6 +2223,72 @@ is the parts that are *not* in the registry — the recipes, the failure table,
 the phrasing — and a generator would either lose those or become a second place
 to write them.
 
+### D124 — The no-OAuth decision, reversed, and what it cost
+
+D-record 122 and `mcp/README.md` both said there would be no authorization
+server, for a reason that was sound: hand-rolling one is a large amount of
+security-critical code whose failure modes are silent, and getting it subtly
+wrong is worse than not having it.
+
+The reasoning was sound and the *comparison* was wrong. It weighed OAuth
+against a simpler design, when the real alternative was no remote access at
+all. A hosted client — claude.ai, the mobile app — cannot be handed a bearer
+header by a person, so the PAT path could never reach them. The choice was
+"OAuth or the app is unreachable from a phone". The owner made that call
+explicitly, having been told the cost.
+
+**What keeps the addition small.** A grant is not a new kind of credential; it
+is a row in `access_tokens` that a consent screen created. `/api/mcp/rpc`
+needed no change to accept one — `authenticate()` cannot tell a grant from a
+PAT and does not need to. One expiry check, one revoke button, one Settings
+list. The alternative, an `oauth_tokens` table, would have been a second copy
+of the same idea and two revoke paths, which is exactly the shape of thing that
+ends with a revoked credential still working somewhere.
+
+**What was deliberately not built**, because it is where authorization servers
+go wrong: no client secrets (public clients with PKCE only), no implicit grant,
+no password grant, no device flow, and `plain` PKCE refused rather than
+accepted for compatibility — a client that can be talked down to `plain` has no
+PKCE at all, since the challenge and the verifier are then the same string.
+
+**The genuinely new surface is two rules**, and they are the two the tests are
+about: an authorization code is single-use and lives sixty seconds, and a
+redirect URI is matched exactly. Not a prefix, not same-origin, not
+"starts with" — every published redirect vulnerability is a story about a looser
+comparison, and exact equality has no such cases.
+
+**Two places refuse to redirect, on purpose.** If the client is unknown, or the
+redirect URI is not one it registered, the consent page renders a dead end
+instead of sending anything back. Until both hold, that URI is
+attacker-controlled, and redirecting an *error* to it is the open-redirect bug
+itself. Every later failure does redirect, because by then the address has been
+proven.
+
+**Replay is answered rather than merely refused.** A code presented twice
+revokes the token the first presentation issued; a rotated refresh token,
+presented again, revokes the grant. Refusing alone would leave the attacker's
+credential working if they got there first. This cost one column each
+(`issued_token_id`, `previous_refresh_hash`) and is the OAuth 2.1
+detect-and-revoke behaviour.
+
+**A bug I wrote and caught in the same hour, recorded because it was the
+dangerous kind.** The approve handler intersected the ticked modules against a
+`scope` field the consent form never posted, so ticking `health` would have
+silently dropped it — a permission failure that fails *closed* and would have
+looked like a UI glitch for months. The fix was to delete the intersection
+rather than add the field: the person's ticks are the authority, the screen only
+ever offers what the client asked for, and checking a form against a value the
+same form supplied is theatre. What actually stops a hostile client posting its
+own form is the `Origin` check and a `SameSite=Lax` session cookie.
+
+**What has not been proven.** The endpoints are exercised against a real running
+server — discovery, the `WWW-Authenticate` advertisement, registration refusing
+hostile redirect URIs, the token endpoint refusing unknown grants — and
+`src/lib/oauth.test.ts` covers the decision functions with 25 assertions. What
+nobody has done is walk a real client through a complete grant, because this
+container cannot reach the deployment. **The first end-to-end authorisation is
+untested by construction and should be treated as such.**
+
 ---
 
 ## Deviations from the spec
