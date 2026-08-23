@@ -15,7 +15,8 @@
     "db:bundle": "node scripts/build-setup.mjs",
     "db:test": "./supabase/tests/run.sh",
     "mcp": "tsx mcp/stdio.ts",
-    "mcp:doctor": "node scripts/mcp-doctor.mjs"
+    "mcp:doctor": "node scripts/mcp-doctor.mjs",
+    "verify": "node scripts/verify.mjs"
   },
   "license": "MIT",
   "private": true,
@@ -29,7 +30,6 @@
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.112.3",
     "@tanstack/react-query": "^5.101.4",
-    "@tanstack/react-virtual": "^3.14.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",

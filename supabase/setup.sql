@@ -31,6 +31,10 @@
 --   supabase/migrations/0023_document_sweep_schedule.sql
 --   supabase/migrations/0024_reference_data.sql
 --   supabase/migrations/0025_airport_routes.sql
+--   supabase/migrations/0026_realtime_publication.sql
+--   supabase/migrations/0027_search.sql
+--   supabase/migrations/0028_activity_and_integrations.sql
+--   supabase/migrations/0029_webhook_sweep_schedule.sql
 --
 -- Safe to re-run: every statement is idempotent or uses "or replace".
 -- =============================================================================
@@ -5210,4 +5214,621 @@ insert into public.airport_routes (origin_iata, dest_iata, duration_minutes, is_
   ('BOM', 'DEL', 130, true), ('DEL', 'BOM', 135, true),
   ('BLR', 'COK', 85, true),  ('COK', 'BLR', 80, true)
 on conflict (origin_iata, dest_iata) do nothing;
+
+
+-- ===========================================================================
+-- 0026_realtime_publication.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0026_realtime — the subscriptions have never received anything.
+--
+-- Six modules have had a realtime hook since their own phase: trips, itinerary,
+-- wishlist, flights, gallery, budget. Each opens a channel, subscribes to
+-- `postgres_changes`, and tears it down on unmount. All of it correct, and all
+-- of it inert — because `supabase_realtime` is an empty publication, and
+-- Postgres only sends change events for tables that are *in* one.
+--
+--   select tablename from pg_publication_tables
+--    where pubname = 'supabase_realtime';   -- returned zero rows
+--
+-- So "two people editing one trip at the same time is normal, not an edge case"
+-- was true as a design statement and false as a behaviour: the second person's
+-- change appeared when the first navigated, which is what would have happened
+-- with no realtime at all. Nothing errored, nothing logged, and the code looked
+-- finished.
+--
+-- This is the same shape as D111 — a stored setting nobody read — and it is the
+-- most expensive instance of it in the project, because six modules were built
+-- on the assumption that it worked.
+--
+-- ## Why membership rather than `for all tables`
+--
+-- A publication over every table would broadcast `access_tokens`, and
+-- `cycle_logs`, and every reference table. RLS still decides who may *receive*
+-- a row, so that is not a leak — but it is a great deal of write-ahead log
+-- traffic on a free tier for tables nothing subscribes to, and a publication is
+-- a poor place to be relying on a second system to save you.
+--
+-- Health tables are deliberately absent for a different reason. They are
+-- owner-private, only their owner can change them, and a second device is not a
+-- collaboration scenario worth opening a broadcast surface for.
+--
+-- ## Replica identity
+--
+-- Left at the default. Every hook in this app reacts to a change by
+-- invalidating a query and refetching, so it needs to know only *that*
+-- something changed. `replica identity full` would put the entire old row into
+-- the WAL on every update and delete, which is real cost for a payload nothing
+-- reads.
+-- =============================================================================
+
+do $$
+declare
+  wanted text[] := array[
+    -- Trips and the plan. The original "two people, one trip" case.
+    'trips', 'trip_days', 'trip_travelers', 'trip_destinations',
+    'itinerary_items', 'suggestion_tray',
+    -- Where they sleep. Added with the accommodation module; the reason this
+    -- migration got written at all.
+    'accommodations',
+    -- Saving and deciding together.
+    'wishlist_items', 'wishlist_verdicts',
+    -- Money. Two people entering expenses on the same evening is exactly when
+    -- a stale balance misleads.
+    'expenses', 'settlements', 'budgets',
+    -- Flights. The one on the ground is the one watching.
+    'flights', 'journeys', 'flight_events',
+    -- Photos and the daily exchange.
+    'media', 'media_comments', 'albums', 'daily_exchange',
+    -- Documents: `is_shared` can be revoked, and a row the partner may no
+    -- longer read should stop being on their screen.
+    'documents',
+    -- Immigration day counts, and any override either of them writes.
+    'entry_exit_log', 'allowance_rules'
+  ];
+  name text;
+begin
+  -- The publication is created by Supabase, not by these migrations. A plain
+  -- Postgres — the scratch database the RLS suite runs against, or somebody
+  -- standing the schema up elsewhere — has no such object, and this migration
+  -- has nothing to say there.
+  if not exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    raise notice 'supabase_realtime publication not present; skipping realtime membership.';
+    return;
+  end if;
+
+  foreach name in array wanted loop
+    -- Guarded on both sides: the table has to exist, and adding one twice is
+    -- an error rather than a no-op, so this migration stays re-runnable.
+    if to_regclass('public.' || name) is not null
+       and not exists (
+         select 1 from pg_publication_tables
+          where pubname = 'supabase_realtime'
+            and schemaname = 'public'
+            and tablename = name
+       )
+    then
+      execute format('alter publication supabase_realtime add table public.%I', name);
+    end if;
+  end loop;
+end $$;
+
+
+-- ===========================================================================
+-- 0027_search.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0027_search — one box that finds anything the couple saved.
+--
+-- Eleven navigation destinations and no way to search across them. After three
+-- years this app holds hundreds of saved places, dozens of documents and
+-- thousands of expenses, and the only way to find "that restaurant in Lisbon"
+-- is to remember which tab it is under. That is the one gap that gets *worse*
+-- with time; everything else on the deferred list was flat-cost.
+--
+-- ## SECURITY INVOKER, and why that is the whole design
+--
+-- This function is deliberately **not** `security definer`. It runs as the
+-- caller, so every `select` inside it is judged by the same policies the app
+-- already relies on: a document the partner has not shared is not found,
+-- because the partner cannot read the row, not because this function
+-- remembered to exclude it.
+--
+-- A definer function here would have been the single most dangerous object in
+-- the schema — a search endpoint that reads every couple's rows and trusts
+-- itself to filter. It is written this way so that getting the filter wrong is
+-- not a possible outcome.
+--
+-- ## Trigram matching, not full-text
+--
+-- `media` already carries a `search_tsv`, and full-text is the better tool when
+-- you know the words. This is the other case: people misremember names, so
+-- "alfama" should find "Pensão Alfama" and "borogh market" should find
+-- "Borough Market". `pg_trgm` handles both, `ilike '%…%'` is index-accelerated
+-- by a GIN trigram index, and one matching strategy across eight tables beats
+-- two that rank differently from each other.
+--
+-- ## What is deliberately not searchable
+--
+-- Health records and cycle logs. They are owner-private, and a box that
+-- surfaces a medication name while somebody is looking for a restaurant is not
+-- a feature. Document *numbers* and storage paths are likewise never returned —
+-- only the label, exactly as the MCP is restricted (D102).
+-- =============================================================================
+
+create extension if not exists pg_trgm;
+
+-- -----------------------------------------------------------------------------
+-- Trigram indexes.
+--
+-- Without these, `ilike '%q%'` is a sequential scan on every table in the union
+-- — fine on a laptop with test data, and the reason the feature would feel
+-- broken on a real library three years in.
+-- -----------------------------------------------------------------------------
+create index if not exists trips_title_trgm on public.trips using gin (title gin_trgm_ops);
+create index if not exists itinerary_title_trgm
+  on public.itinerary_items using gin (title gin_trgm_ops);
+create index if not exists itinerary_place_trgm
+  on public.itinerary_items using gin (place_name gin_trgm_ops);
+create index if not exists wishlist_title_trgm
+  on public.wishlist_items using gin (title gin_trgm_ops);
+create index if not exists wishlist_place_trgm
+  on public.wishlist_items using gin (place_name gin_trgm_ops);
+create index if not exists accommodations_name_trgm
+  on public.accommodations using gin (name gin_trgm_ops);
+create index if not exists documents_label_trgm
+  on public.documents using gin (label gin_trgm_ops);
+create index if not exists expenses_description_trgm
+  on public.expenses using gin (description gin_trgm_ops);
+create index if not exists media_caption_trgm on public.media using gin (caption gin_trgm_ops);
+create index if not exists destinations_city_trgm
+  on public.trip_destinations using gin (city gin_trgm_ops);
+
+-- -----------------------------------------------------------------------------
+-- The search itself.
+--
+-- One round trip returning a heterogeneous list. `kind` is what the client
+-- switches on to build a link; `subtitle` is whatever context makes the row
+-- identifiable without opening it — a city, a date, an address.
+--
+-- `rank` combines two things a single measure gets wrong on its own: trigram
+-- similarity, which is forgiving of spelling, and a prefix bonus, because
+-- somebody typing "bor" almost certainly means the thing that *starts* with it
+-- rather than the one that merely contains those letters somewhere.
+-- -----------------------------------------------------------------------------
+create or replace function public.search_everything(q text, max_results int default 30)
+returns table (
+  kind      text,
+  id        uuid,
+  title     text,
+  subtitle  text,
+  trip_id   uuid,
+  occurred  date,
+  rank      real
+)
+language sql
+stable
+-- Not `security definer`. See the note at the top: RLS is the filter.
+security invoker
+set search_path = public
+as $$
+  with needle as (
+    select
+      trim(q) as raw,
+      '%' || trim(q) || '%' as like_pattern,
+      trim(q) || '%' as prefix_pattern
+  ),
+  hits as (
+    select 'trip'::text as kind, t.id, t.title,
+           coalesce(t.notes, '') as subtitle,
+           t.id as trip_id, t.start_date as occurred,
+           similarity(t.title, n.raw) + case when t.title ilike n.prefix_pattern then 0.5 else 0 end as rank
+      from public.trips t, needle n
+     where t.deleted_at is null and t.title ilike n.like_pattern
+
+    union all
+    select 'plan', i.id, i.title,
+           coalesce(i.place_name, i.address, ''),
+           i.trip_id, i.scheduled_date,
+           greatest(similarity(i.title, n.raw), similarity(coalesce(i.place_name, ''), n.raw))
+             + case when i.title ilike n.prefix_pattern then 0.5 else 0 end
+      from public.itinerary_items i, needle n
+     where i.deleted_at is null
+       and (i.title ilike n.like_pattern or i.place_name ilike n.like_pattern
+            or i.address ilike n.like_pattern)
+
+    union all
+    select 'saved', w.id, w.title,
+           coalesce(w.place_name, w.city, ''),
+           null::uuid, null::date,
+           greatest(similarity(w.title, n.raw), similarity(coalesce(w.place_name, ''), n.raw))
+             + case when w.title ilike n.prefix_pattern then 0.5 else 0 end
+      from public.wishlist_items w, needle n
+     where w.deleted_at is null
+       and (w.title ilike n.like_pattern or w.place_name ilike n.like_pattern
+            or w.city ilike n.like_pattern)
+
+    union all
+    select 'stay', a.id, a.name,
+           coalesce(a.city, a.address, ''),
+           a.trip_id, a.check_in,
+           similarity(a.name, n.raw) + case when a.name ilike n.prefix_pattern then 0.5 else 0 end
+      from public.accommodations a, needle n
+     where a.deleted_at is null
+       and (a.name ilike n.like_pattern or a.address ilike n.like_pattern
+            or a.city ilike n.like_pattern)
+
+    union all
+    -- Label only. Never the number, never the storage path — the same
+    -- restriction the MCP tools carry, for the same reason.
+    select 'document', d.id, d.label,
+           coalesce(d.country_code, ''),
+           null::uuid, d.expires_on,
+           similarity(d.label, n.raw) + case when d.label ilike n.prefix_pattern then 0.5 else 0 end
+      from public.documents d, needle n
+     where d.deleted_at is null and d.label ilike n.like_pattern
+
+    union all
+    select 'expense', e.id, e.description,
+           e.currency || ' ' || e.amount::text,
+           e.trip_id, e.spent_on,
+           similarity(e.description, n.raw)
+             + case when e.description ilike n.prefix_pattern then 0.5 else 0 end
+      from public.expenses e, needle n
+     where e.deleted_at is null and e.description ilike n.like_pattern
+
+    union all
+    select 'photo', m.id, coalesce(m.caption, 'Photo'),
+           '', m.trip_id, m.taken_at::date,
+           similarity(coalesce(m.caption, ''), n.raw)
+             + case when m.caption ilike n.prefix_pattern then 0.5 else 0 end
+      from public.media m, needle n
+     where m.deleted_at is null and m.caption ilike n.like_pattern
+
+    union all
+    select 'destination', td.id, td.city,
+           coalesce(td.country_code, ''),
+           td.trip_id, td.arrive_on,
+           similarity(td.city, n.raw) + case when td.city ilike n.prefix_pattern then 0.5 else 0 end
+      from public.trip_destinations td, needle n
+     where td.deleted_at is null and td.city ilike n.like_pattern
+  )
+  select h.kind, h.id, h.title, nullif(h.subtitle, '') as subtitle, h.trip_id, h.occurred,
+         h.rank::real
+    from hits h, needle n
+   -- Two characters matches half the library and is not a search. The client
+   -- also refuses to call below this length; the guard is here as well because
+   -- the client is not the only caller — the MCP could be next.
+   where length(n.raw) >= 2
+   order by h.rank desc, h.occurred desc nulls last, h.title
+   limit greatest(1, least(max_results, 100));
+$$;
+
+revoke all on function public.search_everything(text, int) from public, anon;
+grant execute on function public.search_everything(text, int) to authenticated;
+
+comment on function public.search_everything(text, int) is
+  'Trigram search across everything the caller can read. SECURITY INVOKER on purpose: RLS is the filter, not this function.';
+
+
+-- ===========================================================================
+-- 0028_activity_and_integrations.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0028_activity — what changed, and letting other things know about it.
+--
+-- Two people in two time zones is the premise of the whole app, and there has
+-- been no way to see what the other one did while you were asleep. You wake up,
+-- they have been planning for eight hours, and the only way to find out is to
+-- notice a difference on a screen you happen to open.
+--
+-- ## One event model, three consumers
+--
+-- The temptation is to build the morning feed as a screen and stop. But "what
+-- changed and who did it" is the same question three different things want to
+-- ask, so it is answered once:
+--
+--   1. **The dashboard** — the feed, for a person over coffee.
+--   2. **The MCP** — `whats_new`, so an assistant can brief you rather than
+--      being asked to trawl six tools.
+--   3. **Webhooks** — the same events, pushed to whatever else the couple uses.
+--      That is what makes Slack, Discord, Home Assistant, n8n, IFTTT and a
+--      hundred other things reachable without this app knowing any of them
+--      exist.
+--
+-- Taken together with the MCP, the app now has both directions: an assistant is
+-- how things get *in*, and webhooks are how things get *out*.
+--
+-- ## Why there is no audit table
+--
+-- The obvious build is a trigger on twenty tables writing to an `activity_log`.
+-- It is also unbounded growth on a free tier, twenty triggers to keep in step,
+-- and a second copy of the truth that can disagree with the first.
+--
+-- The rows already record this. Every couple-scoped table carries who created
+-- it and when, so the feed is a query rather than a log. Nothing is written to
+-- produce it, nothing grows, and it cannot drift from what actually happened.
+--
+-- ## The honest limitation, stated rather than hidden
+--
+-- `created_by` says who made a row. **Nothing says who last changed one** —
+-- `updated_at` records that a row moved, not whose hand moved it. So this feed
+-- reports *creations only*, and says so in the UI.
+--
+-- Adding `updated_by` everywhere would mean a trigger on every table and a
+-- column on every table, to answer a question that is much less interesting
+-- than "what did they add". Reporting an update with no author, or guessing at
+-- one, would be worse than not reporting it.
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- Where each person's "new since" line sits.
+--
+-- On `user_settings`, whose policy is `user_id = auth.uid()`: this is genuinely
+-- personal — your unread marker is not your partner's business, and it changes
+-- every time you glance at the dashboard.
+-- -----------------------------------------------------------------------------
+alter table public.user_settings
+  add column if not exists activity_seen_at timestamptz;
+
+comment on column public.user_settings.activity_seen_at is
+  'When this person last marked the activity feed read. Null means never, and the feed falls back to a recent window rather than the beginning of time.';
+
+-- -----------------------------------------------------------------------------
+-- The feed.
+--
+-- SECURITY INVOKER, for the same reason `search_everything` is (D117): every
+-- select inside runs as the caller, so RLS decides what appears. A document the
+-- partner has not shared does not show up because the partner cannot read the
+-- row — not because this function remembered to exclude it.
+--
+-- `actor_id` is returned rather than a name: names live on `profiles`, the
+-- client already has both of them loaded, and joining here would be a second
+-- way to render a person that could disagree with the first.
+-- -----------------------------------------------------------------------------
+create or replace function public.activity_feed(
+  since timestamptz default null,
+  max_results int default 50
+)
+returns table (
+  event      text,
+  id         uuid,
+  title      text,
+  subtitle   text,
+  actor_id   uuid,
+  trip_id    uuid,
+  at         timestamptz
+)
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  with bound as (
+    -- Null means "never looked", and the beginning of time would dump the
+    -- entire history of the couple into a morning summary. A fortnight is the
+    -- longest that still reads as "recently".
+    select coalesce(since, now() - interval '14 days') as floor
+  ),
+  events as (
+    select 'trip_created'::text as event, t.id, t.title,
+           coalesce(to_char(t.start_date, 'FMDD Mon YYYY'), 'no dates yet') as subtitle,
+           t.created_by as actor_id, t.id as trip_id, t.created_at as at
+      from public.trips t, bound b
+     where t.deleted_at is null and t.created_at > b.floor
+
+    union all
+    select 'plan_added', i.id, i.title,
+           coalesce(i.place_name, to_char(i.scheduled_date, 'FMDD Mon'), 'in the idea pool'),
+           i.proposed_by, i.trip_id, i.created_at
+      from public.itinerary_items i, bound b
+     where i.deleted_at is null and i.created_at > b.floor
+
+    union all
+    select 'place_saved', w.id, w.title,
+           coalesce(w.place_name, w.city, ''),
+           w.user_id, null::uuid, w.created_at
+      from public.wishlist_items w, bound b
+     where w.deleted_at is null and w.created_at > b.floor
+
+    union all
+    -- A verdict is somebody reacting to the other's idea, which is the most
+    -- conversational thing in the app and the easiest to miss.
+    select 'verdict_cast', v.wishlist_id, w.title,
+           v.verdict, v.user_id, null::uuid, v.created_at
+      from public.wishlist_verdicts v
+      join public.wishlist_items w on w.id = v.wishlist_id
+         , bound b
+     where w.deleted_at is null and v.created_at > b.floor
+
+    union all
+    select 'stay_booked', a.id, a.name,
+           coalesce(a.city, to_char(a.check_in, 'FMDD Mon'), ''),
+           a.created_by, a.trip_id, a.created_at
+      from public.accommodations a, bound b
+     where a.deleted_at is null and a.created_at > b.floor
+
+    union all
+    select 'destination_added', d.id, d.city,
+           coalesce(d.country_code, ''), d.created_by, d.trip_id, d.created_at
+      from public.trip_destinations d, bound b
+     where d.deleted_at is null and d.created_at > b.floor
+
+    union all
+    select 'flight_added', f.id, f.flight_number,
+           coalesce(f.origin_iata, '???') || ' to ' || coalesce(f.dest_iata, '???'),
+           f.created_by, f.trip_id, f.created_at
+      from public.flights f, bound b
+     where f.deleted_at is null and f.created_at > b.floor
+
+    union all
+    select 'expense_logged', e.id, e.description,
+           e.currency || ' ' || e.amount::text, e.created_by, e.trip_id, e.created_at
+      from public.expenses e, bound b
+     where e.deleted_at is null and e.created_at > b.floor
+
+    union all
+    select 'photo_added', m.id, coalesce(m.caption, 'A photo'),
+           '', m.uploader_id, m.trip_id, m.uploaded_at
+      from public.media m, bound b
+     where m.deleted_at is null and m.uploaded_at > b.floor
+
+    union all
+    -- Only ever the label, never a number or a path — the same restriction the
+    -- MCP and search carry (D102, D117).
+    select 'document_added', d.id, d.label,
+           coalesce(d.country_code, ''), d.owner_id, null::uuid, d.created_at
+      from public.documents d, bound b
+     where d.deleted_at is null and d.created_at > b.floor
+  )
+  select e.event, e.id, e.title, nullif(e.subtitle, '') as subtitle,
+         e.actor_id, e.trip_id, e.at
+    from events e
+   order by e.at desc
+   limit greatest(1, least(max_results, 200));
+$$;
+
+revoke all on function public.activity_feed(timestamptz, int) from public, anon;
+grant execute on function public.activity_feed(timestamptz, int) to authenticated;
+
+comment on function public.activity_feed(timestamptz, int) is
+  'Creations across everything the caller can read, newest first. SECURITY INVOKER: RLS is the filter. Creations only — nothing records who last *updated* a row.';
+
+-- =============================================================================
+-- Integrations: the same events, pushed somewhere else.
+--
+-- Deliberately generic. This app does not know what Slack is, and should not:
+-- it posts a signed JSON body to a URL somebody pasted, and whatever is at the
+-- other end decides what that means. That is what makes Discord, Home
+-- Assistant, n8n, Zapier and IFTTT all work without a line of code each.
+-- =============================================================================
+create table if not exists public.integrations (
+  id          uuid primary key default gen_random_uuid(),
+  couple_id   uuid not null references public.couples(id) on delete cascade,
+
+  name        text not null,
+  url         text not null,
+
+  -- Which events to send. Empty means all of them, which is what most people
+  -- want and saves a wall of checkboxes on the way in.
+  events      text[] not null default '{}',
+
+  -- Signs the body so the receiver can prove it came from here. Generated
+  -- server-side; shown once, exactly like an access token.
+  secret      text not null,
+
+  enabled     boolean not null default true,
+
+  -- The last attempt, for the panel to show. A row rather than a log table:
+  -- "did this work" is the question people ask, and a delivery history is
+  -- unbounded growth for a question nobody asks twice.
+  last_status      int,
+  last_error       text,
+  last_delivered_at timestamptz,
+  -- How far the sender has got, so a delivery is sent once rather than on
+  -- every sweep.
+  delivered_through timestamptz,
+
+  created_by  uuid references public.profiles(id),
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+
+  constraint integration_url_is_https check (url ~* '^https://')
+);
+
+create index if not exists integrations_couple_idx
+  on public.integrations (couple_id) where enabled;
+
+drop trigger if exists integrations_updated_at on public.integrations;
+create trigger integrations_updated_at before update on public.integrations
+  for each row execute function public.set_updated_at();
+
+alter table public.integrations enable row level security;
+
+-- The couple reads and writes their own. The *secret* is the exception below.
+drop policy if exists "couple read" on public.integrations;
+create policy "couple read" on public.integrations
+  for select using (public.is_couple_member(couple_id));
+
+drop policy if exists "couple write" on public.integrations;
+create policy "couple write" on public.integrations
+  for all using (public.is_couple_member(couple_id))
+      with check (public.is_couple_member(couple_id));
+
+-- -----------------------------------------------------------------------------
+-- The secret is not readable, by anyone, ever — including its owner.
+--
+-- Same reasoning as `access_tokens.token_hash` (0019): anything that can select
+-- it can forge a signature, and no screen has ever needed to. It is shown once
+-- at creation, from the value the client generated, and never read back.
+--
+-- A table-level revoke followed by named column grants, because a column-level
+-- revoke underneath a table-level grant does nothing at all — the mistake 0019
+-- was written to avoid making twice.
+-- -----------------------------------------------------------------------------
+revoke select on public.integrations from authenticated;
+grant select (
+  id, couple_id, name, url, events, enabled,
+  last_status, last_error, last_delivered_at, delivered_through,
+  created_by, created_at, updated_at
+) on public.integrations to authenticated;
+
+
+-- ===========================================================================
+-- 0029_webhook_sweep_schedule.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0029_webhook_sweep_schedule — the fifth sweep.
+--
+-- Every fifteen minutes, which is a deliberate middle. A webhook that tells a
+-- shared channel "Ayman saved a place" is not urgent to the second, and a
+-- tighter loop would mean five times the outbound requests for an endpoint that
+-- may be down anyway.
+--
+-- It is also the only sweep that talks to somebody else's server, so the cost
+-- of a mistake here is paid by them: a one-minute schedule pointed at a flaky
+-- endpoint is indistinguishable from hammering it.
+--
+-- Replaced wholesale rather than amended, for the same reason 0023 was: the
+-- function already unschedules and reschedules everything it names, so one list
+-- beats two places to keep in agreement.
+-- =============================================================================
+
+create or replace function public.schedule_sweeps()
+returns void language plpgsql security definer
+set search_path = public, cron as $$
+declare
+  job record;
+begin
+  for job in
+    select * from (values
+      -- Every 30 minutes: the hard stop on finished flights, then a refresh of
+      -- the ones actually in the air. This is the one with money attached.
+      ('meridian-flight-sweep',   '*/30 * * * *', '/api/cron/flight-sweep'),
+      -- Every 15: push what changed to whatever else they have connected.
+      ('meridian-webhook-sweep',  '*/15 * * * *', '/api/cron/webhook-sweep'),
+      -- 03:15 UTC: hard-delete trashed photos, objects before rows.
+      ('meridian-media-sweep',    '15 3 * * *',   '/api/cron/media-sweep'),
+      -- 03:45 UTC: convert the expenses that saved while FX was unreachable.
+      ('meridian-fx-backfill',    '45 3 * * *',   '/api/cron/fx-backfill'),
+      -- 04:15 UTC: tell people a passport is running out, once per threshold.
+      ('meridian-document-sweep', '15 4 * * *',   '/api/cron/document-sweep')
+    ) as t(name, schedule, path)
+  loop
+    perform cron.unschedule(job.name)
+      where exists (select 1 from cron.job j where j.jobname = job.name);
+
+    perform cron.schedule(
+      job.name,
+      job.schedule,
+      format('select public.invoke_sweep(%L)', job.path)
+    );
+  end loop;
+end $$;
+
+revoke all on function public.schedule_sweeps() from public, anon, authenticated;
 

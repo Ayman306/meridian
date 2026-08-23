@@ -3,6 +3,7 @@ export { WherePage } from './pages/WherePage'
 export {
   useChosenCountry,
   useDestinations,
+  useDestinationsRealtime,
   useAddCandidate,
   useUpdateDestination,
   useRemoveDestination,

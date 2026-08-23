@@ -14,6 +14,7 @@ import { CountdownBlock } from '../components/CountdownBlock'
 import { ClocksCard } from '../components/ClocksCard'
 import { AlertStrip } from '../components/AlertStrip'
 import { ActiveFlightCard } from '../components/ActiveFlightCard'
+import { ActivityFeed } from '@/modules/activity'
 
 export function DashboardPage() {
   const { self, partner, selfRef, partnerRef, tzSelf } = useCouple()
@@ -56,6 +57,10 @@ export function DashboardPage() {
           the most important thing on the screen, and a countdown to a date
           that has already arrived is the least. */}
       <ActiveFlightCard />
+
+      {/* The morning read. Above the countdown because "what did they do while
+          I was asleep" is the question somebody actually opens the app with. */}
+      <ActivityFeed />
 
       <CountdownBlock countdown={view.countdown} />
 

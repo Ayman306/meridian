@@ -1723,6 +1723,194 @@ select assert_raises(
 
 -- ---------------------------------------------------------------------------
 \echo ''
+\echo '== the activity feed, and who it names =='
+set request.jwt.claim.sub = :'ada_ada';
+
+select assert(
+  exists (select 1 from public.activity_feed() where event = 'stay_booked'),
+  'the feed reports a stay somebody booked'
+);
+select assert(
+  (select actor_id from public.activity_feed() where event = 'stay_booked' limit 1) = :'ada_ada'::uuid,
+  'and names who booked it, so the client can say "they" rather than "someone"'
+);
+
+-- Both partners see the same shared events. The *filtering* to "not mine" is a
+-- client decision, because the same feed is also how an assistant answers
+-- "what has happened lately" — where excluding the caller would be wrong.
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  exists (select 1 from public.activity_feed() where event = 'stay_booked'),
+  'the partner sees it too'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.activity_feed()) = 0,
+  'and a stranger sees nothing at all, because RLS is the filter'
+);
+
+set request.jwt.claim.sub = :'ada_ada';
+-- The window matters: a feed with no floor would dump a couple's whole history
+-- into a morning summary.
+select assert(
+  (select count(*) from public.activity_feed(now() + interval '1 day')) = 0,
+  'a floor in the future returns nothing rather than everything'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== a webhook secret is never readable, by anyone =='
+insert into public.integrations (couple_id, name, url, secret, created_by)
+values (:'ada_couple', 'Our Discord', 'https://example.com/hook', 'sh_notarealsecret', :'ada_ada');
+
+select assert(
+  (select count(*) from public.integrations) = 1,
+  'an integration is visible to the couple that made it'
+);
+
+-- The same shape as access_tokens (0019): anything that can select the secret
+-- can forge a signature, and no screen has ever needed to.
+select assert_raises(
+  'select secret from public.integrations',
+  'permission denied',
+  'not even its owner can read the signing secret back'
+);
+select assert(
+  (select url from public.integrations) = 'https://example.com/hook',
+  'though everything else about it is readable, which is what the panel shows'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.integrations) = 0,
+  'a stranger sees no integration of theirs'
+);
+set request.jwt.claim.sub = :'ada_ada';
+
+-- Plain http would send a signed payload over the wire in clear text.
+select assert_raises(
+  format(
+    'insert into public.integrations (couple_id, name, url, secret) values (%L, %L, %L, %L)',
+    :'ada_couple', 'Insecure', 'http://example.com/hook', 'sh_x'
+  ),
+  'integration_url_is_https',
+  'and a plain http endpoint is refused outright'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== search finds only what the caller may read =='
+-- The whole design of `search_everything` is that it is SECURITY INVOKER, so
+-- RLS does the filtering. That is worth proving rather than trusting: a search
+-- endpoint that reads every couple's rows and filters them itself would be the
+-- most dangerous object in the schema, and the difference is one keyword.
+set request.jwt.claim.sub = :'ada_ada';
+
+insert into public.wishlist_items (couple_id, user_id, title, city)
+values (:'ada_couple', :'ada_ada', 'Pastelaria Alfama', 'Lisbon');
+
+-- 'Alfama' is deliberately a word that appears in two different tables by this
+-- point in the suite: the stay booked above, and the save just inserted. One
+-- query returning both is the entire point of the feature, so it is what gets
+-- asserted rather than a single row.
+select assert(
+  (select count(distinct kind) from public.search_everything('alfama')) >= 2,
+  'one query returns matches from more than one kind of thing'
+);
+select assert(
+  exists (select 1 from public.search_everything('alfama') where kind = 'stay')
+    and exists (select 1 from public.search_everything('alfama') where kind = 'saved'),
+  'and names which kind each match is, so the client can link to it'
+);
+
+-- Misspelt on purpose. Trigram matching is the reason this is not full-text:
+-- people misremember the name of the place they are looking for.
+select assert(
+  exists (select 1 from public.search_everything('Pastelar') where kind = 'saved'),
+  'a partial word still matches'
+);
+
+-- The prefix bonus: 'Pastelaria Alfama' starts with the query, 'Pensao Alfama'
+-- does not, so the one somebody almost certainly means ranks first.
+select assert(
+  (select kind from public.search_everything('pastelaria') order by rank desc limit 1) = 'saved',
+  'a prefix match outranks a mere containment'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.search_everything('alfama')) = 0,
+  'a stranger searching the same word finds nothing at all'
+);
+
+set request.jwt.claim.sub = :'ada_ada';
+-- One character is half the library, not a search.
+select assert(
+  (select count(*) from public.search_everything('a')) = 0,
+  'a one-character query returns nothing rather than everything'
+);
+
+-- Soft-deleted rows stay out. A place in the bin must not come back through a
+-- side door.
+update public.wishlist_items set deleted_at = now() where title = 'Pastelaria Alfama';
+select assert(
+  not exists (select 1 from public.search_everything('pastelaria') where kind = 'saved'),
+  'a deleted save is not findable'
+);
+update public.wishlist_items set deleted_at = null where title = 'Pastelaria Alfama';
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== realtime actually broadcasts =='
+-- Six modules subscribed to `postgres_changes` from their own phase onward, and
+-- none of them ever received one: `supabase_realtime` was an empty publication,
+-- so Postgres had nothing to send. Nothing errored and nothing logged, which is
+-- what let it survive that long.
+--
+-- Asserted per table rather than as a count, so adding a module and forgetting
+-- to publish its table fails with the table's name in the message.
+reset role;
+do $$
+declare
+  name text;
+begin
+  foreach name in array array[
+    'trips', 'trip_days', 'trip_destinations', 'itinerary_items',
+    'accommodations', 'wishlist_items', 'expenses', 'flights',
+    'media', 'documents', 'entry_exit_log'
+  ] loop
+    if not exists (
+      select 1 from pg_publication_tables
+       where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = name
+    ) then
+      raise exception 'FAILED: % is not in the supabase_realtime publication, so nothing subscribing to it will ever fire', name;
+    end if;
+  end loop;
+  raise notice '  ok   every table with a realtime hook is actually published';
+end $$;
+
+-- And the ones deliberately left out. Health is owner-private and only its
+-- owner can change it; a second device is not a collaboration scenario worth
+-- opening a broadcast surface for.
+do $$
+declare
+  name text;
+begin
+  foreach name in array array['cycle_logs', 'health_records', 'access_tokens'] loop
+    if exists (
+      select 1 from pg_publication_tables
+       where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = name
+    ) then
+      raise exception 'FAILED: % is published, and nothing should be broadcasting it', name;
+    end if;
+  end loop;
+  raise notice '  ok   health and credentials are deliberately not published';
+end $$;
+set role authenticated;
+
+-- ---------------------------------------------------------------------------
+\echo ''
 \echo '== leaving =='
 set request.jwt.claim.sub = :'bo_bo';
 select public.leave_couple();

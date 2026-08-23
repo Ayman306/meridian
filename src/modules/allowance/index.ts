@@ -7,6 +7,7 @@ export { RuleEditor } from './components/RuleEditor'
 export { AllowanceBar } from './components/AllowanceBar'
 export {
   useAllowanceRules,
+  useAllowanceRealtime,
   useEntryLog,
   useLogEntry,
   useUpdateLogEntry,

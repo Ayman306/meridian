@@ -84,7 +84,7 @@ by the login page rather than by the server.
 
 ## What it can do
 
-Forty-five tools across nine modules — every module the app has.
+Forty-seven tools across nine modules — every module the app has.
 
 | Module | Tools | Writes |
 | --- | --- | --- |
@@ -201,3 +201,9 @@ minutes at the outside.
   with an error that points nowhere near the print. Use `console.error`.
 - The tool list is built per request from the token's scope, so narrowing a
   token takes effect on the next client reconnect without touching this code.
+- A guide book for the model on the other end lives in
+  [`skills/meridian/SKILL.md`](../skills/meridian/SKILL.md). Tool descriptions
+  can say what one tool does; they cannot say "read the journey before you
+  suggest anything". The skill carries the parts that span tools, and it has to
+  be updated whenever a tool's name, arguments or module changes — a stale skill
+  is worse than none, because a model trusts it over the tool list it was given.

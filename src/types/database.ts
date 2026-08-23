@@ -4,7 +4,7 @@
  *   npm run db:types
  *   # supabase gen types typescript --project-id <ref> > src/types/database.ts
  *
- * Generated from the live project after migrations 0001-0022. The aliases at
+ * Generated from the live project after migrations 0001-0028. The aliases at
  * the bottom are the only hand-written part: they are what the modules import,
  * and they are re-added after each regeneration.
  */
@@ -1742,6 +1742,62 @@ export type Database = {
           },
         ]
       }
+      integrations: {
+        Row: {
+          couple_id: string
+          created_at: string
+          created_by: string | null
+          delivered_through: string | null
+          enabled: boolean
+          events: string[]
+          id: string
+          last_delivered_at: string | null
+          last_error: string | null
+          last_status: number | null
+          name: string
+          // Present because the column is. The *grant* is what stops the
+          // browser reading it — `revoke select … grant select (named columns)`
+          // in 0028 — exactly as `access_tokens.token_hash` is handled. A type
+          // that hid it would leave the one context that may read it, the
+          // webhook sweep, unable to say so.
+          secret: string
+          updated_at: string
+          url: string
+        }
+        Insert: {
+          couple_id: string
+          created_at?: string
+          created_by?: string | null
+          delivered_through?: string | null
+          enabled?: boolean
+          events?: string[]
+          id?: string
+          last_delivered_at?: string | null
+          last_error?: string | null
+          last_status?: number | null
+          name: string
+          secret: string
+          updated_at?: string
+          url: string
+        }
+        Update: {
+          couple_id?: string
+          created_at?: string
+          created_by?: string | null
+          delivered_through?: string | null
+          enabled?: boolean
+          events?: string[]
+          id?: string
+          last_delivered_at?: string | null
+          last_error?: string | null
+          last_status?: number | null
+          name?: string
+          secret?: string
+          updated_at?: string
+          url?: string
+        }
+        Relationships: []
+      }
       itinerary_items: {
         Row: {
           address: string | null
@@ -2779,6 +2835,7 @@ export type Database = {
       }
       user_settings: {
         Row: {
+          activity_seen_at: string | null
           created_at: string
           notify_allowance: boolean
           notify_daily_exchange: boolean
@@ -2795,6 +2852,7 @@ export type Database = {
           work_timezone: string | null
         }
         Insert: {
+          activity_seen_at?: string | null
           created_at?: string
           notify_allowance?: boolean
           notify_daily_exchange?: boolean
@@ -2811,6 +2869,7 @@ export type Database = {
           work_timezone?: string | null
         }
         Update: {
+          activity_seen_at?: string | null
           created_at?: string
           notify_allowance?: boolean
           notify_daily_exchange?: boolean
@@ -3001,6 +3060,18 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      activity_feed: {
+        Args: { since?: string | null; max_results?: number }
+        Returns: {
+          event: string
+          id: string
+          title: string
+          subtitle: string | null
+          actor_id: string | null
+          trip_id: string | null
+          at: string
+        }[]
+      }
       all_modules: { Args: never; Returns: string[] }
       api_usage_in_window: {
         Args: { target_provider: string }
@@ -3112,6 +3183,18 @@ export type Database = {
       }
       regenerate_invite_code: { Args: never; Returns: string }
       schedule_sweeps: { Args: never; Returns: undefined }
+      search_everything: {
+        Args: { q: string; max_results?: number }
+        Returns: {
+          kind: string
+          id: string
+          title: string
+          subtitle: string | null
+          trip_id: string | null
+          occurred: string | null
+          rank: number
+        }[]
+      }
       seed_categories: { Args: { target: string }; Returns: undefined }
       seed_document_types: { Args: { target: string }; Returns: undefined }
       seed_trip_statuses: { Args: { target: string }; Returns: undefined }

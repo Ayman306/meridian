@@ -24,6 +24,7 @@ import { TripBin } from '@/modules/trips'
 import { useLeaveCouple, useUpdateProfile } from '@/modules/auth'
 import { AccessPanel } from '../components/AccessPanel'
 import { AssistantsPanel } from '../components/AssistantsPanel'
+import { IntegrationsPanel } from '@/modules/activity'
 import { PushPanel } from '../components/PushPanel'
 import { CategoriesPanel } from '../components/CategoriesPanel'
 import { DataPanel } from '../components/DataPanel'
@@ -84,6 +85,15 @@ export function SettingsPage() {
           Connected assistants
         </h2>
         <AssistantsPanel />
+      </section>
+
+      {/* The other direction. An assistant is how things get in; a webhook is
+          how they get out. */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Connected services
+        </h2>
+        <IntegrationsPanel />
       </section>
 
       {/* ---------------------------------------------------------------- */}

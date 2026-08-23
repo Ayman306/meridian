@@ -1,9 +1,22 @@
+# Runs on pull requests, and on main after a merge. It used to run on every
+# push to every branch *and* on pull_request, which fired the whole suite twice
+# for every push to a branch with a PR open — double the minutes for zero extra
+# signal. On a private repo that is billed time.
+#
+# If Actions minutes are exhausted, nothing here runs at all. `npm run verify`
+# does the same checks locally and is the fallback — see docs/CI.md.
 name: CI
 
 on:
-  push:
-    branches: ['**']
   pull_request:
+  push:
+    branches: [main]
+
+# A second push supersedes the first. Without this, pushing three fixes in a row
+# leaves three full runs going, two of which nobody will ever read.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   app:

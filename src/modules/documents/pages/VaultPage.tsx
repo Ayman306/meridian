@@ -14,7 +14,7 @@ import { useAuth } from '@/providers/AuthProvider'
 import { useUserSettings } from '@/modules/settings'
 import { todayIn } from '@/lib/dates'
 import { cn } from '@/lib/utils'
-import { useDocuments, useDocumentTypes } from '../hooks'
+import { useDocuments, useDocumentTypes, useDocumentsRealtime } from '../hooks'
 import { byUrgency, expiryStatus, isActionable, maskNumber } from '../logic'
 import { ExpiryBadge } from '../components/ExpiryBadge'
 import { DocumentForm } from '../components/DocumentForm'
@@ -27,6 +27,7 @@ export function VaultPage() {
   const { self, partner, selfRef, partnerRef, tzSelf } = useCouple()
   const documents = useDocuments()
   const types = useDocumentTypes()
+  useDocumentsRealtime()
   const settings = useUserSettings()
   const { signOut } = useAuth()
   const [filter, setFilter] = useState<Filter>('all')

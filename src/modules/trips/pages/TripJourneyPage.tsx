@@ -46,7 +46,7 @@ import { useItems } from '@/modules/itinerary'
 import { useFlights } from '@/modules/flights'
 import { useDestinations } from '@/modules/destinations'
 import { usePushToItinerary, useWishlist } from '@/modules/wishlist'
-import { useStays } from '@/modules/stays'
+import { useStays, useStaysRealtime } from '@/modules/stays'
 import { describeDayMark, showsCycle, useCycleWindow } from '@/modules/health'
 import { useTrip } from '../hooks'
 import { isLongStay } from '../logic'
@@ -81,6 +81,7 @@ export function TripJourneyPage() {
   const destinations = useDestinations(id)
   const wishlist = useWishlist()
   const stays = useStays(id)
+  useStaysRealtime(id)
   const push = usePushToItinerary(id)
 
   const { colorFor, nameFor } = usePinPeople()

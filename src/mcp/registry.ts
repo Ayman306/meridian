@@ -47,6 +47,7 @@ import { trayTools } from './tools/tray'
 import { dashboardTools } from './tools/dashboard'
 import { placeTools } from './tools/places'
 import { stayTools } from './tools/stays'
+import { activityTools } from './tools/activity'
 
 /**
  * Modules a token may reach only when its owner ticked them on purpose.
@@ -66,6 +67,7 @@ export const DEFAULT_TOKEN_MODULES: ModuleName[] = ALL_MODULES.filter(
 export const ALL_TOOLS: AnyTool[] = [
   ...tripTools,
   ...stayTools,
+  ...activityTools,
   ...itineraryTools,
   ...wishlistTools,
   ...budgetTools,

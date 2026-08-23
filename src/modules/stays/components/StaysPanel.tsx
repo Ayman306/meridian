@@ -22,7 +22,7 @@ import { EmptyState, ErrorState, SkeletonList } from '@/components/common/states
 import { formatDateOnly, type DateOnly } from '@/lib/dates'
 import { pluralise } from '@/lib/utils'
 import { PlacePicker, PlaceSearch } from '@/modules/map'
-import { useAddStay, useRemoveStay, useStays, useUpdateStay } from '../hooks'
+import { useAddStay, useRemoveStay, useStays, useStaysRealtime, useUpdateStay } from '../hooks'
 import {
   KIND_LABELS,
   describeStay,
@@ -42,6 +42,7 @@ export interface StaysPanelProps {
 export function StaysPanel({ tripId, startDate, endDate }: StaysPanelProps) {
   const stays = useStays(tripId)
   const remove = useRemoveStay(tripId)
+  useStaysRealtime(tripId)
   const [editing, setEditing] = useState<Accommodation | null>(null)
   const [adding, setAdding] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<Accommodation | null>(null)

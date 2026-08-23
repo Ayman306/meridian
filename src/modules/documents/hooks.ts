@@ -5,8 +5,26 @@ import { qk } from '@/lib/queryClient'
 import { useAuth } from '@/providers/AuthProvider'
 import { useCouple } from '@/providers/CoupleProvider'
 import { SIGNED_URL_TTL_SECONDS } from '@/lib/constants'
+import { useCoupleRealtime } from '@/lib/realtime'
 import * as api from './api'
 import type { UpdateDto } from '@/types/database'
+
+/**
+ * A document appearing or being shared shows up for the other person.
+ *
+ * `is_shared` is the reason this matters more than it looks: un-sharing hides a
+ * document immediately in the database, and until now the partner's open tab
+ * would keep listing it until they navigated. A row they can no longer read is
+ * a row they should no longer see.
+ */
+export function useDocumentsRealtime() {
+  const qc = useQueryClient()
+  const { coupleId } = useCouple()
+
+  useCoupleRealtime('documents', coupleId, [{ table: 'documents', filterColumn: 'couple_id' }], () => {
+    void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith('document') })
+  })
+}
 
 export function useDocumentTypes() {
   const { coupleId } = useCouple()
