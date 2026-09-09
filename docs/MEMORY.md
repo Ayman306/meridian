@@ -2433,6 +2433,21 @@ Ordered by how much they block.
    stop minting and have the exchange obtain a session from Supabase itself,
    which is a redesign of the hinge D124 and 0019 are both built on. Decide this
    deliberately, before a rotation decides it by accident.
+
+   **Direction, stated by the owner:** the intent is to move off Supabase to a
+   self-hosted Postgres. That resolves the tension rather than deepening it —
+   on our own database we own the signing key outright, so minting a short-lived
+   user JWT stops being a thing done despite the platform and becomes the
+   ordinary arrangement. It also means the answer is *not* to redesign the
+   exchange now: the shape D124 chose is the shape that survives the move.
+   What must survive with it is the boundary, and that is the part worth
+   guarding in review. `mintUserJwt` produces a standard RFC 7519 token —
+   `sub`, `role`, `aud`, `iss`, `exp`, and now a `kid` — with nothing
+   Supabase-specific in the claims, which is why it ports. The Supabase-shaped
+   pieces are `createUserClient` and the PostgREST call in `preflight`, both
+   isolated to `src/lib/` and `src/mcp/context.ts`. Every read still being an
+   RLS-judged query rather than an application-level filter is what makes the
+   target Postgres a drop-in rather than a rewrite; keep it that way.
 1. **Nobody has signed in yet.** The project is live, all four migrations are
    applied, RLS is on across all ten tables and the signup trigger is installed
    on `auth.users` — but `auth.users` is empty, so the end-to-end path (Google →
