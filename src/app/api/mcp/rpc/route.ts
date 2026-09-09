@@ -162,8 +162,17 @@ export async function POST(request: Request) {
     }
     // A deployment fault, not a caller fault, so it says what is wrong rather
     // than 500ing. 503 matches the token endpoint's answer to the same cause.
+    //
+    // Logged as well as returned, and the two are not redundant. The client
+    // that receives this is a hosted assistant whose UI reduces it to "the
+    // server returned an error" — the reason reaches nobody who can act on it.
+    // The person who can is reading the deployment's logs, which is where the
+    // previous version of this bug was eventually found. Returning a good
+    // message to a caller that discards it is not the same as saying it.
     if (message.startsWith(NOT_SIGNABLE)) {
-      return failure(id, -32603, message.slice(NOT_SIGNABLE.length), 503)
+      const reason = message.slice(NOT_SIGNABLE.length)
+      console.error('mcp/rpc: cannot mint a session Supabase will accept —', reason)
+      return failure(id, -32603, reason, 503)
     }
     console.error('mcp/rpc: authentication failed', message)
     return failure(id, -32603, 'Could not verify that token.', 500)
