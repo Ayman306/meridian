@@ -37,7 +37,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminSupabase } from '@/lib/supabase/server'
 import { bearerToken, hashToken, isPlausibleToken, isTokenUsable } from '@/lib/tokens'
-import { mintUserJwt, preflight } from '@/lib/mcp-jwt'
+import { mintUserJwt, preflight, readSigning, SigningConfigError } from '@/lib/mcp-jwt'
 import { createUserClient, resolveCoupleId, type McpContext } from '@/mcp/context'
 import { toolsFor } from '@/mcp/registry'
 import { zodToJsonSchema } from 'zod-to-json-schema'
@@ -82,10 +82,19 @@ async function authenticate(request: Request): Promise<McpContext | null> {
   const raw = bearerToken(request.headers.get('authorization'))
   if (!isPlausibleToken(raw)) return null
 
-  const secret = process.env.SUPABASE_JWT_SECRET
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  if (!secret || !supabaseUrl || !anonKey) {
+
+  // A malformed key is a mistake somebody made, not an absent capability, so it
+  // is reported with the field that is wrong rather than flattened into "not
+  // configured" — which would send them looking for a variable that is set.
+  let signing
+  try {
+    signing = readSigning()
+  } catch (e) {
+    throw new Error(NOT_SIGNABLE + (e instanceof SigningConfigError ? e.message : String(e)))
+  }
+  if (!signing || !supabaseUrl || !anonKey) {
     throw new Error('not-configured')
   }
 
@@ -112,10 +121,10 @@ async function authenticate(request: Request): Promise<McpContext | null> {
   // naming nothing a person could act on. Every hosted client uses this path,
   // so it was the one place the diagnosis was missing. Cached, so it costs one
   // request per ten minutes rather than one per call.
-  const signable = await preflight(row.user_id, secret, supabaseUrl, anonKey)
+  const signable = await preflight(row.user_id, supabaseUrl, anonKey, signing)
   if (!signable.ok) throw new Error(NOT_SIGNABLE + signable.reason)
 
-  const minted = await mintUserJwt(row.user_id, secret, supabaseUrl)
+  const minted = await mintUserJwt(row.user_id, supabaseUrl, signing)
   const supabase = createUserClient(supabaseUrl, anonKey, minted.token)
 
   return {

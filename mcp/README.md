@@ -16,8 +16,28 @@ Settings → API → JWT Settings → JWT Secret, then set `SUPABASE_JWT_SECRET`
 Vercel's environment variables. Without it the token exchange answers 503 and
 nothing else in the app is affected.
 
-**1b. If the project has migrated to JWT signing keys, also set
-`SUPABASE_JWT_KID`.** Settings → API → JWT Keys, the id of the key marked *In
+**1a. Preferred: import your own ES256 key instead.** Once a project moves to
+Supabase's JWT signing keys system, Supabase will not return the private key or
+shared secret of any key it generated, and its documented answer to "then how do
+I mint my own JWTs" is to stop asking for theirs:
+
+```bash
+supabase gen signing-key --algorithm ES256
+```
+
+Put the whole JWK — private `d` included — in `SUPABASE_JWT_PRIVATE_KEY`, import
+the same key at Settings → API → JWT Keys, and press **Rotate key**. It carries
+its own `kid`, so there is no second variable to keep in step. Supabase
+documents the shared secret as *not recommended for production*, and an ES256
+JWK is an ordinary standard object rather than a Supabase artefact — it keeps
+working against a self-hosted Postgres unchanged.
+
+Two things that look like failures and are not: key state changes are throttled
+for about five minutes, so a correct import can appear to do nothing; and a key
+in *standby* signs nothing until it is rotated to *in use*.
+
+**1b. Legacy path — if the project has migrated to JWT signing keys and you are
+still using the shared secret, also set `SUPABASE_JWT_KID`.** Settings → API → JWT Keys, the id of the key marked *In
 use*. The legacy system has one secret and needs no id; the signing keys system
 has a set, and PostgREST chooses which key to verify with by reading the `kid`
 header of the token.

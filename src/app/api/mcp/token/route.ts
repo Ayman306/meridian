@@ -25,7 +25,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminSupabase } from '@/lib/supabase/server'
 import { bearerToken, hashToken, isPlausibleToken, isTokenUsable } from '@/lib/tokens'
-import { TTL_SECONDS, mintUserJwt, preflight } from '@/lib/mcp-jwt'
+import { TTL_SECONDS, mintUserJwt, preflight, readSigning, SigningConfigError } from '@/lib/mcp-jwt'
 
 export const dynamic = 'force-dynamic'
 
@@ -43,12 +43,22 @@ export async function POST(request: Request) {
   const raw = bearerToken(request.headers.get('authorization'))
   if (!isPlausibleToken(raw)) return refuse()
 
-  const secret = process.env.SUPABASE_JWT_SECRET
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  if (!secret || !supabaseUrl) {
-    // A configuration fault, not a caller fault — say so, because a 401 here
-    // would send someone hunting for a bad token that is perfectly fine.
-    console.error('SUPABASE_JWT_SECRET or NEXT_PUBLIC_SUPABASE_URL is not set.')
+
+  // A configuration fault, not a caller fault — say so, because a 401 here
+  // would send someone hunting for a bad token that is perfectly fine. A key
+  // that is present but unusable says which field is wrong instead, since
+  // "not configured" would be a lie about a variable they can see is set.
+  let signing
+  try {
+    signing = readSigning()
+  } catch (e) {
+    const message = e instanceof SigningConfigError ? e.message : String(e)
+    console.error('mcp/token: signing key unusable —', message)
+    return NextResponse.json({ error: message }, { status: 503 })
+  }
+  if (!signing || !supabaseUrl) {
+    console.error('No signing key (SUPABASE_JWT_PRIVATE_KEY or SUPABASE_JWT_SECRET), or NEXT_PUBLIC_SUPABASE_URL is not set.')
     return NextResponse.json({ error: 'Token exchange is not configured.' }, { status: 503 })
   }
 
@@ -81,14 +91,14 @@ export async function POST(request: Request) {
   // Cached, so this costs one request every ten minutes at worst.
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   if (anonKey) {
-    const check = await preflight(row.user_id, secret, supabaseUrl, anonKey)
+    const check = await preflight(row.user_id, supabaseUrl, anonKey, signing)
     if (!check.ok) {
       console.error('MCP token exchange preflight failed:', check.reason)
       return NextResponse.json({ error: check.reason }, { status: 503 })
     }
   }
 
-  const { token: accessToken } = await mintUserJwt(row.user_id, secret, supabaseUrl)
+  const { token: accessToken } = await mintUserJwt(row.user_id, supabaseUrl, signing)
 
   return NextResponse.json({
     access_token: accessToken,

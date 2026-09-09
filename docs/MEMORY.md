@@ -2347,6 +2347,52 @@ here.
 
 ---
 
+### D126 — Sign with a key we own, rather than one Supabase lent us
+
+D125 added `SUPABASE_JWT_KID` so a token could name the key it was signed as.
+That was necessary and not sufficient: it kept the *legacy shared secret* as the
+thing we sign with, and the secret turned out to be the harder half of the
+problem. Getting the legacy key back to a state where it signs anything meant
+fighting the dashboard — key state changes are throttled about five minutes, so
+a correct action and a no-op look identical for the first five of them.
+
+Reading Supabase's guide properly changed the answer. Two things in it settle
+the design:
+
+- The shared secret is documented as **not recommended for production**.
+  Anything holding it can impersonate any user, and there is no way to detect
+  that it has leaked.
+- Their answer to "how do I mint my own JWTs when the key is not extractable"
+  is not to go back to the secret. It is to generate a key yourself, import the
+  private half, and sign with that.
+
+So `SUPABASE_JWT_PRIVATE_KEY` holds an ES256 JWK from
+`supabase gen signing-key --algorithm ES256`, imported to the project and
+rotated to. `readSigning()` prefers it and falls back to the shared secret,
+because a project still on the legacy secret is a legitimate configuration and
+it is the only thing that works before the migration.
+
+**Three things this fixes beyond the immediate failure.** The key carries its
+own `kid`, so the class of mistake D125 was about — a token nobody can select a
+key for — stops being reachable; there is no second variable to keep in step.
+Revocation becomes a platform action rather than a redeploy of everything
+holding the secret. And an ES256 JWK is an ordinary standard object with nothing
+Supabase-specific about it, so it survives the move to a self-hosted Postgres,
+which the legacy secret would not have.
+
+**On the configuration errors.** `readSigning` distinguishes absent from
+unusable, and they get different answers: no key at all is "this deployment does
+not do MCP", a 503 saying so; a key that is present but malformed names the
+field and what is wrong with it. The three it catches are the three ways to get
+this wrong — not JSON, no `kid`, and pasting the public half from the JWKS
+endpoint instead of the private key. Telling somebody a variable they can see is
+set is "not configured" is worse than saying nothing.
+
+The doctor resolves the same two ways, for the reason recorded in D125: a check
+that does not exercise what the app actually sends is not a check.
+
+---
+
 ## Deviations from the spec
 
 | Spec | Code | Why |
