@@ -82,6 +82,83 @@ export type Signing =
 export class SigningConfigError extends Error {}
 
 /**
+ * Turn whatever ended up in the environment variable into a JWK.
+ *
+ * Deliberately forgiving, because every tolerated shape here is one somebody
+ * actually produces by copying a key correctly and pasting it somewhere that
+ * transformed it: a shell or a secrets UI that wrapped the value in quotes, a
+ * `JSON.stringify` on the way in that left it double-encoded, or the whole key
+ * *set* copied when only one key was wanted. None of those are user error in
+ * any useful sense, and refusing them teaches nothing.
+ *
+ * What it will not do is guess at a key it cannot read. The failures name the
+ * shape that arrived — never its contents, which are signing material — because
+ * "not valid JSON" about a value you cannot see is the least actionable
+ * sentence we could produce.
+ */
+function parseJwk(raw: string): JWK {
+  const text = raw.trim()
+
+  if (text.startsWith('-----BEGIN')) {
+    throw new SigningConfigError(
+      'SUPABASE_JWT_PRIVATE_KEY looks like a PEM block, not a JWK. This wants the JSON form — the object with "kty", "kid", "crv", "d", "x" and "y" — which is what Supabase shows for the key and what `supabase gen signing-key --algorithm ES256` prints.',
+    )
+  }
+
+  const attempt = (candidate: string): unknown => {
+    try {
+      return JSON.parse(candidate)
+    } catch {
+      return undefined
+    }
+  }
+
+  // Parse before unquoting, not after. A double-encoded value is *already*
+  // valid JSON — a JSON string — and stripping its outer quotes first would
+  // leave escaped quotes with nothing to escape, turning the one shape we can
+  // recover into the one error we cannot explain.
+  let parsed = attempt(text)
+  if (parsed === undefined) {
+    const quoted = /^(['"])([\s\S]*)\1$/.exec(text)
+    if (quoted) parsed = attempt(quoted[2]!.trim())
+  }
+
+  // Unwrap encoding layers until an object appears. Bounded, because a string
+  // that parses to a string forever is a loop, not a key.
+  for (let depth = 0; typeof parsed === 'string' && depth < 3; depth++) {
+    const inner = attempt(parsed)
+    if (inner === undefined) break
+    parsed = inner
+  }
+
+  if (parsed === undefined) {
+    throw new SigningConfigError(
+      `SUPABASE_JWT_PRIVATE_KEY is not valid JSON (${text.length} characters, starting "${text.slice(0, 1)}"). It must be the whole JWK object on one line, including the private component "d", exactly as \`supabase gen signing-key --algorithm ES256\` printed it. A value pasted across several lines is the usual cause — minify it first.`,
+    )
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    throw new SigningConfigError(
+      `SUPABASE_JWT_PRIVATE_KEY parsed as ${parsed === null ? 'null' : typeof parsed}, not an object. It must be the JWK itself.`,
+    )
+  }
+
+  // A whole key set, when one key was meant. Take the one that can sign.
+  const set = parsed as { keys?: unknown }
+  if (Array.isArray(set.keys)) {
+    const signable = (set.keys as JWK[]).find((k) => k?.d)
+    if (!signable) {
+      throw new SigningConfigError(
+        'SUPABASE_JWT_PRIVATE_KEY is a JWK Set whose keys have no private component "d". That is the published set from /auth/v1/.well-known/jwks.json, which can only verify. Signing needs the private key you generated.',
+      )
+    }
+    return signable
+  }
+
+  return parsed as JWK
+}
+
+/**
  * Read the signing configuration, or null when the deployment has none.
  *
  * Null and a throw mean different things and callers treat them differently: no
@@ -92,14 +169,7 @@ export class SigningConfigError extends Error {}
 export function readSigning(env: NodeJS.ProcessEnv = process.env): Signing | null {
   const raw = env.SUPABASE_JWT_PRIVATE_KEY?.trim()
   if (raw) {
-    let jwk: JWK
-    try {
-      jwk = JSON.parse(raw) as JWK
-    } catch {
-      throw new SigningConfigError(
-        'SUPABASE_JWT_PRIVATE_KEY is not valid JSON. It must be the whole JWK object, including the private component "d", exactly as `supabase gen signing-key --algorithm ES256` printed it.',
-      )
-    }
+    const jwk = parseJwk(raw)
     if (!jwk.kid) {
       throw new SigningConfigError(
         'SUPABASE_JWT_PRIVATE_KEY has no "kid". Import the key to Supabase and sign with it under the same id — a token whose key cannot be identified is refused before its signature is considered.',

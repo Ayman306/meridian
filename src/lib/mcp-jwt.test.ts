@@ -169,6 +169,52 @@ describe('reading the configuration', () => {
     )
   })
 
+  // Every shape below comes from copying the key correctly and pasting it
+  // somewhere that transformed it. Refusing them teaches nothing.
+  it('accepts a value something else wrapped in quotes', () => {
+    const signing = readSigning(env({ SUPABASE_JWT_PRIVATE_KEY: `"${JSON.stringify(privateJwk).replace(/"/g, '\\"')}"` }))
+    expect(signing).toMatchObject({ alg: 'ES256', kid: KID })
+  })
+
+  it('accepts a value that arrived double-encoded', () => {
+    const signing = readSigning(
+      env({ SUPABASE_JWT_PRIVATE_KEY: JSON.stringify(JSON.stringify(privateJwk)) }),
+    )
+    expect(signing).toMatchObject({ alg: 'ES256', kid: KID })
+  })
+
+  it('takes the signable key when a whole key set was pasted', () => {
+    const set = JSON.stringify({ keys: [publicJwk, privateJwk] })
+    expect(readSigning(env({ SUPABASE_JWT_PRIVATE_KEY: set }))).toMatchObject({
+      alg: 'ES256',
+      kid: KID,
+    })
+  })
+
+  it('refuses a key set that can only verify, and says which one it is', () => {
+    const set = JSON.stringify({ keys: [publicJwk] })
+    expect(() => readSigning(env({ SUPABASE_JWT_PRIVATE_KEY: set }))).toThrow(/jwks.json/)
+  })
+
+  it('names PEM as PEM, rather than calling it bad JSON', () => {
+    const pem = '-----BEGIN PRIVATE KEY-----\nMIGH…\n-----END PRIVATE KEY-----'
+    expect(() => readSigning(env({ SUPABASE_JWT_PRIVATE_KEY: pem }))).toThrow(/PEM/)
+  })
+
+  it('describes the shape it got without ever echoing the value', () => {
+    // The variable holds signing material. A diagnostic that prints it would
+    // put a key in the logs of whatever is misconfigured.
+    const junk = 'kty=EC,kid=abc,d=SUPERSECRETVALUE'
+    try {
+      readSigning(env({ SUPABASE_JWT_PRIVATE_KEY: junk }))
+      expect.unreachable('should have thrown')
+    } catch (e) {
+      const message = (e as Error).message
+      expect(message).toContain(`${junk.length} characters`)
+      expect(message).not.toContain('SUPERSECRETVALUE')
+    }
+  })
+
   it('rejects a key with no kid, since it could never be selected', () => {
     const { kid: _kid, ...noKid } = privateJwk
     expect(() => readSigning(env({ SUPABASE_JWT_PRIVATE_KEY: JSON.stringify(noKid) }))).toThrow(
