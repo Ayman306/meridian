@@ -9,7 +9,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { decodeJwt, decodeProtectedHeader } from 'jose'
-import { mintUserJwt, preflight, resetPreflight } from '@/lib/mcp-jwt'
+import { mintUserJwt, preflight, resetPreflight, signingKeyId } from '@/lib/mcp-jwt'
 
 // Spaces on purpose: the secret scanner in providers.test.ts flags any
 // `secret = '<24+ key-shaped chars>'` anywhere in the tree, and it is right to.
@@ -117,5 +117,67 @@ describe('proving Supabase will accept what we sign', () => {
     const headers = init.headers as Record<string, string>
     expect(headers.apikey).toBe('anon-key')
     expect(headers.Authorization).toMatch(/^Bearer ey/)
+  })
+})
+
+/**
+ * The `kid` is what PostgREST uses to pick a verification key once a project
+ * has migrated to JWT signing keys. Omitting it does not produce a bad
+ * signature — it produces "No suitable key or wrong key type", which names no
+ * secret and survives rotating the shared secret back to being current. These
+ * assertions exist because that cost a morning to diagnose in production.
+ */
+describe('naming which signing key we are', () => {
+  afterEach(() => {
+    delete process.env.SUPABASE_JWT_KID
+  })
+
+  it('carries the kid so PostgREST can choose a key', async () => {
+    const { token } = await mintUserJwt(USER, SECRET, URL_, 600, 'key-one')
+    expect(decodeProtectedHeader(token).kid).toBe('key-one')
+  })
+
+  it('omits it entirely on a legacy project, rather than sending an empty one', async () => {
+    const { token } = await mintUserJwt(USER, SECRET, URL_, 600, undefined)
+    expect('kid' in decodeProtectedHeader(token)).toBe(false)
+  })
+
+  it('reads the id from the environment, so routes need not thread it through', async () => {
+    process.env.SUPABASE_JWT_KID = 'from-env'
+    expect(signingKeyId()).toBe('from-env')
+    const { token } = await mintUserJwt(USER, SECRET, URL_)
+    expect(decodeProtectedHeader(token).kid).toBe('from-env')
+  })
+
+  it('treats a blank environment value as no key at all', () => {
+    process.env.SUPABASE_JWT_KID = '   '
+    expect(signingKeyId()).toBeUndefined()
+  })
+
+  it('proves the key it will actually sign with, not a different one', async () => {
+    const spy = vi.fn().mockResolvedValue({ status: 200 } as Response)
+    vi.stubGlobal('fetch', spy)
+    await preflight(USER, SECRET, URL_, 'anon', Date.now(), 'key-two')
+    const call = spy.mock.calls[0] as [string, RequestInit] | undefined
+    const headers = call![1].headers as Record<string, string>
+    const sent = headers.Authorization!.replace('Bearer ', '')
+    expect(decodeProtectedHeader(sent).kid).toBe('key-two')
+  })
+
+  it('names SUPABASE_JWT_KID when a rejection came with no key id', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 401 } as Response))
+    const result = await preflight(USER, SECRET, URL_, 'anon', Date.now(), undefined)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.reason).toContain('SUPABASE_JWT_KID')
+    expect(result.reason).toContain('No suitable key or wrong key type')
+  })
+
+  it('names the key that was refused when one was sent', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 401 } as Response))
+    const result = await preflight(USER, SECRET, URL_, 'anon', Date.now(), 'key-three')
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.reason).toContain('key-three')
   })
 })

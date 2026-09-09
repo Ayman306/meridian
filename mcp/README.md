@@ -16,6 +16,21 @@ Settings → API → JWT Settings → JWT Secret, then set `SUPABASE_JWT_SECRET`
 Vercel's environment variables. Without it the token exchange answers 503 and
 nothing else in the app is affected.
 
+**1b. If the project has migrated to JWT signing keys, also set
+`SUPABASE_JWT_KID`.** Settings → API → JWT Keys, the id of the key marked *In
+use*. The legacy system has one secret and needs no id; the signing keys system
+has a set, and PostgREST chooses which key to verify with by reading the `kid`
+header of the token.
+
+A token signed with the right secret and no `kid` fails with `No suitable key
+or wrong key type` — a message about key *selection*, not about signatures.
+Two things make that expensive to diagnose, so they are worth knowing in
+advance: it is indistinguishable from a wrong secret, and it is not fixed by
+rotating the shared secret back to being the current key, because the key set
+is still a set. If the project holds only asymmetric keys and you have no
+shared secret of your own, nothing outside Supabase can mint a session at all —
+import your own key, or the exchange needs redesigning.
+
 **2. Make a token.** In Meridian: Settings → Connected assistants → New token.
 Name it after the machine it will live on, and untick anything it does not need.
 It is shown once — it is stored hashed, so there is no way to show it again.
