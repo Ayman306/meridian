@@ -92,7 +92,15 @@ if (!pub || !priv || !subject) {
 }
 
 // --- the MCP token exchange ------------------------------------------------
+//
+// This mints the same shape the app mints, including the `kid`. Without it the
+// doctor would prove a token the app never sends: on a project using JWT
+// signing keys, an unidentified token is refused for having no selectable key,
+// so a doctor that omitted the `kid` would fail a correctly configured
+// deployment — and, worse, pass a misconfigured one the moment someone removed
+// the variable. A check that does not exercise the real thing is not a check.
 const secret = env.SUPABASE_JWT_SECRET
+const kid = env.SUPABASE_JWT_KID?.trim() || undefined
 const url = env.NEXT_PUBLIC_SUPABASE_URL
 const anon = env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
@@ -103,7 +111,7 @@ if (!secret) {
 } else {
   try {
     const token = await new SignJWT({ role: 'authenticated' })
-      .setProtectedHeader({ alg: 'HS256' })
+      .setProtectedHeader(kid ? { alg: 'HS256', kid } : { alg: 'HS256' })
       // A syntactically valid uuid that owns nothing. Whether it exists is
       // irrelevant — the only question is whether the signature is believed.
       .setSubject('00000000-0000-0000-0000-000000000000')
@@ -121,10 +129,16 @@ if (!secret) {
       record(
         'MCP token exchange',
         false,
-        'Supabase rejected the signature — wrong project, or this one uses asymmetric JWT signing keys',
+        kid
+          ? `Supabase refused a token signed as key "${kid}" — either SUPABASE_JWT_KID is not the key currently in use (standby and revoked keys sign nothing), or the secret does not belong to it`
+          : 'Supabase refused the token, and it carried no key id. If this project uses JWT signing keys, set SUPABASE_JWT_KID to the id of the in-use key — a token with no `kid` is refused for having no selectable key, which looks exactly like a wrong secret. Otherwise the secret is wrong, or belongs to another project',
       )
     } else {
-      record('MCP token exchange', true, `Supabase accepted a minted token (HTTP ${res.status})`)
+      record(
+        'MCP token exchange',
+        true,
+        `Supabase accepted a minted token (HTTP ${res.status})${kid ? ` signed as key "${kid}"` : ', unidentified — fine on a legacy project'}`,
+      )
     }
   } catch (e) {
     record('MCP token exchange', false, `could not reach Supabase to find out: ${e.message}`)
