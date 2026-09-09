@@ -2289,6 +2289,62 @@ nobody has done is walk a real client through a complete grant, because this
 container cannot reach the deployment. **The first end-to-end authorisation is
 untested by construction and should be treated as such.**
 
+**Update — the first grant happened, and it worked.** A connector registered
+itself, walked PKCE, presented the consent screen and was issued a grant with
+the correct seven default modules, a one-hour expiry and a refresh token.
+Everything D124 built behaved. What failed was underneath it, and is D125.
+
+---
+
+### D125 — The `kid`, and why rotating the secret back did not fix anything
+
+The first real connector authorised cleanly and then every `tools/list` returned
+500:
+
+```
+mcp/rpc: authentication failed
+Could not read the couple: No suitable key or wrong key type
+```
+
+**That message is about key selection, not signatures.** Under the legacy system
+a project has one JWT secret and there is nothing to select. Under the JWT
+signing keys system it has a *set*, and PostgREST picks which key to verify with
+by reading the token's `kid` header. `mintUserJwt` set `{ alg: 'HS256' }` and no
+`kid`, so once the project migrated there was no key to choose and the query was
+refused before its signature was ever considered.
+
+Three things made this cost a morning rather than a minute, and each is worth
+recording because each will recur:
+
+1. **It is indistinguishable from a wrong secret.** The message names no secret
+   and no key, so the obvious first move — re-check `SUPABASE_JWT_SECRET` — is
+   both reasonable and useless.
+2. **Rotating the shared secret back to being the current key does not fix it.**
+   That was the first remedy attempted, and it failed, because the key set is
+   still a set. This is the step that misleads: it feels like reverting the
+   cause, and it changes nothing.
+3. **`/api/mcp/rpc` never ran `preflight()`.** `/api/mcp/token` has always
+   proven the signature before handing one out, and returns a reason naming the
+   likely causes. The HTTP route — the one every hosted client uses, and the
+   only one a connector can use — skipped it, so the single place the diagnosis
+   was already written was the one place it was not consulted. The answer came
+   from Vercel's runtime logs instead of from the app.
+
+`SUPABASE_JWT_KID` now names the key we sign as, omitted rather than sent empty
+on projects still on the legacy secret. `preflight` mints with the same `kid` it
+is proving — proving a different key than the one that will be used is worth
+nothing — and now runs on both routes.
+
+**What this says about the wider design.** D124 chose to mint user JWTs outside
+Supabase, which only a shared secret makes possible. The signing keys system is
+built precisely to make that impossible: its stated guarantee is that the key
+cannot be extracted. The two are in tension, and setting `SUPABASE_JWT_KID` does
+not resolve it — it buys time by naming a shared secret we still hold. A project
+that moves fully to asymmetric keys, holding no shared secret of its own, cannot
+mint a session at all and the exchange has to be redesigned rather than
+configured. That is a real open question, recorded below rather than answered
+here.
+
 ---
 
 ## Deviations from the spec
@@ -2364,6 +2420,19 @@ verbatim.
 
 Ordered by how much they block.
 
+0. **The exchange depends on holding a shared secret, and Supabase is moving
+   away from letting anyone hold one.** `mintUserJwt` signs a user JWT outside
+   Supabase, which is only possible with a symmetric secret we also have. The
+   JWT signing keys system exists to make exactly that impossible — its stated
+   guarantee is that the private key or shared secret cannot be extracted — and
+   this project has already migrated once (D125). `SUPABASE_JWT_KID` keeps the
+   current arrangement working because a shared secret is still in the key set.
+   It is not a resolution.
+   The options, none costless: import our own shared secret as a signing key and
+   accept that the weakest key in the set defines the project's security; or
+   stop minting and have the exchange obtain a session from Supabase itself,
+   which is a redesign of the hinge D124 and 0019 are both built on. Decide this
+   deliberately, before a rotation decides it by accident.
 1. **Nobody has signed in yet.** The project is live, all four migrations are
    applied, RLS is on across all ten tables and the signup trigger is installed
    on `auth.users` — but `auth.users` is empty, so the end-to-end path (Google →

@@ -37,7 +37,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminSupabase } from '@/lib/supabase/server'
 import { bearerToken, hashToken, isPlausibleToken, isTokenUsable } from '@/lib/tokens'
-import { mintUserJwt } from '@/lib/mcp-jwt'
+import { mintUserJwt, preflight } from '@/lib/mcp-jwt'
 import { createUserClient, resolveCoupleId, type McpContext } from '@/mcp/context'
 import { toolsFor } from '@/mcp/registry'
 import { zodToJsonSchema } from 'zod-to-json-schema'
@@ -46,6 +46,14 @@ import type { ModuleName } from '@/modules/settings/types'
 export const dynamic = 'force-dynamic'
 
 const PROTOCOL_VERSION = '2025-06-18'
+
+/**
+ * Thrown when the deployment can mint a JWT that Supabase will not believe.
+ * Carried as a message prefix rather than a class because `authenticate` already
+ * signals `not-configured` the same way, and one idiom is easier to read than
+ * two.
+ */
+const NOT_SIGNABLE = 'not-signable: '
 
 interface RpcRequest {
   jsonrpc?: string
@@ -96,6 +104,17 @@ async function authenticate(request: Request): Promise<McpContext | null> {
     .update({ last_used_at: new Date().toISOString() })
     .eq('id', row.id)
 
+  // Prove the signature will be believed before spending it on a real query.
+  //
+  // `/api/mcp/token` has always done this; this route did not, and that gap is
+  // why a signing-key mismatch surfaced here as a bare 500 carrying PostgREST's
+  // `No suitable key or wrong key type` — a message about the *couple* query,
+  // naming nothing a person could act on. Every hosted client uses this path,
+  // so it was the one place the diagnosis was missing. Cached, so it costs one
+  // request per ten minutes rather than one per call.
+  const signable = await preflight(row.user_id, secret, supabaseUrl, anonKey)
+  if (!signable.ok) throw new Error(NOT_SIGNABLE + signable.reason)
+
   const minted = await mintUserJwt(row.user_id, secret, supabaseUrl)
   const supabase = createUserClient(supabaseUrl, anonKey, minted.token)
 
@@ -140,6 +159,11 @@ export async function POST(request: Request) {
     const message = e instanceof Error ? e.message : String(e)
     if (message === 'not-configured') {
       return failure(id, -32603, 'This deployment is not configured for MCP.', 503)
+    }
+    // A deployment fault, not a caller fault, so it says what is wrong rather
+    // than 500ing. 503 matches the token endpoint's answer to the same cause.
+    if (message.startsWith(NOT_SIGNABLE)) {
+      return failure(id, -32603, message.slice(NOT_SIGNABLE.length), 503)
     }
     console.error('mcp/rpc: authentication failed', message)
     return failure(id, -32603, 'Could not verify that token.', 500)

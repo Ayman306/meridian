@@ -4,11 +4,26 @@
  *
  * ## Why the proving half exists
  *
- * A Supabase project signs user tokens one of two ways. Older projects use a
- * shared HS256 secret — the `SUPABASE_JWT_SECRET` — and anything holding it can
- * mint a token the API trusts. Newer projects use asymmetric signing keys,
- * where Supabase keeps the private half and publishes only a JWKS; nothing
- * outside Supabase can mint a token at all.
+ * A Supabase project signs user tokens one of two ways. Under the legacy
+ * system there is one shared HS256 secret — the `SUPABASE_JWT_SECRET` — and
+ * anything holding it can mint a token the API trusts. Under the newer signing
+ * keys system there is a *set* of keys, and PostgREST picks which one to verify
+ * with by reading the `kid` header of the token it was handed.
+ *
+ * ## The `kid`, and the failure it causes when it is missing
+ *
+ * That second sentence is the whole of this file's history. A token signed with
+ * the right secret but carrying no `kid` is not a token with a bad signature —
+ * it is a token PostgREST cannot choose a key for at all, and it says so with
+ * `No suitable key or wrong key type` rather than anything about signatures.
+ *
+ * The trap is that this looks identical to a project that has moved to
+ * asymmetric keys, which is a wall rather than a bug: there, Supabase holds the
+ * private half and nothing outside can mint. Rotating a shared secret back to
+ * being the current key does *not* fix a missing `kid`, because the key set is
+ * still a set. So `SUPABASE_JWT_KID` names which key we are signing as, and is
+ * required on any project that has migrated — the secret alone is no longer
+ * enough to be believed.
  *
  * This app is on the newer API-key format (`sb_publishable_…`), so which scheme
  * governs it is a real question rather than a theoretical one. And the failure
@@ -36,6 +51,15 @@ export interface MintedToken {
 }
 
 /**
+ * Which key we are claiming to be, or nothing on a project still on the legacy
+ * secret — where there is one key, no set to choose from, and a `kid` naming a
+ * key that does not exist is worse than no `kid` at all.
+ */
+export function signingKeyId(): string | undefined {
+  return process.env.SUPABASE_JWT_KID?.trim() || undefined
+}
+
+/**
  * Sign a Supabase-shaped user JWT.
  *
  * The claims are exactly what GoTrue issues for a signed-in user, because
@@ -47,9 +71,14 @@ export async function mintUserJwt(
   secret: string,
   supabaseUrl: string,
   ttlSeconds = TTL_SECONDS,
+  kid = signingKeyId(),
 ): Promise<MintedToken> {
+  // `kid` is omitted rather than sent empty when there is none: an absent
+  // header is the legacy single-key case, while `kid: ""` is a claim to be a
+  // key nobody has.
+  const header = kid ? { alg: 'HS256' as const, kid } : { alg: 'HS256' as const }
   const token = await new SignJWT({ role: 'authenticated' })
-    .setProtectedHeader({ alg: 'HS256' })
+    .setProtectedHeader(header)
     .setSubject(userId)
     .setAudience('authenticated')
     .setIssuer(`${supabaseUrl}/auth/v1`)
@@ -88,12 +117,13 @@ export async function preflight(
   supabaseUrl: string,
   anonKey: string,
   now = Date.now(),
+  kid = signingKeyId(),
 ): Promise<PreflightResult> {
   if (cached && now - cached.at < PREFLIGHT_TTL_MS && cached.result.ok) return cached.result
 
   let response: Response
   try {
-    const { token } = await mintUserJwt(userId, secret, supabaseUrl, 60)
+    const { token } = await mintUserJwt(userId, secret, supabaseUrl, 60, kid)
     response = await fetch(`${supabaseUrl}/rest/v1/`, {
       headers: { apikey: anonKey, Authorization: `Bearer ${token}` },
     })
@@ -106,8 +136,13 @@ export async function preflight(
     response.status === 401
       ? {
           ok: false,
-          reason:
-            'Supabase rejected a token signed with SUPABASE_JWT_SECRET. Either the secret is wrong, or this project signs with asymmetric JWT signing keys — in which case nothing outside Supabase can mint a session and the MCP server needs a different exchange. Check Settings → API → JWT Keys.',
+          // Three causes, ordered by how often they are the one. The `kid` is
+          // first because it is the only one that survives "I rotated the
+          // secret back and it still does not work", and the only one whose
+          // symptom — No suitable key or wrong key type — names no secret.
+          reason: kid
+            ? `Supabase rejected a token signed with SUPABASE_JWT_SECRET as key "${kid}". Either SUPABASE_JWT_KID names a key that is not currently accepted — a standby or revoked key signs nothing — or the secret does not match that key. Check Settings → API → JWT Keys.`
+            : 'Supabase rejected a token signed with SUPABASE_JWT_SECRET, and it was sent without a key id. If this project has migrated to JWT signing keys, PostgREST chooses a verification key by the token\'s `kid` and fails with "No suitable key or wrong key type" when there is none — set SUPABASE_JWT_KID to the id of the in-use key. If it has not migrated, the secret is simply wrong. If the project signs with asymmetric keys and you hold no shared secret of your own, nothing outside Supabase can mint a session and the exchange needs redesigning. Check Settings → API → JWT Keys.',
         }
       : { ok: true }
 
