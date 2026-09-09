@@ -15,7 +15,7 @@
  * mint a token Supabase actually accepts.
  */
 import { readFileSync } from 'node:fs'
-import { SignJWT } from 'jose'
+import { SignJWT, importJWK } from 'jose'
 
 const GREEN = '[32m'
 const RED = '[31m'
@@ -99,19 +99,49 @@ if (!pub || !priv || !subject) {
 // so a doctor that omitted the `kid` would fail a correctly configured
 // deployment — and, worse, pass a misconfigured one the moment someone removed
 // the variable. A check that does not exercise the real thing is not a check.
-const secret = env.SUPABASE_JWT_SECRET
-const kid = env.SUPABASE_JWT_KID?.trim() || undefined
+//
+// It resolves the same two ways the app does, preferring an imported ES256
+// private key over the legacy shared secret, so the check follows a deployment
+// across that migration rather than needing to be remembered afterwards.
 const url = env.NEXT_PUBLIC_SUPABASE_URL
 const anon = env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-if (!secret) {
-  record('MCP token exchange', false, 'SUPABASE_JWT_SECRET missing — Supabase → Settings → API → JWT Keys')
+let signing = null
+let signingError = null
+const rawKey = env.SUPABASE_JWT_PRIVATE_KEY?.trim()
+if (rawKey) {
+  try {
+    const jwk = JSON.parse(rawKey)
+    if (!jwk.kid) signingError = 'SUPABASE_JWT_PRIVATE_KEY has no "kid", so Supabase could never select it'
+    else if (!jwk.d) signingError = 'SUPABASE_JWT_PRIVATE_KEY has no "d" — that is the public half, not the signing key'
+    else signing = { alg: 'ES256', jwk, kid: jwk.kid }
+  } catch {
+    signingError = 'SUPABASE_JWT_PRIVATE_KEY is not valid JSON — paste the whole JWK object'
+  }
+} else if (env.SUPABASE_JWT_SECRET) {
+  signing = { alg: 'HS256', secret: env.SUPABASE_JWT_SECRET, kid: env.SUPABASE_JWT_KID?.trim() || undefined }
+}
+const kid = signing?.kid
+
+if (signingError) {
+  record('MCP token exchange', false, signingError)
+} else if (!signing) {
+  record(
+    'MCP token exchange',
+    false,
+    'no signing key — set SUPABASE_JWT_PRIVATE_KEY (an imported ES256 JWK, preferred) or SUPABASE_JWT_SECRET',
+  )
 } else if (!url || !anon) {
   record('MCP token exchange', false, 'also needs NEXT_PUBLIC_SUPABASE_URL and _ANON_KEY')
 } else {
   try {
+    const key =
+      signing.alg === 'ES256'
+        ? await importJWK(signing.jwk, 'ES256')
+        : new TextEncoder().encode(signing.secret)
+
     const token = await new SignJWT({ role: 'authenticated' })
-      .setProtectedHeader(kid ? { alg: 'HS256', kid } : { alg: 'HS256' })
+      .setProtectedHeader(kid ? { alg: signing.alg, kid } : { alg: signing.alg })
       // A syntactically valid uuid that owns nothing. Whether it exists is
       // irrelevant — the only question is whether the signature is believed.
       .setSubject('00000000-0000-0000-0000-000000000000')
@@ -119,7 +149,7 @@ if (!secret) {
       .setIssuer(`${url}/auth/v1`)
       .setIssuedAt()
       .setExpirationTime('60s')
-      .sign(new TextEncoder().encode(secret))
+      .sign(key)
 
     const res = await fetch(`${url}/rest/v1/`, {
       headers: { apikey: anon, Authorization: `Bearer ${token}` },
@@ -129,15 +159,17 @@ if (!secret) {
       record(
         'MCP token exchange',
         false,
-        kid
-          ? `Supabase refused a token signed as key "${kid}" — either SUPABASE_JWT_KID is not the key currently in use (standby and revoked keys sign nothing), or the secret does not belong to it`
-          : 'Supabase refused the token, and it carried no key id. If this project uses JWT signing keys, set SUPABASE_JWT_KID to the id of the in-use key — a token with no `kid` is refused for having no selectable key, which looks exactly like a wrong secret. Otherwise the secret is wrong, or belongs to another project',
+        signing.alg === 'ES256'
+          ? `Supabase refused a token signed with the ES256 key "${kid}". The key is well-formed, so it was either never imported to this project or is not in an accepted state — standby and revoked keys sign nothing. Key state changes are throttled about five minutes`
+          : kid
+            ? `Supabase refused a token signed as key "${kid}" — either SUPABASE_JWT_KID is not the key currently in use (standby and revoked keys sign nothing), or the secret does not belong to it`
+            : 'Supabase refused the token, and it carried no key id. If this project uses JWT signing keys, prefer importing your own ES256 key and setting SUPABASE_JWT_PRIVATE_KEY, which carries its own id; failing that set SUPABASE_JWT_KID. Otherwise the secret is wrong, or belongs to another project',
       )
     } else {
       record(
         'MCP token exchange',
         true,
-        `Supabase accepted a minted token (HTTP ${res.status})${kid ? ` signed as key "${kid}"` : ', unidentified — fine on a legacy project'}`,
+        `Supabase accepted a minted ${signing.alg} token (HTTP ${res.status})${kid ? ` signed as key "${kid}"` : ', unidentified — fine on a legacy project'}`,
       )
     }
   } catch (e) {
