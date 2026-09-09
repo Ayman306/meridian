@@ -196,6 +196,20 @@ describe('reading the configuration', () => {
     expect(() => readSigning(env({ SUPABASE_JWT_PRIVATE_KEY: set }))).toThrow(/jwks.json/)
   })
 
+  // The shape `npm run gen:signing-key` emits, including the alg and use
+  // members Supabase's own keys carry. If this ever stops being accepted, that
+  // script has silently started producing keys the app cannot load.
+  it('accepts what the key generator produces, alg and use included', async () => {
+    const { privateKey } = await generateKeyPair('ES256', { extractable: true })
+    const generated = { ...(await exportJWK(privateKey)), kid: KID, alg: 'ES256', use: 'sig' }
+    const signing = readSigning(env({ SUPABASE_JWT_PRIVATE_KEY: JSON.stringify(generated) }))
+    expect(signing).toMatchObject({ alg: 'ES256', kid: KID })
+
+    // And it must actually sign, not merely parse.
+    const { token } = await mintUserJwt(USER, URL_, signing!)
+    expect(decodeProtectedHeader(token).kid).toBe(KID)
+  })
+
   it('names PEM as PEM, rather than calling it bad JSON', () => {
     const pem = '-----BEGIN PRIVATE KEY-----\nMIGH…\n-----END PRIVATE KEY-----'
     expect(() => readSigning(env({ SUPABASE_JWT_PRIVATE_KEY: pem }))).toThrow(/PEM/)

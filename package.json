@@ -16,6 +16,7 @@
     "db:test": "./supabase/tests/run.sh",
     "mcp": "tsx mcp/stdio.ts",
     "mcp:doctor": "node scripts/mcp-doctor.mjs",
+    "gen:signing-key": "node scripts/gen-signing-key.mjs",
     "verify": "node scripts/verify.mjs"
   },
   "license": "MIT",

@@ -22,11 +22,24 @@ shared secret of any key it generated, and its documented answer to "then how do
 I mint my own JWTs" is to stop asking for theirs:
 
 ```bash
-supabase gen signing-key --algorithm ES256
+npm run gen:signing-key
 ```
 
-Put the whole JWK — private `d` included — in `SUPABASE_JWT_PRIVATE_KEY`, import
-the same key at Settings → API → JWT Keys, and press **Rotate key**. It carries
+That prints an ES256 JWK on one line. Supabase's guide reaches for
+`supabase gen signing-key --algorithm ES256` instead, which is the same thing
+and fine if you have the CLI — but the key is an ordinary P-256 JWK, `jose` is
+already a dependency, and needing a whole extra tool to make one key has stopped
+more than one setup.
+
+**The output is the only copy that will ever exist.** Put the whole JWK —
+private `d` included — in `SUPABASE_JWT_PRIVATE_KEY`, import the *same* value at
+Settings → API → JWT Keys as a standby key, and press **Rotate key**.
+
+A key created *in the Supabase dashboard* cannot be used here: Supabase keeps
+the private half and will not return it, so there is nothing to sign with. The
+dashboard shows only its Key ID, which is a uuid — 36 characters — and pasting
+that into `SUPABASE_JWT_PRIVATE_KEY` is the mistake this paragraph exists to
+prevent. A real key is a couple of hundred characters and starts with `{`. It carries
 its own `kid`, so there is no second variable to keep in step. Supabase
 documents the shared secret as *not recommended for production*, and an ES256
 JWK is an ordinary standard object rather than a Supabase artefact — it keeps
