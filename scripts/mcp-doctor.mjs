@@ -110,13 +110,40 @@ let signing = null
 let signingError = null
 const rawKey = env.SUPABASE_JWT_PRIVATE_KEY?.trim()
 if (rawKey) {
-  try {
-    const jwk = JSON.parse(rawKey)
-    if (!jwk.kid) signingError = 'SUPABASE_JWT_PRIVATE_KEY has no "kid", so Supabase could never select it'
-    else if (!jwk.d) signingError = 'SUPABASE_JWT_PRIVATE_KEY has no "d" — that is the public half, not the signing key'
-    else signing = { alg: 'ES256', jwk, kid: jwk.kid }
-  } catch {
-    signingError = 'SUPABASE_JWT_PRIVATE_KEY is not valid JSON — paste the whole JWK object'
+  // Tolerates the same shapes readSigning does — quoted, double-encoded, or a
+  // whole key set — so the doctor agrees with the app about what is usable
+  // rather than failing a deployment that works.
+  const attempt = (candidate) => {
+    try {
+      return JSON.parse(candidate)
+    } catch {
+      return undefined
+    }
+  }
+  if (rawKey.startsWith('-----BEGIN')) {
+    signingError = 'SUPABASE_JWT_PRIVATE_KEY looks like a PEM block — this wants the JWK (JSON) form'
+  } else {
+    let parsed = attempt(rawKey)
+    if (parsed === undefined) {
+      const quoted = /^(['"])([\s\S]*)\1$/.exec(rawKey)
+      if (quoted) parsed = attempt(quoted[2].trim())
+    }
+    for (let depth = 0; typeof parsed === 'string' && depth < 3; depth++) {
+      const inner = attempt(parsed)
+      if (inner === undefined) break
+      parsed = inner
+    }
+    if (Array.isArray(parsed?.keys)) parsed = parsed.keys.find((k) => k?.d) ?? parsed.keys[0]
+
+    if (!parsed || typeof parsed !== 'object') {
+      signingError = `SUPABASE_JWT_PRIVATE_KEY is not valid JSON (${rawKey.length} characters, starting "${rawKey.slice(0, 1)}") — paste the whole JWK object on one line`
+    } else if (!parsed.kid) {
+      signingError = 'SUPABASE_JWT_PRIVATE_KEY has no "kid", so Supabase could never select it'
+    } else if (!parsed.d) {
+      signingError = 'SUPABASE_JWT_PRIVATE_KEY has no "d" — that is the public half, not the signing key'
+    } else {
+      signing = { alg: 'ES256', jwk: parsed, kid: parsed.kid }
+    }
   }
 } else if (env.SUPABASE_JWT_SECRET) {
   signing = { alg: 'HS256', secret: env.SUPABASE_JWT_SECRET, kid: env.SUPABASE_JWT_KID?.trim() || undefined }
