@@ -2460,6 +2460,82 @@ authenticated before the session is minted. So `last_used_at` moving is evidence
 the connector reached us, not evidence a tool call succeeded. Read the status
 code, not the timestamp.
 
+### D128 — Supabase became the OAuth server, on the second attempt
+
+This was written once, shipped as PR #27, and closed by me on a misreading. It
+is being reinstated, and the reason it was wrongly withdrawn matters more than
+the design.
+
+**The misreading.** I checked whether the existing MCP worked by looking at
+`access_tokens.last_used_at` on a live grant. It had advanced that morning, so I
+reported the MCP as working and closed the rewrite rather than trade a working
+system for an untested one. But `last_used_at` is stamped when the token is
+*authenticated*, before the session is minted — so it advances on the 503s too.
+D127 had already written that down in as many words: **read the status code, not
+the timestamp.** I had that record in front of me and used the timestamp anyway.
+
+The cost was not abstract. `/api/mcp/rpc` had been 503ing continuously, and the
+close sent the owner back through four more rounds of generating a key, pasting
+it into a Sensitive Vercel field, and redeploying — the exact loop the rewrite
+existed to end.
+
+**The design, unchanged from the first attempt.** The owner's words were "the
+MCP configuration is impossible to setup" and "we shouldn't be having the JWT
+keys issues". Both complaints had one cause.
+
+**What was there.** A personal access token (`mrd_`) was exchanged at
+`/api/mcp/token` for a ten-minute Supabase JWT that this app *signed itself*,
+using `SUPABASE_JWT_SECRET`. D124 then built an OAuth 2.1 authorization server
+on top of that — clients, codes, PKCE, refresh rotation, replay detection — so a
+hosted client could connect. It worked. It was also the wrong shape:
+
+- `SUPABASE_JWT_SECRET` is the key that mints sessions. Anything holding it
+  could act as any user in the project, and it lived in an environment variable.
+- It is the *legacy* shared secret. A project on asymmetric signing keys does
+  not have one, so the entire MCP path was one dashboard setting away from being
+  unfixable — 0019's own notes flagged that as a live risk, and `mcp-jwt.ts`
+  carried a whole preflight mechanism to detect it.
+- Rotating it invalidates the anon key and the service-role key together, so the
+  safe move and the routine move were the same move.
+
+**What replaced it.** Supabase Auth ships an OAuth 2.1 server with native MCP
+support: discovery, dynamic client registration, PKCE, token issue, refresh
+rotation, JWKS. Turning it on deletes all of the above. `0032` drops
+`access_tokens`, `oauth_clients` and `oauth_codes`; `mcp-jwt.ts`, `tokens.ts`,
+`lib/oauth.ts`, five route handlers, the stdio server, `mcp:doctor` and
+`verify-oauth.mjs` all go with them. Roughly 1,500 lines of security-critical
+code replaced by a dashboard toggle.
+
+Three properties improve rather than merely stay level:
+
+1. **Nothing in this app signs anything.** There is no signing key to leak,
+   rotate or mismatch, and asymmetric signing keys now work identically.
+2. **The service role is absent from the MCP path**, not present-but-careful.
+   The caller already presents a user credential, so there is nothing to look up
+   as an admin first.
+3. **Revocation is Supabase's**, checked by handing it the token on every call.
+
+**What did not survive contact, and had to be kept.** OAuth scopes describe
+identity — `openid`, `email`, `profile`. They cannot express "may read my cycle
+log". Deleting module scoping would have meant any approved assistant seeing
+health and documents, which is exactly the default D-record 14 argued against.
+So one table survives, `mcp_grants(user_id, client_id, modules)`, written by the
+consent screen. It holds no token, no hash and no secret — the first table in
+this system's credential story that its owner can read every column of.
+
+**What was given up, deliberately.** Personal access tokens and the stdio server
+are gone, so a client that cannot do OAuth cannot connect, and there is no
+bearer-token path for curl or a script. Both existed only because remote OAuth
+was hard; it is not any more, and two ways in is two ways to get wrong. The
+owner chose this explicitly when asked.
+
+**The honest limitation.** The flow depends on two Supabase dashboard settings —
+OAuth Server enabled, and Authorization Path plus Site URL adding up to
+`/oauth/consent`. Neither is in version control, neither can be asserted by a
+test, and if they are wrong the flow dead-ends on a blank page. That is a
+genuine regression in reproducibility against the old design, where everything
+was in the repo, and it is the price of not maintaining an authorization server.
+
 ---
 
 ## Deviations from the spec

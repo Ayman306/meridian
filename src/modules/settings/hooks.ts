@@ -12,7 +12,7 @@ import {
   unsubscribeFromPush,
 } from '@/lib/push/client'
 import * as api from './api'
-import type { AccessTokenInput, InviteInput, MemberRole, ModuleName } from './types'
+import type { InviteInput, MemberRole, ModuleName } from './types'
 
 export function useCoupleSettings() {
   const { coupleId } = useCouple()
@@ -159,37 +159,33 @@ export function useMyAccess(): {
   }
 }
 
-export function useAccessTokens() {
+export function useGrants() {
   const { user } = useAuth()
   return useQuery({
-    queryKey: qk.accessTokens(user?.id ?? 'anon'),
-    queryFn: api.listAccessTokens,
+    queryKey: qk.grants(user?.id ?? 'anon'),
+    queryFn: api.listGrants,
     enabled: Boolean(user?.id),
   })
 }
 
-/**
- * Minting returns the raw token, so this mutation's `data` is the only place it
- * ever exists. The component holds it in state and shows it once; nothing is
- * cached, and the query it invalidates deliberately cannot see it.
- */
-export function useCreateAccessToken() {
+export function useSaveGrant() {
   const qc = useQueryClient()
   const { user } = useAuth()
   return useMutation({
-    mutationFn: (input: AccessTokenInput) => api.createAccessToken(input, user!.id),
+    mutationFn: (input: { clientId: string; clientName: string | null; modules: ModuleName[] }) =>
+      api.saveGrant(input, user!.id),
     onSuccess: () => {
-      void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'access-tokens' })
+      void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'mcp-grants' })
     },
   })
 }
 
-export function useRevokeAccessToken() {
+export function useRevokeGrant() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => api.revokeAccessToken(id),
+    mutationFn: (id: string) => api.revokeGrant(id),
     onSuccess: () => {
-      void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'access-tokens' })
+      void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'mcp-grants' })
     },
   })
 }

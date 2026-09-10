@@ -44,20 +44,14 @@ export interface InviteInput {
  * selected. The raw token exists once, in the browser that made it.
  */
 /**
- * A credential as its owner sees it.
+ * An app this person approved, as they see it in Settings.
  *
- * The three hash columns are omitted rather than merely unselected: 0019 and
- * 0030 revoke the SELECT grant on each of them, so asking for one fails at the
- * database. Keeping them out of the type means a screen cannot try.
+ * Every column is readable, which is new. The table this replaced held token
+ * hashes and had its SELECT grant revoked column by column; this one holds no
+ * credential at all — Supabase Auth owns those — so there is nothing to hide
+ * from its owner.
  */
-export type AccessToken = Omit<
-  Tables<'access_tokens'>,
-  'token_hash' | 'user_id' | 'refresh_token_hash' | 'previous_refresh_hash'
+export type McpGrant = Pick<
+  Tables<'mcp_grants'>,
+  'id' | 'client_id' | 'client_name' | 'modules' | 'created_at' | 'last_used_at'
 >
-
-export interface AccessTokenInput {
-  name: string
-  modules: ModuleName[]
-  /** Null means it does not expire on its own; revoking is then the only end. */
-  expiresInDays: number | null
-}
