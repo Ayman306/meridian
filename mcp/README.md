@@ -1,120 +1,65 @@
 # Meridian MCP server
 
 Lets an AI assistant read your trips and propose changes to them, from outside
-the app.
-
-It speaks [MCP](https://modelcontextprotocol.io) over stdio, so it runs on your
-own machine next to Claude Desktop, Claude Code or anything else that speaks the
-protocol. A remote HTTP connector is the intended next step; the tools are
-written to be transport-agnostic so that when it lands it wraps the same
-registry rather than duplicating it.
+the app — Claude on the web, Claude Desktop, the mobile app, or anything else
+that speaks [MCP](https://modelcontextprotocol.io).
 
 ## Setting it up
 
-**1. Add the JWT secret to the deployment.** Supabase Dashboard → Project
-Settings → API → JWT Settings → JWT Secret, then set `SUPABASE_JWT_SECRET` in
-Vercel's environment variables. Without it the token exchange answers 503 and
-nothing else in the app is affected.
+Two things, once. Neither is a secret, and there is nothing to copy into a
+config file.
 
-**2. Make a token.** In Meridian: Settings → Connected assistants → New token.
-Name it after the machine it will live on, and untick anything it does not need.
-It is shown once — it is stored hashed, so there is no way to show it again.
+**1. Turn on Supabase's OAuth server.** In the Supabase dashboard:
 
-**3. Point a client at it.** For Claude Desktop, in
-`claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "meridian": {
-      "command": "npm",
-      "args": ["--prefix", "/absolute/path/to/meridian", "run", "mcp"],
-      "env": {
-        "MERIDIAN_URL": "https://your-meridian.vercel.app",
-        "MERIDIAN_TOKEN": "mrd_..."
-      }
-    }
-  }
-}
-```
-
-For Claude Code: `claude mcp add meridian --env MERIDIAN_URL=... --env
-MERIDIAN_TOKEN=... -- npm --prefix /absolute/path/to/meridian run mcp`.
-
-If you would rather not put the token in a config file, write it to
-`~/.meridian/token` (mode 600) and leave `MERIDIAN_TOKEN` unset.
-
-## Running it remotely, from a phone
-
-The stdio server needs a laptop with a process running. `POST /api/mcp/rpc` is
-the same registry over HTTP, which is what a hosted client — the Claude mobile
-app among them — can reach.
-
-```
-Endpoint      https://<your-deployment>/api/mcp/rpc
-Auth header   Authorization: Bearer mrd_…
-```
-
-The token is the same personal access token from Settings → Connected
-assistants, and it is verified on **every** call rather than exchanged for a
-session. That costs one indexed lookup and is the entire reason revoking a
-token in Settings takes effect immediately instead of whenever a cache happens
-to expire.
-
-### OAuth, and why the earlier answer changed
-
-This file used to say there was no OAuth server, deliberately. There is one
-now, and the reasoning for the reversal belongs here rather than in a commit
-message nobody reads.
-
-The original argument still holds on its own terms: hand-rolling an
-authorization server is a large amount of security-critical code whose failure
-modes are silent. What was wrong was the *comparison*. The choice was never
-"OAuth or something simpler" — it was "OAuth or the app is unreachable from a
-phone", because a hosted client cannot be handed a bearer header by a person.
-Read that way, the cost of not having one was the larger cost.
-
-**A grant is a personal access token that a consent screen created.** That is
-the design, and it is what keeps the addition small:
-
-| | |
+| Where | Set |
 | --- | --- |
-| Where a grant lives | `access_tokens` — the same table, the same hash discipline |
-| What `/api/mcp/rpc` had to change | Nothing. It cannot tell a grant from a PAT |
-| How it is revoked | Settings → Connected assistants, the button that already existed |
-| What it becomes | The same ten-minute user JWT, with RLS as the boundary |
+| Authentication → OAuth Server | Enable it |
+| Authentication → OAuth Server → Authorization Path | `/oauth/consent` |
+| Authentication → OAuth Server → Dynamic client registration | Enable it |
+| Authentication → URL Configuration → Site URL | your deployment, e.g. `https://meridian-ay-za.vercel.app` |
 
-What is genuinely new is two tables and two rules: an authorization code is
-single-use and lives sixty seconds, and a redirect URI is matched exactly. Those
-are the whole added surface, and `src/lib/oauth.test.ts` is 25 assertions about
-them — including the RFC 7636 worked example, and every near-miss redirect that
-has ever been somebody's vulnerability.
+The authorization path is combined with the Site URL, so those two together
+have to point at this app's consent screen. If they don't add up, the flow
+dead-ends on a blank page.
 
-Deliberately **not** built, because these are the parts that go wrong: no client
-secrets (public clients with PKCE only), no implicit grant, no password grant,
-no `plain` PKCE method.
+**2. Add the connector.** In Claude → Settings → Connectors → Add custom
+connector:
 
 ```
-Discovery     GET  /.well-known/oauth-authorization-server
-              GET  /.well-known/oauth-protected-resource
-Registration  POST /api/oauth/register          RFC 7591, public clients only
-Authorize     GET  /oauth/authorize             the consent screen
-Token         POST /api/oauth/token             authorization_code + refresh
+https://<your-deployment>/api/mcp/rpc
 ```
 
-A bearer token still works and is still the simpler path when a client can take
-one. Nothing about the PAT flow changed.
+That is the whole configuration. The client discovers everything else, registers
+itself, and sends you to a consent screen where you tick what it may reach.
 
-#### Replay is answered, not just refused
+### Why there is nothing else to do
 
-An authorization code presented twice revokes the token the first presentation
-produced. A refresh token that has already been rotated away, presented again,
-revokes the whole grant. In both cases refusing alone would leave an attacker's
-credential quietly working if they got there first.
+The app used to sign its own Supabase JWTs, which meant a `SUPABASE_JWT_SECRET`
+in the deployment, an exchange endpoint, personal access tokens, a token file on
+your laptop, and — briefly — a hand-written OAuth 2.1 server. All of it is gone
+(migration 0032).
 
-If this deployment sits behind Vercel Deployment Protection, the endpoint needs
-a protection-bypass token like the cron routes do, or every request is answered
-by the login page rather than by the server.
+**Supabase Auth is the authorization server now.** It handles discovery, dynamic
+client registration, PKCE, token issue, refresh rotation and revocation. It signs
+the tokens, so this app holds no signing key of any kind, and a project using
+asymmetric signing keys works identically — which the old design could not do at
+all.
+
+What is left on our side is two files' worth of MCP: a JSON-RPC endpoint and a
+tool registry.
+
+## What the app still owns
+
+One thing: **which modules you approved.**
+
+OAuth scopes describe identity — `openid`, `email`, `profile` — and have nothing
+to say about whether an assistant may read a cycle log. So the consent screen
+writes what you ticked to `mcp_grants`, one row per app per person, and
+`/api/mcp/rpc` builds the tool list from it.
+
+That table holds no token, no hash and no secret. It is the only part of the old
+credential machinery that survived, because it is the only part Supabase cannot
+answer.
 
 ## What it can do
 
@@ -122,7 +67,7 @@ Forty-seven tools across nine modules — every module the app has.
 
 | Module | Tools | Writes |
 | --- | --- | --- |
-| **trips** | `get_overview`, `list_trips`, `get_trip`, `get_trip_journey`, `create_trip`, `update_trip`, `set_trip_day`, `list_stays`, `add_stay`, `update_stay`, `remove_stay`, `get_itinerary`, `suggest_itinerary`, `add_itinerary_item`, `update_itinerary_item`, `remove_itinerary_item`, `list_suggestions`, `dismiss_suggestion` | 11 of 18 |
+| **trips** | `get_overview`, `list_trips`, `get_trip`, `get_trip_journey`, `create_trip`, `update_trip`, `set_trip_day`, `list_stays`, `add_stay`, `update_stay`, `remove_stay`, `get_itinerary`, `suggest_itinerary`, `add_itinerary_item`, `update_itinerary_item`, `remove_itinerary_item`, `list_suggestions`, `dismiss_suggestion`, `whats_new`, `list_integrations` | 11 of 20 |
 | **money** | `get_budget`, `log_expense`, `list_settlements`, `record_settlement`, `set_budget`, `get_budgets` | 3 of 6 |
 | **flights** | `list_flights`, `add_journey`, `update_flight`, `remove_flight` | 3 of 4 |
 | **wishlist** | `list_wishlist`, `find_place`, `add_wishlist_item`, `vote_on_wishlist_item`, `remove_wishlist_item` | 3 of 5 |
@@ -133,111 +78,64 @@ Forty-seven tools across nine modules — every module the app has.
 | **documents** *(opt-in)* | `list_documents` | read-only |
 
 Start with `get_overview` for open questions — it answers in one call what
-otherwise takes four. For one trip, start with `get_trip_journey`: it returns
-every day in order with its flights, planned items and destination, marks the
-days that were deliberately left blank, and lists saved places near the trip
-that are not on the plan yet. It is the same assembly the app's own journey
-screen draws, so the assistant and the couple are looking at the same trip — and
-it names the nights with nowhere booked, which is the thing nobody spots by
-reading a list of date ranges.
+otherwise takes four. For one trip, start with `get_trip_journey`: every day in
+order with its flights, planned items and destination, the days deliberately
+left blank, the nights with nowhere booked, and the saved places near the trip
+that are not on the plan yet.
 
-Accommodation lives under the `trips` scope rather than getting one of its own:
-a booking is part of a trip, and a token trusted to read the trip should be able
-to answer "which hotel are we in on Thursday". Two things about it are worth
-knowing before writing one:
+A guide book for the model on the other end lives in
+[`skills/meridian/SKILL.md`](../skills/meridian/SKILL.md).
 
-- **`check_out` is exclusive.** Three nights from the 4th is `check_in`
-  2026-06-04 and `check_out` 2026-06-07. The database refuses check-out on or
-  before check-in, which catches a zero-night stay and not an off-by-one.
-- **The booking reference never leaves the app.** No query in `tools/stays.ts`
-  selects it, asserted in `registry.test.ts`, for the same reason document
-  numbers are omitted — it is the one thing you cannot reconstruct at a front
-  desk, and it has no business sitting in a model's context.
+### Health and documents are off unless you tick them
+
+They appear on the consent screen unticked, under a sentence saying what
+granting them means. Somebody who skims and presses the button gets a useful
+assistant and no health data.
+
+Two properties hold regardless, and are asserted in `registry.test.ts`: a grant
+can never reach the *other* person's health data, and documents expose metadata
+only — never a storage path, never a signed URL, never a document number.
 
 ### A generated plan is not a dictated one
 
 `suggest_itinerary` writes to the **suggestion tray**, not to the plan. It
 appears in the trip for one of you to accept, and only then becomes real items.
-That is non-negotiable #5, and a test fails if any tool outside the itinerary
-module writes `itinerary_items`, or if a direct-write trips tool ever accepts a
-*list* of items — bulk means generated, and generated means the tray.
+A test fails if any tool outside the itinerary module writes `itinerary_items`,
+or if a direct-write trips tool ever accepts a *list* of items — bulk means
+generated, and generated means the tray.
 
 Single items are different. "Put dinner at Cafe Younes on the Tuesday" is one
-thing the person already decided, so `add_itinerary_item` writes it straight
-through. Looping that call to build a day is evading the rule, and the tool
-description says so.
+thing already decided, so `add_itinerary_item` writes it straight through.
 
 ### No accept tool, on purpose
 
-`list_suggestions` shows what is waiting in the tray and `dismiss_suggestion`
-clears one out, but nothing accepts. An assistant that could both write a draft
-and accept it has a direct write to the itinerary with two extra steps — worse
-than an honest direct write, because it looks reviewed. Accepting happens in the
-app, by a person, looking at it.
+`list_suggestions` shows what is waiting and `dismiss_suggestion` clears one out,
+but nothing accepts. An assistant that could both write a draft and accept it has
+a direct write to the itinerary with two extra steps — worse than an honest
+direct write, because it looks reviewed.
 
-### Read-only on purpose
+## How a request is judged
 
-**Photos** are metadata only — captions, dates, favourites. Never the image and
-never a link: `path_original` is a key into a private bucket reached by signed
-URLs that expire in 300 seconds.
+The bearer token on a request is an ordinary Supabase access token, issued and
+signed by Supabase. `/api/mcp/rpc` hands it back to Supabase to validate, which
+is the only party that can say whether the session behind it is still alive —
+so disconnecting an assistant takes effect on its very next call rather than
+whenever a cache expires.
 
-**Allowance** rules are copied from official sources with a `verified_on` date.
-A Schengen rule rewritten from a model's memory is the confident, plausible,
-wrong answer that gets somebody stopped at a border — so those are read-only,
-and every response carries the source, the date and the disclaimer.
-
-**Documents** are metadata only: label, country, expiry. Never the storage path,
-never a signed URL (they last 300 seconds precisely so they cannot outlive the
-moment), never even the last four digits of a number.
-
-### Health and documents are opt-in, not off-limits
-
-These were refused outright in the first version. They are now reachable, but
-only by a token whose owner ticked them, and never by default.
-
-A token *is* its owner. RLS restricts health to `owner_id = auth.uid()`, and the
-health tools narrow it again in the query itself — so a token can only ever read
-the health data of whoever created it. Not their partner's, even where consent
-was granted in the app: consent was given so a person could look with their own
-eyes, not so an assistant could sweep up what they were trusted with. A test
-asserts that filter is on every health query.
-
-What genuinely changes when you grant these is that the data reaches an AI
-provider. Settings says so plainly at the moment you tick the box.
-
-There is no health delete tool. `delete_all_health_data()` is irreversible by
-design, and a tool for it would put total erasure one hallucinated call away.
-
-## How the credential works
-
-The token in your config file is **not** a database credential. It is exchanged
-at `/api/mcp/token` for a **ten-minute JWT** carrying your user id, and that JWT
-is what talks to Postgres — so every read and write is judged by exactly the
-same row-level security policies as your browser. An assistant cannot reach
+That token carries a real user id, so **every read and write is judged by exactly
+the same row-level security policies as your browser.** An assistant cannot reach
 another couple's data because the database refuses, not because this code
 remembers to filter.
 
-The service-role key, which *would* bypass RLS, appears nowhere in the tool
-path. It is used once, inside the exchange handler, to answer "which user is
-this token" — and that handler returns a JWT, never data.
-
-Only the SHA-256 of your token is stored. The `token_hash` column is not
-readable even by you: the table-level `SELECT` grant is revoked and the safe
-columns are granted back by name (migration 0019).
-
-Revoke from Settings and it stops working on the next exchange, within ten
-minutes at the outside.
+The service-role key, which *would* bypass RLS, appears nowhere in the MCP path
+at all. Not carefully-scoped: absent.
 
 ## Notes
 
-- **Never print to stdout** from this server. stdout carries protocol frames;
-  a stray `console.log` corrupts the stream and the client drops the connection
-  with an error that points nowhere near the print. Use `console.error`.
-- The tool list is built per request from the token's scope, so narrowing a
-  token takes effect on the next client reconnect without touching this code.
-- A guide book for the model on the other end lives in
-  [`skills/meridian/SKILL.md`](../skills/meridian/SKILL.md). Tool descriptions
-  can say what one tool does; they cannot say "read the journey before you
-  suggest anything". The skill carries the parts that span tools, and it has to
-  be updated whenever a tool's name, arguments or module changes — a stale skill
-  is worse than none, because a model trusts it over the tool list it was given.
+- There is no stdio server and no personal access tokens. Both existed because
+  remote OAuth was hard, and it is not any more. Two ways in is two ways to get
+  wrong.
+- A client that cannot do OAuth cannot use this endpoint. That is the accepted
+  cost of the above, and it is worth stating rather than discovering.
+- The tool list is built per request from the grant, so disconnecting narrows
+  what a reconnecting client is offered without touching this code.

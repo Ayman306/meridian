@@ -88,59 +88,28 @@ mistake.
 
 ## 3. Connecting
 
-The token is created by the account owner in **Settings → Connected assistants →
-New token**. It starts `mrd_`, is shown once, and is stored hashed. It is scoped
-per module at creation time.
-
-**Local, over stdio** — Claude Desktop `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "meridian": {
-      "command": "npm",
-      "args": ["--prefix", "/absolute/path/to/meridian", "run", "mcp"],
-      "env": {
-        "MERIDIAN_URL": "https://your-meridian.vercel.app",
-        "MERIDIAN_TOKEN": "mrd_..."
-      }
-    }
-  }
-}
-```
-
-Claude Code:
-
-```bash
-claude mcp add meridian \
-  --env MERIDIAN_URL=https://your-meridian.vercel.app \
-  --env MERIDIAN_TOKEN=mrd_... \
-  -- npm --prefix /absolute/path/to/meridian run mcp
-```
-
-Rather than putting the token in a config file, write it to `~/.meridian/token`
-(mode 600) and leave `MERIDIAN_TOKEN` unset.
-
-**Remote, over HTTP** — for a hosted client with no laptop to run a process:
+Nothing is copied or pasted. Add Meridian as a custom connector:
 
 ```
-POST https://<deployment>/api/mcp/rpc
-Authorization: Bearer mrd_...
-Content-Type: application/json
+https://<deployment>/api/mcp/rpc
 ```
 
-JSON-RPC 2.0, methods `initialize`, `tools/list`, `tools/call`. The token is
-re-verified on every call, so revoking it in Settings takes effect immediately.
-There is no OAuth server — a client that can only do OAuth must use stdio.
+In Claude: Settings → Connectors → Add custom connector. The client discovers
+the rest, registers itself, and sends the account owner to a consent screen in
+Meridian where they tick which modules to share. Supabase Auth issues the
+tokens and refreshes them; there is no bearer token for a person to manage and
+no config file to edit.
 
-**Scopes.** A new token defaults to `trips, wishlist, destinations, money,
-photos, flights, allowance`. `health` and `documents` are opt-in and never
-granted by default, because granting one means that data travels to a model
-provider. Tools outside the token's scope are not merely refused — they are
-never listed. If a tool you expect is absent, the owner did not grant that
-module; say so rather than working around it.
+**There is no stdio server and no personal access token.** Both existed once
+and were removed — if you find instructions mentioning `MERIDIAN_TOKEN`,
+`MERIDIAN_URL`, `npm run mcp` or an `mrd_` token, they are out of date.
 
----
+**Scopes.** A new grant defaults to `trips, wishlist, destinations, money,
+photos, flights, allowance`. `health` and `documents` appear on the consent
+screen unticked, because granting one means that data travels to a model
+provider. Tools outside the grant are not merely refused — they are never
+listed. If a tool you expect is absent, the owner did not tick that module; say
+so rather than working around it.
 
 ## 4. Where to start
 
@@ -400,8 +369,8 @@ each currency separately. Do not net across currencies.
 | --- | --- | --- |
 | "There is no couple set up on this account yet" | Solo mode — one person signed in, partner has not joined. Legitimate, not an error. | Explain it plainly; they finish setup in the app. |
 | `No tool called "x" is available to this token` | The module was not granted, or you invented the name. | Do not work around it. Name the module they would need to grant. |
-| 401 on every call | Token revoked, expired, or mistyped. | New token in Settings → Connected assistants. |
-| 503 from the token exchange | `SUPABASE_JWT_SECRET` is not set on the deployment. | Nothing else in the app is affected; it is a deployment setting. |
+| 401 on every call | The grant was disconnected, or the session expired. | Ask the owner to reconnect from Settings → Connected assistants. |
+| "That app has no approved grant on this account" | The grant was revoked, or consent never completed. | Reconnect the connector; it will ask again. |
 | A login page instead of JSON | Vercel Deployment Protection is on. | The endpoint needs a protection-bypass token. |
 | `find_place` returns nothing | The name is too vague or genuinely unknown. | Ask which one they mean. Never fall back to guessing a location — there is no field to guess into anyway. |
 | "No trip with that id, or it is not one you can see" | Wrong id, or deleted. | `list_trips` again. |
