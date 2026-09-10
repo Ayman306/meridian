@@ -2393,6 +2393,75 @@ that does not exercise what the app actually sends is not a check.
 
 ---
 
+### D127 — The code is exonerated; what is left is two actions in two dashboards
+
+Six PRs have now landed on this path and `/api/mcp/rpc` still returns 503. This
+entry exists to stop a seventh being written, because the remaining fault is not
+in the repository.
+
+**What production is actually running.** Deployment
+`dpl_BKUNAs1pVGrM6WqqxA5bbDHxguyX` (merge of #26, current at the time of
+writing) logs on every `tools/list`:
+
+    mcp/rpc: cannot mint a session Supabase will accept —
+    SUPABASE_JWT_PRIVATE_KEY is not valid JSON (36 characters, starting "5")
+
+Thirty-six characters starting `5` is a uuid. It is the Key ID of a key created
+*in the Supabase dashboard*, which is the only value that screen offers, and it
+has been byte-identical across six deployments. A key created in the dashboard
+has no exportable private half, so the variable has never named something that
+could sign anything. The message is correct and has been correct all along.
+
+**The code was verified rather than assumed.** `readSigning` rejects that uuid
+with exactly the live message, accepts the one-line JWK that
+`npm run gen:signing-key` prints (247 characters, carrying `d` and `kid`), and
+`mintUserJwt` then produces `ES256` with the JWK's own `kid`, `role:
+authenticated`, `aud: authenticated` and the project issuer — the token
+PostgREST expects. The four mangled shapes `parseJwk` learned to tolerate in #25
+(quoted, double-encoded, whole key set, trailing newline) all still resolve to
+the same `kid`. 942 tests pass. There is no defect to fix.
+
+**Why this session could not finish it.** The two remaining actions write to
+Supabase and to Vercel. Neither is reachable from a Claude Code session: the
+Supabase MCP server exposes SQL and advisors but no JWT-signing-key endpoints,
+the Vercel MCP server exposes deployments and logs but no environment-variable
+endpoints, and direct egress to `api.supabase.com`, `api.vercel.com` and the
+deployment itself is refused by the network policy. Credentials would not have
+helped; there is no route. The private key must therefore be generated on the
+owner's own machine, which is where it should be generated anyway — it goes from
+that terminal into the two dashboards and nowhere else, and never into a chat,
+an issue or a commit.
+
+**The last mile, exactly.**
+
+1. `npm run gen:signing-key` — one line, ~247 characters, starts `{`.
+2. Supabase → Settings → API → JWT Keys → add a **standby** key, paste it, then
+   press **Rotate key**. A standby key signs nothing until rotated.
+3. Vercel → `SUPABASE_JWT_PRIVATE_KEY`, **Production** scope, the same line.
+   Leave `SUPABASE_JWT_KID` empty. If the variable is marked Sensitive it cannot
+   be edited — delete it and create it fresh, because editing a sensitive
+   variable can silently keep the old value.
+4. **Redeploy.** Vercel bakes environment variables at deploy time, so saving a
+   variable does nothing to a deployment that already exists. A redeploy always
+   produces a new deployment id; if the id did not change, the redeploy did not
+   happen. This is the step that has been skipped.
+
+Verify in that order, and do not skip to the third: deployment id changed, then
+the log line changed, then the connector. If the log still says `36 characters,
+starting "5"`, the old uuid is still live and only step 3 is at fault. Any other
+message means the new key is in play and names its own cause. Key state changes
+are throttled by Supabase for about five minutes, so a correct action and a
+no-op look identical for the first five.
+
+**One observation worth keeping.** `public.access_tokens` already holds a live
+OAuth grant — `client_id` set, `revoked_at` null — whose `last_used_at` advances
+on every attempt. It advances on the *failing* ones too, because the token is
+authenticated before the session is minted. So `last_used_at` moving is evidence
+the connector reached us, not evidence a tool call succeeded. Read the status
+code, not the timestamp.
+
+---
+
 ## Deviations from the spec
 
 | Spec | Code | Why |
