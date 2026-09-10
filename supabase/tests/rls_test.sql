@@ -1590,102 +1590,67 @@ select assert_raises(
 
 -- ---------------------------------------------------------------------------
 \echo ''
-\echo '== access tokens =='
+\echo '== assistant grants =='
+-- 0032 deleted three tables and kept one. `access_tokens`, `oauth_clients` and
+-- `oauth_codes` are gone: Supabase Auth is the OAuth server now, so the tokens,
+-- the codes and the clients are its problem and its tests.
+--
+-- What is left is the module scope, which OAuth cannot express, and it must
+-- behave like every other owner-private thing in this schema.
 
 set request.jwt.claim.sub = :'ada_ada';
-insert into public.access_tokens (user_id, name, token_hash, prefix, modules)
-  values (:'ada_ada', 'Ada laptop', 'hash-ada', 'mrd_aaaa', array['trips']);
+
+insert into public.mcp_grants (user_id, client_id, client_name, modules)
+  values (:'ada_ada', 'client-abc', 'Claude', array['trips','money']);
 
 select assert(
-  (select count(*) from public.access_tokens) = 1,
-  'a token is visible to the person who made it'
+  (select count(*) from public.mcp_grants) = 1,
+  'a grant is visible to the person who approved it'
 );
 
--- The partner is the closest thing to a trusted other party in this app, and
--- still has no business listing somebody else's credentials.
+-- The partner is the closest thing to a trusted other party in this app and
+-- still has no business listing which assistants somebody else connected.
 set request.jwt.claim.sub = :'bo_bo';
 select assert(
-  (select count(*) from public.access_tokens) = 0,
+  (select count(*) from public.mcp_grants) = 0,
   'and to nobody else, partner included'
 );
--- Note the shape of this one. RLS filters rows out of an UPDATE rather than
--- refusing it, so the statement below succeeds and touches nothing. The proof
--- is not an error, it is that the token is still live afterwards.
-update public.access_tokens set revoked_at = now();
 
--- The hash is the one column even the owner may not read back. Anything that
--- can select it can take it offline, and no screen has ever needed it.
-set request.jwt.claim.sub = :'ada_ada';
-select assert(
-  (select count(*) from public.access_tokens where revoked_at is null) = 1,
-  'a partner''s revoke attempt silently touches nothing'
-);
-
-select assert_raises(
-  'select token_hash from public.access_tokens',
-  'permission denied',
-  'not even the owner can read a token hash back'
-);
-
-select assert(
-  (select count(*) from public.access_tokens where prefix = 'mrd_aaaa') = 1,
-  'though the identifying prefix is readable, which is what the list shows'
-);
-
--- Revoking is an update the owner may make, and is how a token dies.
-update public.access_tokens set revoked_at = now() where prefix = 'mrd_aaaa';
-select assert(
-  (select count(*) from public.access_tokens where revoked_at is not null) = 1,
-  'the owner can revoke their own token'
-);
-
--- ---------------------------------------------------------------------------
-\echo ''
-\echo '== the authorization server keeps its own secrets =='
--- 0030 added an OAuth flow. Three things must hold for it, and none of them is
--- enforced by a handler — they are enforced here, which is why they are tested
--- here.
+-- RLS filters rows out of an UPDATE rather than refusing it, so this statement
+-- succeeds and touches nothing. The proof is not an error — it is that the
+-- modules are unchanged afterwards.
+update public.mcp_grants set modules = array['trips','money','health'];
 
 set request.jwt.claim.sub = :'ada_ada';
-
--- 1. The two OAuth tables have RLS on and no policies at all, so a signed-in
---    person reaches nothing in them. Not "sees their own" — nothing. Only the
---    service role, inside the handlers, ever touches these.
 select assert(
-  (select count(*) from public.oauth_clients) = 0,
-  'a signed-in person cannot list registered OAuth clients'
+  (select modules from public.mcp_grants where client_id = 'client-abc')
+    = array['trips','money'],
+  'a partner cannot widen somebody else''s grant'
 );
+
+-- Unlike everything it replaced, this table holds no credential, so its owner
+-- can read every column back. That is the point: there is nothing here worth
+-- hiding from the person it belongs to.
 select assert(
-  (select count(*) from public.oauth_codes) = 0,
-  'nor any authorization code, including their own'
+  (select client_name from public.mcp_grants where client_id = 'client-abc') = 'Claude',
+  'and can read the whole row back, because none of it is a secret'
 );
 
-select assert_raises(
-  $$insert into public.oauth_clients (client_id, client_name, redirect_uris)
-      values ('mrdc_x', 'Mine', array['https://evil.example/cb'])$$,
-  'violates row-level security',
-  'and cannot register a client by writing the table directly'
-);
-
--- 2. A refresh token is exactly as unreadable as an access token hash. Anything
---    that can select it can mint a fresh grant, which makes revocation a
---    suggestion rather than a fact.
-select assert_raises(
-  'select refresh_token_hash from public.access_tokens',
-  'permission denied',
-  'the owner cannot read a refresh token hash back'
-);
-select assert_raises(
-  'select previous_refresh_hash from public.access_tokens',
-  'permission denied',
-  'nor the one it replaced, which is just as usable'
-);
-
--- 3. The columns Settings genuinely needs are readable, so the panel can tell
---    an approved app from a token somebody typed.
+-- Revoking is a delete the owner may make, and is how an assistant loses access
+-- to the modules. Supabase revokes the token itself.
+delete from public.mcp_grants where client_id = 'client-abc';
 select assert(
-  (select count(*) from public.access_tokens where kind = 'pat') = 1,
-  'but kind is readable, so a grant can be told from a hand-made token'
+  (select count(*) from public.mcp_grants) = 0,
+  'the owner can revoke their own grant'
+);
+
+-- The three tables 0032 dropped must actually be gone. A stale credential
+-- table nobody reads is a stale credential table nobody notices leaking.
+select assert(
+  (select count(*) from pg_tables
+    where schemaname = 'public'
+      and tablename in ('access_tokens', 'oauth_clients', 'oauth_codes')) = 0,
+  'the old token and OAuth tables are dropped, not merely unused'
 );
 
 -- ---------------------------------------------------------------------------

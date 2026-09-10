@@ -119,129 +119,6 @@ export type Database = {
           },
         ]
       }
-      access_tokens: {
-        Row: {
-          client_id: string | null
-          created_at: string
-          expires_at: string | null
-          id: string
-          kind: string
-          last_used_at: string | null
-          modules: string[]
-          name: string
-          prefix: string
-          // Selectable only by the service role — the grant is revoked for
-          // `authenticated` in 0019 and 0030. Present here because the
-          // handlers that may read them are typed against this file.
-          previous_refresh_hash: string | null
-          refresh_token_hash: string | null
-          revoked_at: string | null
-          token_hash: string
-          user_id: string
-        }
-        Insert: {
-          client_id?: string | null
-          created_at?: string
-          expires_at?: string | null
-          id?: string
-          kind?: string
-          last_used_at?: string | null
-          modules?: string[]
-          name: string
-          prefix: string
-          previous_refresh_hash?: string | null
-          refresh_token_hash?: string | null
-          revoked_at?: string | null
-          token_hash: string
-          user_id: string
-        }
-        Update: {
-          client_id?: string | null
-          created_at?: string
-          expires_at?: string | null
-          id?: string
-          kind?: string
-          last_used_at?: string | null
-          modules?: string[]
-          name?: string
-          prefix?: string
-          previous_refresh_hash?: string | null
-          refresh_token_hash?: string | null
-          revoked_at?: string | null
-          token_hash?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      oauth_clients: {
-        Row: {
-          client_id: string
-          client_name: string
-          created_at: string
-          id: string
-          last_used_at: string | null
-          redirect_uris: string[]
-        }
-        Insert: {
-          client_id: string
-          client_name: string
-          created_at?: string
-          id?: string
-          last_used_at?: string | null
-          redirect_uris: string[]
-        }
-        Update: {
-          client_id?: string
-          client_name?: string
-          created_at?: string
-          id?: string
-          last_used_at?: string | null
-          redirect_uris?: string[]
-        }
-        Relationships: []
-      }
-      oauth_codes: {
-        Row: {
-          client_id: string
-          code_challenge: string
-          code_hash: string
-          consumed_at: string | null
-          created_at: string
-          expires_at: string
-          id: string
-          issued_token_id: string | null
-          modules: string[]
-          redirect_uri: string
-          user_id: string
-        }
-        Insert: {
-          client_id: string
-          code_challenge: string
-          code_hash: string
-          consumed_at?: string | null
-          created_at?: string
-          expires_at: string
-          id?: string
-          issued_token_id?: string | null
-          modules?: string[]
-          redirect_uri: string
-          user_id: string
-        }
-        Update: {
-          client_id?: string
-          code_challenge?: string
-          code_hash?: string
-          consumed_at?: string | null
-          created_at?: string
-          expires_at?: string
-          id?: string
-          issued_token_id?: string | null
-          modules?: string[]
-          redirect_uri?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       airline_codes: {
         Row: {
           iata: string
@@ -1841,7 +1718,7 @@ export type Database = {
           name: string
           // Present because the column is. The *grant* is what stops the
           // browser reading it — `revoke select … grant select (named columns)`
-          // in 0028 — exactly as `access_tokens.token_hash` is handled. A type
+          // in 0028. The grant is the control, not the type. A type
           // that hid it would leave the one context that may read it, the
           // webhook sweep, unable to say so.
           secret: string
@@ -2052,6 +1929,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      mcp_grants: {
+        Row: {
+          client_id: string
+          client_name: string | null
+          created_at: string
+          id: string
+          last_used_at: string | null
+          modules: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          client_id: string
+          client_name?: string | null
+          created_at?: string
+          id?: string
+          last_used_at?: string | null
+          modules?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          client_id?: string
+          client_name?: string | null
+          created_at?: string
+          id?: string
+          last_used_at?: string | null
+          modules?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       media: {
         Row: {

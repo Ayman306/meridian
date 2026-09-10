@@ -120,5 +120,6 @@ Worth knowing so you do not rebuild it:
   error fails the preview deployment whether or not Actions ran.
 - **The preview deployment is a real environment.** Clicking through it catches
   the class of thing no unit test does.
-- **`npm run mcp:doctor`** verifies the MCP token exchange against the live
-  project, which CI never could — it needs real secrets.
+- **The consent screen is a person pressing a button**, which is the one step no
+  harness can stand in for. Connecting an assistant end to end is therefore
+  always a manual check, and always will be — that is the point of it.

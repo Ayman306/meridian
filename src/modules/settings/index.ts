@@ -2,13 +2,15 @@
 export { SettingsPage } from './pages/SettingsPage'
 export { AccessPanel } from './components/AccessPanel'
 export { AssistantsPanel } from './components/AssistantsPanel'
+export { ConsentScreen } from './components/ConsentScreen'
 export { PushPanel } from './components/PushPanel'
 export {
-  useAccessTokens,
+  useGrants,
   useAcceptInvite,
   useCoupleSettings,
   useDistanceUnit,
-  useCreateAccessToken,
+  useSaveGrant,
+  useRevokeGrant,
   useCreateInvite,
   useInvites,
   useMyAccess,
@@ -32,8 +34,7 @@ export {
   visibleModules,
 } from './logic'
 export type {
-  AccessToken,
-  AccessTokenInput,
+  McpGrant,
   MemberRole,
   ModuleName,
   Member,

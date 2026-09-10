@@ -4,11 +4,9 @@
 import { supabase } from '@/lib/supabase/client'
 import { toAppError, unwrap, unwrapList, unwrapMaybe } from '@/lib/errors'
 import type { UpdateDto } from '@/types/database'
-import { generateToken, hashToken, tokenPrefix } from '@/lib/tokens'
 import type { StoredSubscription } from '@/lib/push/client'
 import type {
-  AccessToken,
-  AccessTokenInput,
+  McpGrant,
   CoupleSettings,
   Invite,
   InviteInput,
@@ -163,71 +161,70 @@ export async function acceptInvite(code: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Personal access tokens — credentials for an assistant, not a session to share
+// Assistant grants — which modules an approved app may reach
 // ---------------------------------------------------------------------------
+//
+// There are no tokens here any more. Supabase Auth issues, refreshes and
+// revokes those; 0032 deleted our copy. What is left is the one question OAuth
+// scopes cannot answer — which modules this person ticked for this app — and
+// that is all these three functions touch.
 
-const TOKEN_COLUMNS =
-  'id, name, prefix, modules, kind, client_id, created_at, last_used_at, expires_at, revoked_at'
+const GRANT_COLUMNS = 'id, client_id, client_name, modules, created_at, last_used_at'
 
-export async function listAccessTokens(): Promise<AccessToken[]> {
-  // RLS narrows this to the caller's own rows; `token_hash` is not in the
-  // column list and could not be selected even if it were.
+export async function listGrants(): Promise<McpGrant[]> {
+  // RLS narrows this to the caller's own rows. Nothing in the table is a
+  // credential, so unlike the tokens it replaced, every column is readable by
+  // the person it belongs to.
   return unwrapList(
     await supabase
-      .from('access_tokens')
-      .select(TOKEN_COLUMNS)
-      .is('revoked_at', null)
+      .from('mcp_grants')
+      .select(GRANT_COLUMNS)
       .order('created_at', { ascending: false }),
   )
 }
 
 /**
- * Mint a token.
+ * Record what somebody just approved on the consent screen.
  *
- * The raw value is generated here, in the browser, and only its hash is sent.
- * That is why this returns it: the caller has the one copy that will ever
- * exist, and if it is not shown to the person now it is gone.
+ * Upsert on `(user_id, client_id)`: approving the same app twice is a person
+ * changing their mind about the modules, not a second grant that contradicts
+ * the first.
  */
-export async function createAccessToken(
-  input: AccessTokenInput,
+export async function saveGrant(
+  input: { clientId: string; clientName: string | null; modules: ModuleName[] },
   userId: string,
-): Promise<{ token: AccessToken; raw: string }> {
-  const raw = generateToken()
-
-  const expiresAt = input.expiresInDays
-    ? new Date(Date.now() + input.expiresInDays * 86_400_000).toISOString()
-    : null
-
-  const token = unwrap(
+): Promise<McpGrant> {
+  return unwrap(
     await supabase
-      .from('access_tokens')
-      .insert({
-        user_id: userId,
-        name: input.name.trim(),
-        token_hash: await hashToken(raw),
-        prefix: tokenPrefix(raw),
-        modules: input.modules,
-        expires_at: expiresAt,
-      })
-      .select(TOKEN_COLUMNS)
+      .from('mcp_grants')
+      .upsert(
+        {
+          user_id: userId,
+          client_id: input.clientId,
+          client_name: input.clientName,
+          modules: input.modules,
+        },
+        { onConflict: 'user_id,client_id' },
+      )
+      .select(GRANT_COLUMNS)
       .single(),
   )
-
-  return { token, raw }
 }
 
 /**
- * Revoke, rather than delete.
+ * Take an app's access away.
  *
- * The row stays so `last_used_at` stays: someone revoking a token they think
- * was copied wants to see whether it was used, and deleting the evidence at
- * the moment of suspicion is the wrong instinct.
+ * Deleted rather than soft-deleted, which is the opposite of what the token
+ * table did — and right for a different reason. A revoked token was worth
+ * keeping because `last_used_at` was evidence about a credential that might
+ * have been copied. A grant holds no credential: revoking it is the person
+ * saying "not this app any more", and a tombstone would only clutter the list
+ * they revoked it from.
+ *
+ * The token itself dies at Supabase, which is also where it was born.
  */
-export async function revokeAccessToken(id: string): Promise<void> {
-  const { error } = await supabase
-    .from('access_tokens')
-    .update({ revoked_at: new Date().toISOString() })
-    .eq('id', id)
+export async function revokeGrant(id: string): Promise<void> {
+  const { error } = await supabase.from('mcp_grants').delete().eq('id', id)
   if (error) throw toAppError(error)
 }
 
