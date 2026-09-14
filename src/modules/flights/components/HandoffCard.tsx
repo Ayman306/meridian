@@ -10,7 +10,7 @@
 
 import { AlertTriangle, Car } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
-import { formatInZone } from '@/lib/dates'
+import { formatInZone, humaniseMinutes } from '@/lib/dates'
 import { cn } from '@/lib/utils'
 import { describeBreakdown } from '../handoff'
 import type { FlightState } from '../types'
@@ -50,7 +50,7 @@ export function HandoffCard({ state, timezone }: { state: FlightState; timezone:
               {describeBreakdown(plan).map((part) => (
                 <li key={part.label} className="flex justify-between gap-3">
                   <span className="text-muted-foreground">{part.label}</span>
-                  <span className="tabular">{part.minutes} min</span>
+                  <span className="tabular">{humaniseMinutes(part.minutes)}</span>
                 </li>
               ))}
             </ul>

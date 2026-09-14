@@ -40,9 +40,33 @@ export const IMMIGRATION_DEFAULTS = {
 const KNOWN_BUSY = new Set(['LHR', 'JFK', 'EWR', 'LAX', 'CDG', 'MIA', 'ORD', 'DEL', 'BOM'])
 
 export const DEFAULT_BAGGAGE_MINUTES = 20
-/** No routing API without a key, so: great circle × 1.4 at 45 km/h. */
+/** No routing API without a key, so: great circle × 1.4 at the speeds below. */
 export const DRIVE_DETOUR_FACTOR = 1.4
+/** Town driving: the airport approach, traffic lights, the ring road. */
 export const DRIVE_SPEED_KMH = 45
+/** Motorway cruise, for the part of a long drive that is not town. */
+export const DRIVE_SPEED_MOTORWAY_KMH = 90
+/** How much of any drive is treated as town at each end. */
+export const DRIVE_TOWN_KM = 30
+
+/**
+ * Past this far apart, nobody is collecting anybody.
+ *
+ * Measured as straight-line distance rather than estimated minutes, so the cut
+ * does not move when the speed model is tuned. 400 km covers any pickup
+ * somebody would really make — Porto to Lisbon, Manchester to Heathrow — and
+ * excludes the case this exists for: a watcher on another continent.
+ *
+ * Without the cut, `estimateDriveMinutes` answered every distance. It ran the
+ * 11,000 km from a watcher's home to DXB through a car and produced "Drive
+ * 20666 min" — a fortnight at the wheel, presented on the pickup card as a
+ * plan, with a departure time worked back from it.
+ *
+ * That is not an edge case here. Two people in different countries is the
+ * premise of the app, so the watcher is usually nowhere near the arrival
+ * airport and the honest answer is that there is no pickup to plan.
+ */
+export const MAX_PICKUP_KM = 400
 
 export interface HandoffInputs {
   /** Measured wait times for this airport, when someone has reported them. */
@@ -58,7 +82,8 @@ export interface HandoffInputs {
  *
  * Returns null when there is nobody waiting — spec 9.9 computes this "only
  * when a watcher exists", and both partners flying means neither is on the
- * ground to meet the other.
+ * ground to meet the other — and also when the watcher is too far away to
+ * drive, which for a long-distance couple is most of the time.
  */
 export function computeHandoff(
   flight: FlightState,
@@ -79,6 +104,15 @@ export function computeHandoff(
     lat: flight.dest.lat,
     lng: flight.dest.lng,
   })
+
+  // A pickup nobody could make is worse than no pickup card: it puts a precise
+  // departure time against a drive across an ocean. The distance is still
+  // worth showing — see `travelTimes` — just not as a plan.
+  const apart = distanceBetween(inputs.watcherHome ?? null, {
+    lat: flight.dest.lat,
+    lng: flight.dest.lng,
+  })
+  if (apart !== null && apart > MAX_PICKUP_KM) return null
 
   const breakdown = {
     disembark: DISEMBARK_MINUTES,
@@ -139,18 +173,33 @@ export function immigrationMinutes(iata: string | null, inputs: HandoffInputs): 
 /**
  * Drive time without a routing key.
  *
- * Great circle × 1.4 ÷ 45 km/h, and labelled an estimate wherever it is shown.
- * The 1.4 stands in for roads not being straight; 45 km/h for the mix of
- * motorway and city that an airport run usually is. Swap this one function if
- * a routing key ever appears.
+ * Great circle × 1.4, then the first 30 km at town speed and the rest at
+ * motorway speed. The 1.4 stands in for roads not being straight.
+ *
+ * A single 45 km/h average was right for the airport run it was written for
+ * and badly wrong for anything longer: it turned the 275 km from Porto to
+ * Lisbon — three hours on the A1 — into eight and a half, which was enough to
+ * make a real pickup look impossible. Splitting the drive is still a guess,
+ * but it is the right shape: the slow part of a long drive is the two ends,
+ * not the middle.
+ *
+ * Swap this one function if a routing key ever appears.
  */
 export function estimateDriveMinutes(
   from: LatLng | null,
   to: { lat: number | null; lng: number | null },
 ): number {
   if (!from || to.lat === null || to.lng === null) return 0
-  const km = haversineKm(from, { lat: to.lat, lng: to.lng }) * DRIVE_DETOUR_FACTOR
-  return Math.round((km / DRIVE_SPEED_KMH) * 60)
+  return driveMinutesForKm(haversineKm(from, { lat: to.lat, lng: to.lng }))
+}
+
+/** Shared with `travelTimes`, so the two never disagree about a car. */
+function driveMinutesForKm(straightLineKm: number): number {
+  const km = straightLineKm * DRIVE_DETOUR_FACTOR
+  const town = Math.min(km, DRIVE_TOWN_KM)
+  const motorway = Math.max(0, km - DRIVE_TOWN_KM)
+  const hours = town / DRIVE_SPEED_KMH + motorway / DRIVE_SPEED_MOTORWAY_KMH
+  return Math.round(hours * 60)
 }
 
 export function addMinutes(instant: string, minutes: number): string {
@@ -174,4 +223,70 @@ export function describeBreakdown(plan: HandoffPlan): { label: string; minutes: 
     { label: 'Drive', minutes: breakdown.drive },
     { label: 'Buffer', minutes: breakdown.buffer },
   ].filter((part) => part.minutes > 0)
+}
+
+// ---------------------------------------------------------------------------
+// How far apart, in units that mean something
+// ---------------------------------------------------------------------------
+
+/**
+ * Rough speeds, for the "how long would it take" answers.
+ *
+ * A plane goes roughly straight and the rest follow roads, which is why only
+ * the ground modes carry the detour factor. None of this is precise and none
+ * of it needs to be — it is here to make a distance legible, not to plan a
+ * journey.
+ */
+export const MODE_SPEEDS_KMH = {
+  plane: 800,
+  car: DRIVE_SPEED_KMH,
+  bike: 15,
+  walk: 5,
+} as const
+
+export type TravelMode = keyof typeof MODE_SPEEDS_KMH
+
+export interface TravelEstimate {
+  mode: TravelMode
+  label: string
+  minutes: number
+}
+
+const MODE_LABELS: Record<TravelMode, string> = {
+  plane: 'Flying',
+  car: 'Driving',
+  bike: 'Cycling',
+  walk: 'Walking',
+}
+
+/**
+ * How long this distance takes by each way of covering it.
+ *
+ * Shown when there is no pickup to plan, which is when the interesting fact
+ * about the two of you is the distance itself rather than a departure time.
+ * A long-distance couple already knows they are far apart; this says how far
+ * in terms anybody can picture.
+ */
+export function travelTimes(km: number): TravelEstimate[] {
+  if (!Number.isFinite(km) || km <= 0) return []
+  return (Object.keys(MODE_SPEEDS_KMH) as TravelMode[]).map((mode) => {
+    // The car goes through the same town-then-motorway split the pickup
+    // estimate uses, so the two can never quote different numbers.
+    if (mode === 'car') return { mode, label: MODE_LABELS[mode], minutes: driveMinutesForKm(km) }
+    const distance = mode === 'plane' ? km : km * DRIVE_DETOUR_FACTOR
+    return {
+      mode,
+      label: MODE_LABELS[mode],
+      minutes: Math.round((distance / MODE_SPEEDS_KMH[mode]) * 60),
+    }
+  })
+}
+
+/** The great-circle distance between two points, or null without both. */
+export function distanceBetween(
+  from: LatLng | null,
+  to: { lat: number | null; lng: number | null },
+): number | null {
+  if (!from || to.lat === null || to.lng === null) return null
+  return haversineKm(from, { lat: to.lat, lng: to.lng })
 }

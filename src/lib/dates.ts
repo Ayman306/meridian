@@ -222,3 +222,47 @@ export function msUntilMidnightIn(tz: string, from: Date = new Date()): number {
 export function localStartOfDay(d: Date = new Date()): Date {
   return startOfDay(d)
 }
+
+/**
+ * A duration in minutes, in units a person would actually say.
+ *
+ * The unit climbs with the number: minutes up to an hour, hours up to a day,
+ * days up to a month, then months. "20666 min" is technically the answer to
+ * how long a drive takes and tells you nothing; "2 weeks" lands immediately.
+ *
+ * At most two parts, and the second is dropped when it is zero — "5h" rather
+ * than "5h 0m". Precision beyond two parts is false precision on an estimate
+ * built from a straight line.
+ */
+export function humaniseMinutes(minutes: number): string {
+  if (!Number.isFinite(minutes)) return '—'
+  const total = Math.max(0, Math.round(minutes))
+  if (total < 1) return 'under a minute'
+  if (total < 60) return `${total} min`
+
+  const hours = Math.floor(total / 60)
+  if (hours < 24) {
+    const rest = total % 60
+    return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`
+  }
+
+  const days = Math.floor(total / 1440)
+  if (days < 30) {
+    const rest = Math.round((total % 1440) / 60)
+    // 23 rounded hours is still that many days, not a day and 23 hours over.
+    if (rest === 24) return pluraliseUnit(days + 1, 'day')
+    return rest === 0 ? pluraliseUnit(days, 'day') : `${pluraliseUnit(days, 'day')} ${rest}h`
+  }
+
+  // A "month" here is 30 days. Nothing that reaches this scale is precise
+  // enough for the distinction to matter.
+  const months = Math.floor(days / 30)
+  const restDays = days % 30
+  return restDays === 0
+    ? pluraliseUnit(months, 'month')
+    : `${pluraliseUnit(months, 'month')} ${pluraliseUnit(restDays, 'day')}`
+}
+
+function pluraliseUnit(n: number, unit: string): string {
+  return `${n} ${n === 1 ? unit : `${unit}s`}`
+}

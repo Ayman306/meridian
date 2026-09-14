@@ -25,6 +25,7 @@ import { pluralise } from '@/lib/utils'
 import { useCouple } from '@/providers/CoupleProvider'
 import { useTrip } from '@/modules/trips'
 import { HandoffCard } from '../components/HandoffCard'
+import { DistanceCard } from '../components/DistanceCard'
 import { EditFlightForm } from '../components/EditFlightForm'
 import {
   useDeleteFlight,
@@ -38,6 +39,7 @@ import {
   useStopTracking,
 } from '../hooks'
 import { PHASE_LABELS, isAirbornePhase, isFinished } from '../logic'
+import { distanceBetween } from '../handoff'
 import type { FlightState } from '../types'
 
 const FlightMap = dynamic(() => import('../components/FlightMap').then((m) => m.FlightMap), {
@@ -69,6 +71,8 @@ export function FlightLivePage({ flightId }: { flightId: string }) {
     watcherProfile?.home_lat != null && watcherProfile?.home_lng != null
       ? { lat: Number(watcherProfile.home_lat), lng: Number(watcherProfile.home_lng) }
       : null
+
+  const apartKm = state ? distanceBetween(watcherHome, { lat: state.dest.lat, lng: state.dest.lng }) : null
 
   if (flight.isLoading || !state) return <Skeleton className="h-[70vh] w-full rounded-lg" />
 
@@ -147,7 +151,16 @@ export function FlightLivePage({ flightId }: { flightId: string }) {
         )}
       </div>
 
-      {state.handoff && <HandoffCard state={state} timezone={tzSelf} />}
+      {state.handoff ? (
+        <HandoffCard state={state} timezone={tzSelf} />
+      ) : (
+        /* No plan means either nobody is on the ground or they are too far to
+           drive. In the second case the distance is the thing worth saying. */
+        watcherHome &&
+        apartKm !== null && (
+          <DistanceCard km={apartKm} travelerName={state.traveler?.displayName ?? 'they'} />
+        )
+      )}
 
       <Card>
         <CardContent className="space-y-5 py-5">

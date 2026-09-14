@@ -2658,6 +2658,44 @@ reversion bug applied there in full: a time corrected by conversation held
 until the next status poll and then went back. It now merges the same override
 allowlist. Two edit surfaces, one rule.
 
+### D131 — The pickup card stops planning drives across oceans
+
+`estimateDriveMinutes` answered every distance it was given. On a live
+IXE → DXB flight with the watcher at home on another continent, it ran 11,000
+km through a car and the arrival card rendered **"Drive 20666 min"** — a
+fortnight at the wheel, shown as a step in a plan, with a departure time worked
+back from it.
+
+For this app that is not an edge case. Two people in different countries is the
+premise, so the watcher is usually nowhere near the arrival airport.
+
+**The cut is in kilometres, not minutes.** `MAX_PICKUP_KM` is 400, measured on
+the great circle, so tuning the speed model cannot silently move the boundary
+of what counts as a pickup. Past it, `computeHandoff` returns null and no
+pickup card renders at all — the same contract it already had for "nobody is on
+the ground", which is the truthful reading of both situations.
+
+**The speed model was the deeper bug.** A flat 45 km/h was right for the
+airport run it was written for and badly wrong for anything longer: it turned
+Porto → Lisbon, three hours on the A1, into eight and a half — enough to make a
+real pickup look impossible and a fake one look survivable. Drives are now the
+first 30 km at town speed and the rest at 90 km/h. The airport run barely moves
+(47 → 43 min), Porto → Lisbon lands at 4h30, and the two numbers that matter
+are on the right side of plausible. `travelTimes` shares the same function, so
+the car can never be quoted two different ways.
+
+**What stands in its place says the distance instead.** `DistanceCard` gives
+the great-circle distance and how long it would take flying, driving, cycling
+and walking. That is not decoration: "11,071 km" is abstract and "4 months on
+foot" is not, and for a long-distance couple the distance *is* the fact the
+screen has to offer when there is no pickup to plan.
+
+**`humaniseMinutes` is why any of it reads.** Minutes up to an hour, hours up
+to a day, days up to thirty, then months, two parts at most. The number that
+started this now reads "14 days 8h". It lives in `lib/dates.ts` and the handoff
+breakdown uses it too, so "45 min" and "4h 30m" come out of one function rather
+than two conventions.
+
 ## Deviations from the spec
 
 | Spec | Code | Why |
@@ -2844,7 +2882,8 @@ Ordered by how much they block.
     strip has been reserved for them since Phase 5, and `checkPlannedStay` can
     now fill it. It needs the dashboard RPC to return upcoming trips with their
     destination country, which it does not.
-22. **The arrival handoff assumes the watcher can drive to the airport.**
+22. ~~**The arrival handoff assumes the watcher can drive to the airport.**~~
+    **Fixed in D131.** Kept here for the shape of the bug:
     `estimateDriveMinutes` runs the straight-line distance from the watcher's
     home to the arrival airport through a 45 km/h car, with no upper bound. For
     this app's users that is frequently nonsense: a watcher at home on another
