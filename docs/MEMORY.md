@@ -124,42 +124,39 @@ setup stay client-side gates, because they depend on the couple query.
 
 ### What is stubbed
 
-- No `Placeholder` routes remain. Every route in the spec exists.
-- Receipt photos on an expense: `receipt_media_id` is on the row and the
-  gallery can hold the file, but the expense form has no picker.
-- Per-week *budgets*. `period = 'week'` is modelled, constrained and indexed;
-  only trip-period budgets can be set from the UI.
-- All three sweeps are scheduled (0015), fire, and reach the app — the 401 is
-  gone. Roughly a third of runs answer 200; the rest time out (open question
-  23). Nothing has been swept in anger yet because no flight has been inside
-  the polling window.
-- The blend narrows to a city by matching the trip title against the cities in
-  the wishlist. It could read the chosen destination now that Module 4 exists;
-  it does not yet.
-- `airport_routes` is empty, so every flight duration on the board is a
+**Audited against the code on 14 Sep 2026.** This list had drifted badly. Nearly
+everything on it had since been built and nobody came back to cross it off, so
+it was describing a version of the app that stopped existing months ago —
+receipt pickers, week budgets, bulk actions, the allowance override form, the
+exchange strip, the cycle calendar, video upload, gallery virtualisation and
+the service worker were all listed as missing and all present in the code. If
+you are reading this list to decide what to build, verify before you trust it;
+that is how it went wrong the first time.
+
+What is actually missing:
+
+- **Group spaces.** Expressible in the schema — `couples.kind`, roles, grants,
+  a partner-only size cap — with no way to create one and no switcher. This is
+  the one substantial item here.
+- **`coarseTimezoneFromLongitude`** in `lib/geocode.ts` is still a placeholder
+  for `tz-lookup`. Choosing a destination sets the trip's timezone only when
+  the candidate carries one, and the city search does not return zones.
+- **`airport_routes` is empty**, so every flight duration on the board is a
   great-circle estimate. They are marked "est", which is the honest state until
   there is a dataset to seed from.
-- `coarseTimezoneFromLongitude` in `lib/geocode.ts` is still a placeholder for
-  `tz-lookup`. Choosing a destination sets the trip's timezone only when the
-  candidate carries one, and the city search does not return zones.
-- The allowance override form is still not built. `useUpsertRule` works and the
-  policies are proven; the seeded defaults cover the common cases.
-- Flight notifications still have nowhere to go. `push_subscriptions` exists
-  now and the per-category toggles are in Settings, but there is no service
-  worker and nothing is sent.
+
+Configured rather than built — these need a key or a dashboard, not code:
+
 - Flight tracking is live once `AERODATABOX_API_KEY` is set on Vercel. Without
-  it every flight is manual and the live view sits at degradation level 6 —
-  a supported state, not a broken one. Spend is capped at 550 of 600 a month
-  and reconciled against the provider's own balance. See D79.
-- The gallery grid paginates rather than virtualising. `@tanstack/react-virtual`
-  is installed for when a library is big enough to need it.
-- Videos are refused by the uploader. The schema, the size cap and a
-  poster-frame helper exist; the pipeline does not.
-- The daily-exchange strip has its table, logic and hooks but no surface yet.
-- Group spaces are expressible in the schema — `couples.kind`, roles, grants,
-  a partner-only size cap — but there is no way to create one and no switcher.
-- The health cycle calendar is a history list, not a month grid, and predicted
-  dates do not yet appear on the trip calendar.
+  it every flight is manual and the live view sits at degradation level 6 — a
+  supported state, not a broken one. Spend is capped at 550 of 600 a month and
+  reconciled against the provider's own balance. See D79.
+- All three sweeps are scheduled (0015), fire, and reach the app — the 401 is
+  gone. Roughly a third of runs answer 200; the rest time out (open question
+  23). Nothing has been swept in anger because no flight has yet been inside
+  the polling window.
+
+- No `Placeholder` routes remain. Every route in the spec exists.
 
 ---
 
@@ -2825,6 +2822,51 @@ is what produced the 117-day row in the first place.
 nothing to derive from, and `flight_date` is all such a row has. Unresolved and
 untimed is a supported state (spec 9.5, level 6), not a contradiction to fix.
 
+### D135 — Two real gaps closed, and a list that had stopped being true
+
+Asked to "complete the implementations and gaps", the first useful act was to
+check which gaps still existed. Most did not. `What is stubbed` listed receipt
+pickers, week budgets, bulk actions, the allowance override form, the exchange
+strip, the cycle calendar, video upload, gallery virtualisation and the service
+worker as missing; every one of them was in the code. Open questions 3, 7, 8, 9,
+16 and 17 were answered too.
+
+**That is the third time this pass that a stale doc sent work in the wrong
+direction**, after "Deployment Protection answers 401" and "nobody has signed
+in yet". MEMORY is the file CLAUDE.md points a new session at, so a wrong entry
+is not clutter — it is an instruction. Both lists are now audited, and the
+stubbed one carries a note saying to verify before trusting it.
+
+Two gaps were real.
+
+**The rolling horizon did not roll.** Spec 3.6 gives an open-ended trip a
+rolling thirty days, and the comment in 0002 said so, but the code read
+`coalesce(t.end_date, t.start_date + 30)` — thirty days from the *start*, which
+is a fixed window. Correct on the day a trip is created and wrong from day
+thirty-one: six weeks into an open-ended stay the plan simply stops, with no
+way to put anything on tomorrow. 0035 measures from `greatest(start_date,
+current_date)`, so a trip already under way extends from today while a future
+one stays anchored to its start. Nothing asked the database to re-sync, either,
+so `useRollingHorizon` does — once, on opening a trip whose grid has fallen
+short, answered from the days already loaded so a healthy grid writes nothing.
+
+**Writing 0035 from the wrong base nearly reverted a feature.**
+`sync_trip_days` is defined twice: 0002 scaffolds the days, and 0003 replaces
+it to unschedule items back to the idea pool before deleting their day, so
+shortening a trip costs a slot and never the content. The first draft of 0035
+was written from the 0002 body and silently dropped that. The database
+assertions caught it inside a minute — "it went back to the idea pool" failed —
+which is precisely the return on having written them. **When replacing a
+function, grep for every definition of it first; the newest one is the one you
+are actually replacing.**
+
+**Overlap warnings were computed and shown nowhere.** `overlappingTrips` has
+existed since Phase 2 with no caller, so two trips could quietly be booked over
+the same days. The trip list now says so on the card. Stated, not prevented: a
+side trip inside a longer stay is a real thing, and the app does not get to
+decide which it is. The clash map is computed once for the list rather than per
+card, which would be quadratic for the same answer.
+
 ## Deviations from the spec
 
 | Spec | Code | Why |
@@ -2937,28 +2979,26 @@ Ordered by how much they block.
 2. **Hosting.** Vercel's free tier is the obvious fit now that this is a Next
    app — Cloudflare Pages would need the OpenNext adapter. No rewrite rules
    needed; the App Router handles deep links itself.
-3. **`requires_country` on `document_types`** (spec 8.1) is declared but no
-   feature reads it. Resolve when Documents lands.
-4. **Open-ended trips have a 30-day horizon** (spec 3.6). Nothing rolls it
-   forward yet — a trip open-ended for two months will show a stale grid. The
-   cheapest fix is to re-run `sync_trip_days()` on trip open; decide when the
-   itinerary makes the cost visible.
-5. **Overlap warnings** are computed (`overlappingTrips`) but not yet surfaced.
-   The natural home is the trip list, once there are enough trips for it to
-   matter.
+3. ~~**`requires_country` on `document_types`**~~ **Closed.** `DocumentForm`
+   reads it: the country field is required and relabelled when the type asks
+   for one.
+4. ~~**Open-ended trips have a 30-day horizon**~~ **Fixed in D135.** The
+   horizon was anchored to the start date rather than rolling, and nothing
+   re-ran the sync. 0035 measures from today once a trip has begun, and
+   `useRollingHorizon` asks on trip open when the grid has fallen short.
+5. ~~**Overlap warnings**~~ **Fixed in D135.** Surfaced on the trip list:
+   a card whose days are covered by another trip says so. Stated, not
+   prevented — a side trip inside a longer stay is a real thing.
 6. **The tight-connection heuristic** assumes 25 km/h door to door and scales
    straight-line distance by 1.4. Both numbers are guesses that suit a dense
    European city and will be wrong for a road trip. Revisit once the map
    module (Phase 7) makes real distances visible.
-7. **Bulk actions** have a working mutation (`useBulkMove`) and no UI. Worth
-   adding once a real trip has enough items for multi-select to pay off.
-8. **The expiry sweep has no scheduler yet.** `crossedThreshold` and
-   `shouldAlert` are written and tested, but nothing calls them on a timer.
-   They need a cron Route Handler plus a notification channel — which is the
-   same infrastructure the flight sweep needs, so both land together in Phase 10.
-9. **Deleted storage objects are not swept.** Deleting a document soft-deletes
-   the row and deliberately leaves the file, so a mistake is fully recoverable.
-   The 30-day hard delete needs the same cron as above.
+7. ~~**Bulk actions**~~ **Closed.** `useBulkMove` is wired into `PlanPage`.
+8. ~~**The expiry sweep has no scheduler yet.**~~ **Closed.** Scheduled in
+   0015 as `meridian-document-sweep` and firing daily. Whether it *succeeds* is
+   open question 23.
+9. ~~**Deleted storage objects are not swept.**~~ **Closed.** `meridian-media-sweep`
+   runs daily on the same schedule.
 10. **Health module scope.** The spec says design it together, last. Left alone.
 11. **One advisor warning belongs to Supabase, not to us.** The security linter
     flags `public.rls_auto_enable()` as callable by `anon`. It is a
@@ -2985,13 +3025,12 @@ Ordered by how much they block.
     exactly like one checked yesterday apart from the date. A staleness badge
     past, say, six months would be a few lines and is worth adding once these
     have been in use long enough to go stale.
-16. **The blend still guesses a city from the trip title.** Now that a trip can
-    have a chosen destination, it should read that instead. One-line change,
-    left alone in this pass to keep Phase 8 reviewable on its own.
-17. **The `pg_cron` schedule for the flight sweep is not created.** The route,
-    its secret and the hard-stop function all exist and are tested; scheduling
-    it is one `cron.schedule` statement, and it wants a deployed URL to point
-    at. Until then the sweep only runs if something calls it.
+16. ~~**The blend still guesses a city from the trip title.**~~ **Closed.**
+    `wishlist/logic.ts` reads the chosen destination when there is one and
+    falls back to the title match only when there is not.
+17. ~~**The `pg_cron` schedule for the flight sweep is not created.**~~
+    **Closed.** Five jobs are scheduled and active; `cron.job_run_details`
+    shows over a thousand runs in the last week.
 18. **Nothing has flown yet.** Every flight path is exercised by unit tests
     against fixtures, and the provider adapters have never spoken to a real
     AeroDataBox or OpenSky response. The field mapping in

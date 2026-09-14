@@ -249,6 +249,51 @@ select assert(
   'extending adds only the new days'
 );
 
+-- An open-ended trip rolls thirty days forward from today, not from its start
+-- (0035). Before that fix the window was anchored to the start date, so a trip
+-- six weeks under way had a grid that simply stopped at day thirty-one.
+--
+-- On a trip of its own: moving the shared fixture's dates around unschedules
+-- its itinerary items, which later assertions in this file rely on.
+insert into public.trips (couple_id, title, start_date, end_date, is_open_ended, created_by)
+values (:'ada_couple', 'Open ended', current_date - 45, null, true, :'ada_ada')
+returning id as rolling \gset ada_
+select public.sync_trip_days(:'ada_rolling');
+
+select assert(
+  (select max(date) from public.trip_days where trip_id = :'ada_rolling')
+    = current_date + 30,
+  'an open-ended trip already under way scaffolds thirty days from today'
+);
+select assert(
+  (select count(*) from public.trip_days where trip_id = :'ada_rolling') = 76,
+  'and keeps every day it has already run through'
+);
+
+-- A future open-ended trip stays anchored to its own start.
+update public.trips set start_date = current_date + 100 where id = :'ada_rolling';
+select public.sync_trip_days(:'ada_rolling');
+select assert(
+  (select min(date) from public.trip_days where trip_id = :'ada_rolling')
+    = current_date + 100,
+  'a future open-ended trip still begins at its start date'
+);
+select assert(
+  (select max(date) from public.trip_days where trip_id = :'ada_rolling')
+    = current_date + 130,
+  'and runs thirty days from that start, not from today'
+);
+
+-- A dated trip is unaffected by any of it.
+update public.trips
+   set start_date = '2026-06-01', end_date = '2026-06-08', is_open_ended = false
+ where id = :'ada_rolling';
+select public.sync_trip_days(:'ada_rolling');
+select assert(
+  (select count(*) from public.trip_days where trip_id = :'ada_rolling') = 8,
+  'and giving it an end date pins it to exactly those days'
+);
+
 -- ---------------------------------------------------------------------------
 \echo ''
 \echo '== itinerary =='

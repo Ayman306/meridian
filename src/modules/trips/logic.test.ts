@@ -9,6 +9,7 @@ import {
   isStalePlanning,
   nextDayType,
   nights,
+  needsHorizonRefresh,
   overlappingTrips,
   snapStartToPrecision,
   togetherWindow,
@@ -281,5 +282,57 @@ describe('overlaps and staleness', () => {
     expect(isStalePlanning(past, '2026-06-15', 'Planning')).toBe(true)
     expect(isStalePlanning(past, '2026-06-15', 'Completed')).toBe(false)
     expect(isStalePlanning(trip(), '2026-06-15', 'Planning')).toBe(false)
+  })
+})
+
+describe('needsHorizonRefresh', () => {
+  const today = '2026-09-14'
+  const openEnded = { start_date: '2026-08-01', end_date: null, is_open_ended: true }
+  const grid = (last: string) => [{ date: '2026-08-01' }, { date: last }]
+
+  it('is true when the grid stops short of thirty days out', () => {
+    // The bug: a trip six weeks under way, scaffolded only to start + 30.
+    expect(needsHorizonRefresh(openEnded, grid('2026-08-31'), today)).toBe(true)
+  })
+
+  it('is false once the grid reaches thirty days out', () => {
+    expect(needsHorizonRefresh(openEnded, grid('2026-10-14'), today)).toBe(false)
+  })
+
+  it('is false for a dated trip, whose horizon never moves', () => {
+    expect(
+      needsHorizonRefresh(
+        { start_date: '2026-08-01', end_date: '2026-08-10', is_open_ended: false },
+        grid('2026-08-10'),
+        today,
+      ),
+    ).toBe(false)
+  })
+
+  it('is false for an open-ended trip that has not started', () => {
+    // Anchored to its start date, so it is not stale however far off it is.
+    expect(
+      needsHorizonRefresh(
+        { start_date: '2026-12-01', end_date: null, is_open_ended: true },
+        grid('2026-12-31'),
+        today,
+      ),
+    ).toBe(false)
+  })
+
+  it('is false for a trip with no start date at all', () => {
+    expect(
+      needsHorizonRefresh({ start_date: null, end_date: null, is_open_ended: true }, [], today),
+    ).toBe(false)
+  })
+
+  it('is true when a started open-ended trip has no days at all', () => {
+    expect(needsHorizonRefresh(openEnded, [], today)).toBe(true)
+  })
+
+  it('is exact at the boundary', () => {
+    // Exactly thirty days out is enough; one short is not.
+    expect(needsHorizonRefresh(openEnded, grid('2026-10-14'), today)).toBe(false)
+    expect(needsHorizonRefresh(openEnded, grid('2026-10-13'), today)).toBe(true)
   })
 })
