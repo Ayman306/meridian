@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { CalendarClock } from 'lucide-react'
 import { Card, Badge } from '@/components/ui/card'
 import { useCouple } from '@/providers/CoupleProvider'
 import { pluralise } from '@/lib/utils'
@@ -8,7 +9,16 @@ import { todayIn } from '@/lib/dates'
 import { countdownDays, formatTripDates, isLongStay, nights, togetherWindow } from '../logic'
 import type { TripSummary } from '../types'
 
-export function TripCard({ trip }: { trip: TripSummary }) {
+export function TripCard({
+  trip,
+  clashesWith = [],
+}: {
+  trip: TripSummary
+  /** Other trips covering the same days. `overlappingTrips` has been computed
+      since Phase 2 and shown nowhere, so two trips could quietly be booked
+      over each other. */
+  clashesWith?: readonly TripSummary[]
+}) {
   const { tzSelf } = useCouple()
   const n = nights(trip)
   const countdown = countdownDays(trip, todayIn(tzSelf))
@@ -44,6 +54,22 @@ export function TripCard({ trip }: { trip: TripSummary }) {
               <span className="text-[hsl(var(--warn))]">Your dates don&apos;t overlap</span>
             ))}
         </div>
+
+        {/* Stated, not prevented. Two trips over the same days is usually a
+            mistake and occasionally deliberate — a side trip inside a longer
+            stay is a real thing — so this says what it sees and leaves the
+            decision alone. */}
+        {clashesWith.length > 0 && (
+          <p className="mt-3 flex items-start gap-2 text-xs text-[hsl(var(--warn))]">
+            <CalendarClock className="mt-px size-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              Same days as{' '}
+              {clashesWith.length === 1
+                ? clashesWith[0]!.title
+                : `${clashesWith[0]!.title} and ${pluralise(clashesWith.length - 1, 'other')}`}
+            </span>
+          </p>
+        )}
       </Link>
     </Card>
   )

@@ -12,7 +12,14 @@ import { EmptyState, ErrorState, PageLoading } from '@/components/common/states'
 import { useCouple } from '@/providers/CoupleProvider'
 import { cn, pluralise } from '@/lib/utils'
 import { todayIn } from '@/lib/dates'
-import { useDeleteTrip, useTrip, useTripRealtime, useTripStatuses, useUpdateTrip } from '../hooks'
+import {
+  useDeleteTrip,
+  useRollingHorizon,
+  useTrip,
+  useTripRealtime,
+  useTripStatuses,
+  useUpdateTrip,
+} from '../hooks'
 import { countdownDays, formatTripDates, isLongStay, isStalePlanning, nights } from '../logic'
 import { TripDatesEditor } from '../components/TripDatesEditor'
 import { TravelerDates } from '../components/TravelerDates'
@@ -51,6 +58,8 @@ export function TripDetailPage({ children }: { children: React.ReactNode }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   useTripRealtime(id)
+  // An open-ended trip's grid rolls forward when opening it finds it short.
+  useRollingHorizon(trip)
 
   // The chosen destination is what makes an allowance check possible at all —
   // without a country there is no rule to check against.

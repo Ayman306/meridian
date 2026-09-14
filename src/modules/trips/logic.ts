@@ -297,3 +297,39 @@ export function isStalePlanning(
   const end = trip.end_date ?? trip.start_date
   return Boolean(end && end < today)
 }
+
+/**
+ * Has an open-ended trip's day grid fallen behind?
+ *
+ * Spec 3.6 gives an open-ended trip a rolling thirty days, and 0035 made the
+ * database's horizon roll — but only when something asks it to. Nothing did,
+ * so a stay that ran past its scaffolding kept the grid it was created with:
+ * six weeks in, the plan simply stopped, with no way to put anything on
+ * tomorrow.
+ *
+ * Answered from the days already loaded, so the common case — a grid that is
+ * fine — costs nothing and writes nothing.
+ */
+export function needsHorizonRefresh(
+  trip: Pick<Trip, 'start_date' | 'end_date' | 'is_open_ended'>,
+  days: readonly { date: DateOnly }[],
+  today: DateOnly,
+): boolean {
+  // A dated trip's horizon is its end date and never moves.
+  if (!trip.is_open_ended || trip.end_date || !trip.start_date) return false
+  // Still ahead of us: the grid is anchored to the start and is not stale.
+  if (trip.start_date > today) return false
+
+  const last = days.reduce<DateOnly | null>(
+    (latest, day) => (latest === null || day.date > latest ? day.date : latest),
+    null,
+  )
+  if (last === null) return true
+
+  // The database scaffolds thirty days out. Anything short of that has been
+  // overtaken by the calendar.
+  return last < addDaysTo(today, HORIZON_DAYS)
+}
+
+/** Kept beside the check so the two cannot drift apart. Mirrors 0035. */
+export const HORIZON_DAYS = 30

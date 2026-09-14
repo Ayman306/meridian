@@ -9,7 +9,7 @@ import { EmptyState, ErrorState, SkeletonList } from '@/components/common/states
 import { useCouple } from '@/providers/CoupleProvider'
 import { todayIn } from '@/lib/dates'
 import { useTrips } from '../hooks'
-import { GROUP_LABELS, groupTrips } from '../logic'
+import { GROUP_LABELS, groupTrips, overlappingTrips } from '../logic'
 import { TripCard } from '../components/TripCard'
 import type { TripGroup } from '../types'
 
@@ -21,6 +21,18 @@ export function TripListPage() {
 
   const today = todayIn(tzSelf)
   const groups = useMemo(() => groupTrips(data ?? [], today), [data, today])
+
+  // Computed once for the whole list rather than per card, which would be
+  // quadratic over a growing number of trips for the same answer.
+  const clashes = useMemo(() => {
+    const trips = data ?? []
+    const map = new Map<string, typeof trips>()
+    for (const trip of trips) {
+      const others = overlappingTrips(trip, trips)
+      if (others.length > 0) map.set(trip.id, others)
+    }
+    return map
+  }, [data])
 
   return (
     <>
@@ -59,7 +71,7 @@ export function TripListPage() {
               </h2>
               <div className="grid gap-3 sm:grid-cols-2">
                 {groups[group].map((trip) => (
-                  <TripCard key={trip.id} trip={trip} />
+                  <TripCard key={trip.id} trip={trip} clashesWith={clashes.get(trip.id) ?? []} />
                 ))}
               </div>
             </section>

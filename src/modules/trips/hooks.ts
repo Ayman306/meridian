@@ -1,13 +1,14 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { qk } from '@/lib/queryClient'
 import { supabase } from '@/lib/supabase/client'
 import { useCouple } from '@/providers/CoupleProvider'
-import type { DateOnly } from '@/lib/dates'
+import { todayIn, type DateOnly } from '@/lib/dates'
 import * as api from './api'
-import type { DatePrecision, DayType } from './types'
+import { needsHorizonRefresh } from './logic'
+import type { DatePrecision, DayType, TripDetail } from './types'
 import type { UpdateDto } from '@/types/database'
 
 export function useTrips() {
@@ -36,6 +37,37 @@ export function useTrip(id: string | undefined) {
     queryFn: () => api.getTrip(id!),
     enabled: Boolean(id),
   })
+}
+
+/**
+ * Keep an open-ended trip's day grid from being overtaken by the calendar.
+ *
+ * 0035 made the database's horizon roll forward, but only when something asks.
+ * This is what asks: on opening a trip whose scaffolding has fallen short of
+ * thirty days out, it re-syncs once and refetches. `needsHorizonRefresh`
+ * answers from the days already loaded, so a healthy grid — which is every
+ * dated trip and most open-ended ones — costs nothing and writes nothing.
+ */
+export function useRollingHorizon(trip: TripDetail | null | undefined) {
+  const qc = useQueryClient()
+  const { tzSelf } = useCouple()
+  const syncing = useRef(false)
+
+  useEffect(() => {
+    if (!trip || syncing.current) return
+    if (!needsHorizonRefresh(trip, trip.days, todayIn(tzSelf))) return
+
+    syncing.current = true
+    void api
+      .syncTripDays(trip.id)
+      .then(() => qc.invalidateQueries({ queryKey: qk.trip(trip.id) }))
+      // A grid that stops at yesterday is a worse day than a silent failure
+      // here; the trip still renders everything it already has.
+      .catch(() => undefined)
+      .finally(() => {
+        syncing.current = false
+      })
+  }, [trip, qc, tzSelf])
 }
 
 export function useDeletedTrips() {
