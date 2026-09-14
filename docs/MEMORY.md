@@ -2609,6 +2609,55 @@ precisely what the user just overruled. The own-row rule from the delete button
 carries over unchanged — you may not edit your partner's crossing, because the
 row records who crossed a border.
 
+### D130 — A flight can be moved onto a trip, and a loose one is not a mistake
+
+`AddFlightForm` sets `trip_id` from whichever page opened it: the trip's flight
+tab passes an id, `/flights` passes nothing. `TripFlightsPage` then filters on
+`trip_id`, and **nothing in the app could ever change that column afterwards.**
+A flight saved from the Flights tab was invisible to every trip, permanently.
+
+That is backwards from how the app is used. You book a flight and then plan
+around it, so the booking usually exists before the trip does. The only
+workaround was deleting the flight and adding it again from inside the trip,
+which throws away its positions, its events and its tracking history.
+
+Three ways in now, because the two surfaces answer different questions:
+
+- **From the trip** — "Add an existing flight" lists what you have already
+  saved, in `attachableFlights` order: loose flights whose date lands inside
+  the trip first, then the rest of the loose ones, then flights already on
+  another trip.
+- **From the flight** — the edit form has a trip picker, and a loose flight
+  whose date falls inside a trip offers that trip as a one-click suggestion.
+- **From the MCP** — `update_flight` takes `trip_id`, so this works by
+  conversation too.
+
+**A flight on another trip is offered, not hidden.** A leg filed against the
+wrong trip is exactly what this screen exists to correct. It carries an "On
+another trip" badge and its button reads "Move here" rather than "Add to trip",
+so moving one is a thing the user chose rather than something that happened.
+
+**The suggestion never applies itself.** `suggestTripForFlight` preselects
+nothing and writes nothing; it renders a sentence with a button in it. Part 15:
+nothing auto-inserts. Ties go to the **narrower** trip, because a three-day side
+trip inside a two-week one is the more specific claim on the same date.
+
+**"Not on a trip" is a real state with a way out of it, not an error.** A
+one-off flight to see family is not part of any planned trip and should not be
+nagged about. The flight page shows its trip as a link when it has one and a
+dashed "add it to one" button when it does not — an invitation, not a warning.
+
+**`detach_from_trip` is a separate MCP input from `trip_id`.** Every other
+optional field on that tool uses `null` for "not given", so a null `trip_id`
+cannot also mean "clear it". Overloading it would have made detaching
+inexpressible.
+
+**The MCP was reverting time edits, and now pins them like the app does.**
+`update_flight` wrote `scheduled_departure` as a plain column, so D129's
+reversion bug applied there in full: a time corrected by conversation held
+until the next status poll and then went back. It now merges the same override
+allowlist. Two edit surfaces, one rule.
+
 ## Deviations from the spec
 
 | Spec | Code | Why |
@@ -2795,3 +2844,14 @@ Ordered by how much they block.
     strip has been reserved for them since Phase 5, and `checkPlannedStay` can
     now fill it. It needs the dashboard RPC to return upcoming trips with their
     destination country, which it does not.
+22. **The arrival handoff assumes the watcher can drive to the airport.**
+    `estimateDriveMinutes` runs the straight-line distance from the watcher's
+    home to the arrival airport through a 45 km/h car, with no upper bound. For
+    this app's users that is frequently nonsense: a watcher at home on another
+    continent produced "Drive 20666 min" on a live IXE → DXB flight — 15,500 km
+    of driving, which is the app cheerfully planning a road trip across an
+    ocean. The handoff is only meaningful when the watcher is near the
+    destination, and `computeHandoff` has no notion of that. It needs a
+    plausibility cut — beyond some distance there is no drive, and the card
+    should either not render or say "you are not meeting this one" — and the
+    number should probably never be shown unrounded past a few hours.

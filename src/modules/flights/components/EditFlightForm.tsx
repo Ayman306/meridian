@@ -22,7 +22,13 @@ import { PersonBadge } from '@/components/PersonBadge'
 import { userMessage } from '@/lib/errors'
 import { formatInZone, isValidDateOnly, tripLocalToUtc } from '@/lib/dates'
 import { useCouple } from '@/providers/CoupleProvider'
-import { flightEditPatch, normaliseFlightNumber, routeEndpoint } from '../logic'
+import { formatTripDates, useTrips } from '@/modules/trips'
+import {
+  flightEditPatch,
+  normaliseFlightNumber,
+  routeEndpoint,
+  suggestTripForFlight,
+} from '../logic'
 import { useSetManualOverride, useUpdateFlight } from '../hooks'
 import { AirportPicker } from './AirportPicker'
 import type { AirportRow, FlightRow } from '../types'
@@ -37,6 +43,7 @@ export function EditFlightForm({
   const { selfRef, partnerRef } = useCouple()
   const update = useUpdateFlight()
   const override = useSetManualOverride()
+  const trips = useTrips()
 
   const [flightNumber, setFlightNumber] = useState(flight.flight_number)
   const [date, setDate] = useState(flight.flight_date ?? '')
@@ -75,12 +82,18 @@ export function EditFlightForm({
   const [departure, setDeparture] = useState(toLocalInput(flight.scheduled_departure, originTz))
   const [arrival, setArrival] = useState(toLocalInput(flight.scheduled_arrival, destTz))
 
+  const [tripId, setTripId] = useState(flight.trip_id ?? '')
   const [gate, setGate] = useState(flight.gate ?? '')
   const [terminal, setTerminal] = useState(flight.terminal ?? '')
   const [belt, setBelt] = useState(flight.baggage_belt ?? '')
 
   const people = [selfRef, partnerRef].filter(Boolean)
   const pending = update.isPending || override.isPending
+
+  // Offered, never applied. A loose flight whose date lands inside a trip is
+  // almost always that trip's, but attaching it is the user's call.
+  const suggestion =
+    tripId === '' ? suggestTripForFlight(date || flight.flight_date, trips.data ?? []) : null
   // Guarded the same way `applyOverride` guards it: the column is jsonb and
   // could hold anything, and `Object.keys` of a string is a list of indices.
   const hasOverride =
@@ -106,6 +119,7 @@ export function EditFlightForm({
       flight_date: date,
       traveler_id: travelerId,
       has_checked_bags: hasBags,
+      trip_id: tripId || null,
       origin_iata: origin.iata,
       origin_name: origin.name,
       origin_tz: origin.tz,
@@ -238,6 +252,42 @@ export function EditFlightForm({
           />
         </Field>
       </div>
+
+      {/* Which trip this belongs to. A flight added from the Flights tab has
+          no trip, and without this it could never be given one — the trip view
+          filters on `trip_id` and nothing else could set it. */}
+      <Field
+        label="Part of a trip"
+        hint="Leave it loose if it is not part of a planned trip"
+        htmlFor="edit-flight-trip"
+      >
+        <Select
+          id="edit-flight-trip"
+          value={tripId}
+          onChange={(e) => setTripId(e.target.value)}
+        >
+          <option value="">Not on a trip</option>
+          {(trips.data ?? []).map((trip) => (
+            <option key={trip.id} value={trip.id}>
+              {trip.title} · {formatTripDates(trip)}
+            </option>
+          ))}
+        </Select>
+      </Field>
+
+      {suggestion && (
+        <p className="-mt-2 text-xs text-muted-foreground">
+          This date falls inside{' '}
+          <button
+            type="button"
+            className="underline underline-offset-2 hover:text-foreground"
+            onClick={() => setTripId(suggestion.id)}
+          >
+            {suggestion.title}
+          </button>
+          . Attach it?
+        </p>
+      )}
 
       <Field label="Who is flying?" htmlFor="edit-flight-traveler">
         <div className="flex flex-wrap items-center gap-3">

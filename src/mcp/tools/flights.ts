@@ -20,6 +20,7 @@
  */
 import { z } from 'zod'
 import { tripLocalToUtc } from '@/lib/dates'
+import { OVERRIDABLE_FIELDS } from '@/modules/flights/logic'
 import type { UpdateDto } from '@/types/database'
 import { defineTool, requireCouple } from './types'
 import type { AnyTool } from './types'
@@ -253,7 +254,7 @@ const updateFlight = defineTool({
   module: 'flights',
   title: 'Change a flight',
   description:
-    'Correct one leg of a booking — its number, its date, or its scheduled times. Times are the local clock at the relevant airport. Get ids from list_flights.',
+    'Correct one leg of a booking — its number, its date, its scheduled times, or which trip it belongs to. Times are the local clock at the relevant airport. Get ids from list_flights.',
   readOnly: false,
   inputSchema: z.object({
     flight_id: z.string().uuid().describe('From list_flights.'),
@@ -276,13 +277,23 @@ const updateFlight = defineTool({
       .nullable()
       .default(null)
       .describe('HH:MM local at the destination airport.'),
+    trip_id: z
+      .string()
+      .uuid()
+      .nullable()
+      .default(null)
+      .describe('Put the flight on this trip. Get ids from list_trips.'),
+    detach_from_trip: z
+      .boolean()
+      .default(false)
+      .describe('Take the flight off whatever trip it is on, leaving it loose.'),
   }),
   async handler(ctx, input) {
     requireCouple(ctx)
 
     const { data: flight, error: loadError } = await ctx.supabase
       .from('flights')
-      .select('id, flight_number, flight_date, origin_tz, dest_tz')
+      .select('id, flight_number, flight_date, origin_tz, dest_tz, manual_override')
       .eq('id', input.flight_id)
       .is('deleted_at', null)
       .maybeSingle()
@@ -305,12 +316,35 @@ const updateFlight = defineTool({
       patch.scheduled_arrival = tripLocalToUtc(date, input.arrival_time, flight.dest_tz).toISOString()
     }
 
+    // Setting and clearing are different intents, so they are different
+    // inputs: a null `trip_id` has to mean "not given" for every other field
+    // here, and would otherwise make detaching impossible to express.
+    if (input.detach_from_trip) patch.trip_id = null
+    else if (input.trip_id !== null) patch.trip_id = input.trip_id
+
     if (Object.keys(patch).length === 0) return 'Nothing to change — no fields were given.'
+
+    // The same rule the app's edit form follows (D129): a time written as a
+    // plain column is overwritten by the next status poll, so anything on the
+    // override allowlist is pinned as well or the correction silently reverts.
+    const pinned = Object.fromEntries(
+      Object.entries(patch).filter(
+        ([key, value]) => value !== null && (OVERRIDABLE_FIELDS as readonly string[]).includes(key),
+      ),
+    )
+    if (Object.keys(pinned).length > 0) {
+      const existing =
+        flight.manual_override && typeof flight.manual_override === 'object' && !Array.isArray(flight.manual_override)
+          ? (flight.manual_override as Record<string, unknown>)
+          : {}
+      patch.manual_override = { ...existing, ...pinned } as never
+    }
 
     const { error } = await ctx.supabase.from('flights').update(patch).eq('id', input.flight_id)
     if (error) throw new Error(error.message)
 
-    return `Updated ${patch.flight_number ?? flight.flight_number}: ${Object.keys(patch).join(', ')}.`
+    const changed = Object.keys(patch).filter((key) => key !== 'manual_override')
+    return `Updated ${patch.flight_number ?? flight.flight_number}: ${changed.join(', ')}.`
   },
 })
 

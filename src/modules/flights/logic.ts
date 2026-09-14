@@ -922,3 +922,99 @@ export function routeEndpoint(
   // still applies.
   return { iata: code, name: null, tz: null, lat: null, lng: null }
 }
+
+// ---------------------------------------------------------------------------
+// Attaching a flight to a trip
+// ---------------------------------------------------------------------------
+
+/** What `suggestTripForFlight` and the attach list need from a trip. */
+export interface TripWindow {
+  id: string
+  title: string
+  start_date: string | null
+  end_date: string | null
+}
+
+/**
+ * Does this flight's date fall inside the trip's window?
+ *
+ * Inclusive at both ends, because the flight that takes you there departs on
+ * the first day and the one that brings you home lands on the last. A trip
+ * with no dates matches nothing — it cannot, and guessing would attach a
+ * flight to whichever undated trip happened to sort first.
+ */
+export function flightFallsInTrip(
+  flightDate: string | null,
+  trip: Pick<TripWindow, 'start_date' | 'end_date'>,
+): boolean {
+  if (!flightDate || !trip.start_date) return false
+  const end = trip.end_date ?? trip.start_date
+  return flightDate >= trip.start_date && flightDate <= end
+}
+
+/**
+ * The trip a loose flight most likely belongs to.
+ *
+ * Only ever a suggestion: it preselects the picker, and nothing attaches
+ * without the user pressing the button. Spec Part 15 — nothing auto-inserts.
+ *
+ * Ties go to the shorter trip. A two-week trip and the three-day side trip
+ * inside it both contain the date, and the narrower window is the more
+ * specific claim, so it is the better guess.
+ */
+export function suggestTripForFlight(
+  flightDate: string | null,
+  trips: readonly TripWindow[],
+): TripWindow | null {
+  const matches = trips.filter((trip) => flightFallsInTrip(flightDate, trip))
+  if (matches.length === 0) return null
+
+  return matches.reduce((best, trip) => (spanDays(trip) < spanDays(best) ? trip : best))
+}
+
+/** How many days a trip covers, for "narrowest wins". Undated sorts last. */
+function spanDays(trip: Pick<TripWindow, 'start_date' | 'end_date'>): number {
+  if (!trip.start_date) return Number.POSITIVE_INFINITY
+  const end = trip.end_date ?? trip.start_date
+  const ms = new Date(`${end}T00:00:00Z`).getTime() - new Date(`${trip.start_date}T00:00:00Z`).getTime()
+  return Math.round(ms / 86_400_000)
+}
+
+/**
+ * The flights offered when attaching to a trip, best candidates first.
+ *
+ * Flights already on *this* trip are gone — they are what the list above
+ * already shows. Everything else is offered, including flights sitting on
+ * another trip, because a leg filed against the wrong trip is exactly the
+ * mistake this screen exists to correct; those are flagged rather than hidden
+ * so moving one is a deliberate act.
+ *
+ * Order is by how likely the flight is to be the one you meant: the loose
+ * flights whose date lands inside the trip first, then the rest of the loose
+ * ones, then anything already spoken for.
+ */
+export function attachableFlights<T extends { id: string; trip_id: string | null; flight_date: string | null }>(
+  flights: readonly T[],
+  trip: Pick<TripWindow, 'id' | 'start_date' | 'end_date'>,
+): T[] {
+  return flights
+    .filter((flight) => flight.trip_id !== trip.id)
+    .map((flight) => ({ flight, rank: attachRank(flight, trip) }))
+    .sort((a, b) => a.rank - b.rank || sortKey(a.flight).localeCompare(sortKey(b.flight)))
+    .map((entry) => entry.flight)
+}
+
+function attachRank(
+  flight: { trip_id: string | null; flight_date: string | null },
+  trip: Pick<TripWindow, 'start_date' | 'end_date'>,
+): number {
+  const loose = flight.trip_id === null
+  if (loose && flightFallsInTrip(flight.flight_date, trip)) return 0
+  if (loose) return 1
+  return 2
+}
+
+/** Undated flights sort last within their rank rather than first. */
+function sortKey(flight: { flight_date: string | null }): string {
+  return flight.flight_date ?? '9999-99-99'
+}
