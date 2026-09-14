@@ -17,7 +17,7 @@ import { PersonBadge } from '@/components/PersonBadge'
 import { userMessage } from '@/lib/errors'
 import { isValidDateOnly, tripLocalToUtc } from '@/lib/dates'
 import { useCouple } from '@/providers/CoupleProvider'
-import { normaliseFlightNumber } from '../logic'
+import { departureDateIn, normaliseFlightNumber } from '../logic'
 import { parseConfirmation } from '../parse'
 import { useAddFlight, useLookupFlight } from '../hooks'
 import type { LookupResult } from '../api'
@@ -43,6 +43,7 @@ export function AddFlightForm({
   const [pasted, setPasted] = useState('')
   const [resolved, setResolved] = useState<LookupResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [dateMoved, setDateMoved] = useState<{ from: string; to: string } | null>(null)
 
   // Times the user types when nothing resolved them.
   const [departure, setDeparture] = useState('')
@@ -73,6 +74,21 @@ export function AddFlightForm({
     // right more often than a person, and wrong often enough to matter.
     if (result?.originIata) setOriginIata(result.originIata)
     if (result?.destIata) setDestIata(result.destIata)
+
+    // Ask a provider about "6E1467" and it answers about the next occurrence
+    // of that flight number, which may be months from the date you typed.
+    // Saving both silently is what produced a live row whose date and
+    // departure were 117 days apart, so the date moves and says so.
+    const resolvedDate = departureDateIn(
+      result?.scheduledDeparture ?? null,
+      result?.originTz ?? null,
+    )
+    if (resolvedDate && resolvedDate !== date) {
+      setDate(resolvedDate)
+      setDateMoved({ from: date, to: resolvedDate })
+    } else {
+      setDateMoved(null)
+    }
   }
 
   const onPaste = () => {
@@ -220,6 +236,15 @@ export function AddFlightForm({
               Paste a confirmation
             </Button>
           </div>
+
+          {dateMoved && (
+            <p className="rounded-md border border-[hsl(var(--warn))]/40 bg-[hsl(var(--warn))]/5 p-3 text-sm">
+              That flight number departs on{' '}
+              <span className="font-medium">{dateMoved.to}</span>, not {dateMoved.from} — the date
+              has been moved to match. If you meant a different day, set it back and the times
+              will follow.
+            </p>
+          )}
 
           {resolved && (
             <div className="rounded-md border border-border p-3 text-sm">

@@ -888,6 +888,69 @@ select assert_raises(
   'but nobody can invent an aircraft position from the browser'
 );
 
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== flights: the date follows the departure instant (0034) =='
+set request.jwt.claim.sub = :'ada_ada';
+
+-- The zone is the whole point. This one leaves Bengaluru at 04:50 on the 30th,
+-- which is 23:20 on the 29th in UTC: a naive comparison calls it a day out.
+insert into public.flights (
+  couple_id, trip_id, traveler_id, flight_number, flight_date,
+  origin_iata, origin_tz, dest_iata, scheduled_departure, created_by
+) values (
+  :'ada_couple', :'ada_trip', :'ada_ada', 'LX141', '2001-01-01',
+  'BLR', 'Asia/Kolkata', 'ZRH', '2026-11-29T23:20:00Z', :'ada_ada'
+) returning id as tz_flight \gset ada_
+
+select assert(
+  (select flight_date from public.flights where id = :'ada_tz_flight') = '2026-11-30',
+  'the date is taken at the origin airport, not in UTC'
+);
+
+-- A wrong date supplied on update loses to the instant.
+update public.flights set flight_date = '2026-08-11' where id = :'ada_tz_flight';
+select assert(
+  (select flight_date from public.flights where id = :'ada_tz_flight') = '2026-11-30',
+  'and a typed date cannot overrule the departure time'
+);
+
+-- Moving the departure moves the date with it.
+update public.flights set scheduled_departure = '2026-12-06T03:05:00Z'
+ where id = :'ada_tz_flight';
+select assert(
+  (select flight_date from public.flights where id = :'ada_tz_flight') = '2026-12-06',
+  'moving the departure moves the date'
+);
+
+-- An untimed flight keeps the date it was given: nothing to derive from.
+insert into public.flights (
+  couple_id, trip_id, traveler_id, flight_number, flight_date,
+  origin_iata, origin_tz, dest_iata, created_by
+) values (
+  :'ada_couple', :'ada_trip', :'ada_ada', 'XX1', '2026-07-04',
+  'LHR', 'Europe/London', 'JFK', :'ada_ada'
+) returning id as untimed \gset ada_
+
+select assert(
+  (select flight_date from public.flights where id = :'ada_untimed') = '2026-07-04',
+  'an unresolved flight with no time keeps the date it was given'
+);
+
+-- A zone we cannot resolve must not cost anybody their flight.
+insert into public.flights (
+  couple_id, trip_id, traveler_id, flight_number, flight_date,
+  origin_iata, origin_tz, dest_iata, scheduled_departure, created_by
+) values (
+  :'ada_couple', :'ada_trip', :'ada_ada', 'XX2', '2026-07-04',
+  'ZZZ', 'Mars/Olympus', 'JFK', '2026-07-04T11:00:00Z', :'ada_ada'
+) returning id as badzone \gset ada_
+
+select assert(
+  (select count(*) from public.flights where id = :'ada_badzone') = 1,
+  'an unrecognised timezone is survived rather than thrown'
+);
+
 set request.jwt.claim.sub = :'cyd_cyd';
 select assert(
   (select count(*) from public.flights) = 0,

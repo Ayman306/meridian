@@ -11,6 +11,7 @@
  * are testable, so both are tested.
  */
 import { haversineKm, type LatLng } from '@/lib/utils'
+import { ISO_DATE, formatInZone, type DateOnly } from '@/lib/dates'
 import { crossTrackDistanceKm, interpolateGreatCircle } from '@/lib/geo'
 import type {
   Connection,
@@ -1017,4 +1018,84 @@ function attachRank(
 /** Undated flights sort last within their rank rather than first. */
 function sortKey(flight: { flight_date: string | null }): string {
   return flight.flight_date ?? '9999-99-99'
+}
+
+// ---------------------------------------------------------------------------
+// Keeping the date and the departure instant honest about each other
+// ---------------------------------------------------------------------------
+
+/**
+ * The local calendar date a flight departs on, at its origin airport.
+ *
+ * This is what `flight_date` means, and the reason it cannot be read off the
+ * instant in UTC: LX141 leaves Bengaluru at 04:50 on the 30th, which is 23:20
+ * on the 29th in UTC. Comparing the two without the origin zone reports a
+ * perfectly correct flight as a day out.
+ */
+export function departureDateIn(instant: string | null, zone: string | null): DateOnly | null {
+  if (!instant || !zone) return null
+  try {
+    return formatInZone(instant, zone, ISO_DATE) as DateOnly
+  } catch {
+    // An unknown zone is a data problem, not a reason to throw inside a render.
+    return null
+  }
+}
+
+/**
+ * What `flight_date` should be, given everything else on the row.
+ *
+ * The instant wins whenever there is one. A departure time comes from a
+ * booking or a provider and carries a zone; `flight_date` is a bare date that
+ * somebody typed, and when the two disagree it is the typed one that drifted.
+ *
+ * Returns the existing date unchanged when there is nothing better to say —
+ * an unresolved flight with no time is normal here, and `flight_date` is all
+ * it has.
+ */
+export function correctFlightDate(flight: {
+  flight_date: string | null
+  scheduled_departure: string | null
+  origin_tz: string | null
+}): string | null {
+  return departureDateIn(flight.scheduled_departure, flight.origin_tz) ?? flight.flight_date
+}
+
+/**
+ * Does this row contradict itself?
+ *
+ * Only ever true when both halves are present and the zone is known, because
+ * anything else is missing data rather than disagreement.
+ */
+export function flightDateDisagrees(flight: {
+  flight_date: string | null
+  scheduled_departure: string | null
+  origin_tz: string | null
+}): boolean {
+  const actual = departureDateIn(flight.scheduled_departure, flight.origin_tz)
+  return actual !== null && flight.flight_date !== null && actual !== flight.flight_date
+}
+
+/**
+ * Move a wall-clock `datetime-local` value onto a different date, keeping its
+ * time of day — and its offset from the departure date, for an arrival that
+ * lands the next morning.
+ *
+ * The edit form binds the date field and the time fields to one another with
+ * this, so that correcting "8 Nov" to "7 Nov" moves the departure rather than
+ * leaving a row that claims both.
+ */
+export function shiftLocalInput(local: string, fromDate: string, toDate: string): string {
+  if (!local || !fromDate || !toDate) return local
+  const [datePart, timePart] = local.split('T')
+  if (!datePart || !timePart) return local
+
+  const offsetDays = Math.round(
+    (Date.parse(`${datePart}T00:00:00Z`) - Date.parse(`${fromDate}T00:00:00Z`)) / 86_400_000,
+  )
+  if (!Number.isFinite(offsetDays)) return local
+
+  const shifted = new Date(Date.parse(`${toDate}T00:00:00Z`) + offsetDays * 86_400_000)
+  if (Number.isNaN(shifted.getTime())) return local
+  return `${shifted.toISOString().slice(0, 10)}T${timePart}`
 }

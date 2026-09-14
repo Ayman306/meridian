@@ -105,14 +105,12 @@ dashboard finally fills the stay-allowance slot it reserved back in phase 5.
 Typecheck, lint, 774 unit tests, 206 database assertions and a production build
 pass.
 
-### The two operator steps left
+### The operator step left
 
-1. **Vercel Deployment Protection answers 401** to every server-to-server call
-   — all three sweeps, and the GitHub Actions keep-alive that stops the free
-   Supabase project auto-pausing. Either turn protection off for production, or
-   issue a Protection Bypass token and store it as the `vercel_bypass_token`
-   Vault secret and the `VERCEL_BYPASS_TOKEN` repository secret. Both paths are
-   already supported in code.
+1. ~~**Vercel Deployment Protection answers 401.**~~ **Resolved.** Checked
+   against the live project on 14 Sep 2026: `net._http_response` holds no 401
+   at all over the preceding week, and the sweeps reach the app. What they hit
+   instead is a gateway timeout — open question 23.
 2. **`SUPABASE_SERVICE_ROLE_KEY` and `CRON_SECRET` on Vercel.** Without the
    first, `/api/fx` throws and every foreign-currency expense saves unconverted
    — quietly, since the client treats a failed lookup as a normal degraded
@@ -131,8 +129,10 @@ setup stay client-side gates, because they depend on the couple query.
   gallery can hold the file, but the expense form has no picker.
 - Per-week *budgets*. `period = 'week'` is modelled, constrained and indexed;
   only trip-period budgets can be set from the UI.
-- All three sweeps are scheduled (0015) and fire, but the app answers 401
-  until Vercel Deployment Protection is resolved. See D73.
+- All three sweeps are scheduled (0015), fire, and reach the app — the 401 is
+  gone. Roughly a third of runs answer 200; the rest time out (open question
+  23). Nothing has been swept in anger yet because no flight has been inside
+  the polling window.
 - The blend narrows to a city by matching the trip title against the cities in
   the wishlist. It could read the chosen destination now that Module 4 exists;
   it does not yet.
@@ -2775,6 +2775,56 @@ draft, kept once. Reversing it is `set proposed_by = null` over that same
 dashboard showed a sixth of the problem. Worth remembering the next time a
 number on a screen is used to size a fix.
 
+### D134 — One flight, one date: the instant is the authority
+
+`flights` carries the departure day twice — `flight_date`, a bare local date,
+and `scheduled_departure`, an instant — and nothing kept them agreeing. Three
+of the seven rows in the live database did not:
+
+| flight | `flight_date` | departs (origin local) | apart |
+| --- | --- | --- | --- |
+| 6E1467 | 2026-08-11 | 2026-12-06 IXE | 117 days |
+| 6E1468 | 2026-08-11 | 2026-11-03 DXB | 84 days |
+| LX140 | 2026-11-08 | 2026-11-07 ZRH | 1 day |
+
+**How they drifted.** The MCP builds the instant *from* `flight_date` and a
+local time, so it is consistent by construction. `AddFlightForm` was not: it
+saved the date the user typed and, separately, whatever instant a provider
+lookup returned. Ask AeroDataBox about "6E1467" and it answers about the next
+occurrence of that flight number, which may be months from the day you meant.
+Both values were written, each describing a different flight, and no screen
+could tell which one it was looking at.
+
+**The instant wins.** A departure time comes from a booking or a provider and
+carries a zone; `flight_date` is a bare date somebody typed, and when the two
+disagree it is the typed one that drifted. LX140 settles it without needing a
+rule: it is the second leg off LX87, which lands 05:15 on the 7th, so a 12:20
+departure on the 7th is right and the 8th is impossible.
+
+**The zone is not optional, and UTC is not good enough.** LX141 leaves
+Bengaluru at 04:50 on the 30th, which is 23:20 on the 29th in UTC. A naive
+comparison calls a correct flight a day out, so every check goes through
+`origin_tz`. That row is in the unit tests and in the database assertions
+precisely because it is the one that would break a careless fix.
+
+**A trigger, not a constraint.** `at time zone <column>` is STABLE, not
+IMMUTABLE, so it cannot appear in a CHECK. The trigger is the better tool
+regardless: a constraint rejects the write and leaves the caller holding a
+broken flight, while `sync_flight_date()` repairs the row. Every writer obeys
+it — the app, the MCP, a psql session, and whatever replaces them after the
+move off Supabase.
+
+**Three surfaces, one invariant.** The trigger guarantees it in the database.
+The edit form binds the date field to the time fields, so correcting "8 Nov" to
+"7 Nov" moves the departure with it and an overnight arrival keeps its offset.
+The add form no longer swallows the disagreement: when a lookup resolves a
+different day it moves the date and *says so*, because that silent divergence
+is what produced the 117-day row in the first place.
+
+**An untimed flight is left alone.** No departure instant and no zone means
+nothing to derive from, and `flight_date` is all such a row has. Unresolved and
+untimed is a supported state (spec 9.5, level 6), not a contradiction to fix.
+
 ## Deviations from the spec
 
 | Spec | Code | Why |
@@ -2876,17 +2926,14 @@ Ordered by how much they block.
    isolated to `src/lib/` and `src/mcp/context.ts`. Every read still being an
    RLS-judged query rather than an application-level filter is what makes the
    target Postgres a drop-in rather than a rewrite; keep it that way.
-1. **Nobody has signed in yet.** The project is live, all four migrations are
-   applied, RLS is on across all ten tables and the signup trigger is installed
-   on `auth.users` — but `auth.users` is empty, so the end-to-end path (Google →
-   profile row → pair → shared data) has never actually run. That is the one
-   remaining piece of the spec's Stage 0 gate; the database half is proven by
-   `supabase/tests/`.
-   Worth double-checking when you first sign in: Supabase's **URL Configuration
-   → Redirect URLs** must include `/auth/callback` on whichever origin you use.
-   That path is this app's own route, not the Supabase default, and a sign-in
-   that completes at Google and then bounces back to `/login` means it is
-   missing.
+1. ~~**Nobody has signed in yet.**~~ **Closed.** Both partners are paired and
+   the app is in real use: a trip with 47 itinerary items, seven flights, a
+   wishlist and a photo. **The spec's Stage 0 gate is met end to end.** Kept
+   here because the note under it still saves an afternoon: Supabase's **URL
+   Configuration → Redirect URLs** must include `/auth/callback` on whichever
+   origin you use. That path is this app's own route, not the Supabase default,
+   and a sign-in that completes at Google and then bounces to `/login` means it
+   is missing.
 2. **Hosting.** Vercel's free tier is the obvious fit now that this is a Next
    app — Cloudflare Pages would need the OpenNext adapter. No rewrite rules
    needed; the App Router handles deep links itself.
@@ -2973,3 +3020,15 @@ Ordered by how much they block.
     plausibility cut — beyond some distance there is no drive, and the card
     should either not render or say "you are not meeting this one" — and the
     number should probably never be shown unrounded past a few hours.
+23. **Two of every three sweep runs time out.** Over the week to 14 Sep 2026,
+    `net._http_response` holds 36 responses from the cron sweeps: 10 are 200
+    and 26 are `500 {"ok":false,"error":"Gateway Timeout"}`, spread evenly
+    across every scheduled minute, so both the flight sweep and the webhook
+    sweep are affected. The shape is the app's own error envelope, which means
+    a Supabase call inside the handler is what timed out, not the function
+    being killed by Vercel.
+    It is currently invisible: nothing has been due to sweep, so the successful
+    runs all report zero work. It stops being invisible the moment a flight is
+    actually in the air, which is the one time this code matters. Diagnosing it
+    needs the Vercel function logs — the database side only shows the answer,
+    not which call produced it.

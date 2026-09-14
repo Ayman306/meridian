@@ -16,6 +16,10 @@ import {
   attachableFlights,
   flightFallsInTrip,
   suggestTripForFlight,
+  correctFlightDate,
+  departureDateIn,
+  flightDateDisagrees,
+  shiftLocalInput,
   estimatedPosition,
   groupFlight,
   isDiverted,
@@ -826,6 +830,134 @@ describe('attaching a flight to a trip', () => {
 
     it('returns everything when the trip has no flights yet', () => {
       expect(attachableFlights(rows, sideTrip)).toHaveLength(5)
+    })
+  })
+})
+
+describe('the flight date and the departure instant', () => {
+  // Every fixture below is a real row from the live database, which is where
+  // this bug was found.
+  const IXE = { origin_tz: 'Asia/Kolkata' }
+  const BLR = { origin_tz: 'Asia/Kolkata' }
+  const ZRH = { origin_tz: 'Europe/Zurich' }
+
+  describe('departureDateIn', () => {
+    it('reads the date at the origin, not in UTC', () => {
+      // LX141 leaves Bengaluru 04:50 on the 30th — 23:20 on the 29th in UTC.
+      expect(departureDateIn('2026-11-29T23:20:00+00:00', BLR.origin_tz)).toBe('2026-11-30')
+    })
+
+    it('is null without an instant or without a zone', () => {
+      expect(departureDateIn(null, 'Asia/Kolkata')).toBeNull()
+      expect(departureDateIn('2026-11-29T23:20:00Z', null)).toBeNull()
+    })
+
+    it('survives a zone the platform does not know', () => {
+      expect(departureDateIn('2026-11-29T23:20:00Z', 'Mars/Olympus')).toBeNull()
+    })
+  })
+
+  describe('flightDateDisagrees', () => {
+    it('does not flag a flight that crosses midnight in UTC only', () => {
+      // The false positive a naive UTC comparison would produce.
+      expect(
+        flightDateDisagrees({
+          flight_date: '2026-11-30',
+          scheduled_departure: '2026-11-29T23:20:00+00:00',
+          ...BLR,
+        }),
+      ).toBe(false)
+    })
+
+    it('flags the row that started this — 117 days apart', () => {
+      expect(
+        flightDateDisagrees({
+          flight_date: '2026-08-11',
+          scheduled_departure: '2026-12-06T08:35:00+00:00',
+          ...IXE,
+        }),
+      ).toBe(true)
+    })
+
+    it('flags a one-day drift', () => {
+      expect(
+        flightDateDisagrees({
+          flight_date: '2026-11-08',
+          scheduled_departure: '2026-11-07T12:20:00+00:00',
+          ...ZRH,
+        }),
+      ).toBe(true)
+    })
+
+    it('says nothing about a flight with no departure time', () => {
+      // Unresolved and untimed is a supported state, not a contradiction.
+      expect(
+        flightDateDisagrees({ flight_date: '2026-08-11', scheduled_departure: null, ...IXE }),
+      ).toBe(false)
+    })
+
+    it('says nothing when the origin zone is unknown', () => {
+      expect(
+        flightDateDisagrees({
+          flight_date: '2026-08-11',
+          scheduled_departure: '2026-12-06T08:35:00Z',
+          origin_tz: null,
+        }),
+      ).toBe(false)
+    })
+  })
+
+  describe('correctFlightDate', () => {
+    it('takes the instant as the authority', () => {
+      expect(
+        correctFlightDate({
+          flight_date: '2026-08-11',
+          scheduled_departure: '2026-12-06T08:35:00+00:00',
+          ...IXE,
+        }),
+      ).toBe('2026-12-06')
+    })
+
+    it('leaves an untimed flight exactly as it is', () => {
+      expect(
+        correctFlightDate({ flight_date: '2026-08-11', scheduled_departure: null, ...IXE }),
+      ).toBe('2026-08-11')
+    })
+
+    it('is a no-op on a row that already agrees', () => {
+      expect(
+        correctFlightDate({
+          flight_date: '2026-11-30',
+          scheduled_departure: '2026-11-29T23:20:00+00:00',
+          ...BLR,
+        }),
+      ).toBe('2026-11-30')
+    })
+  })
+
+  describe('shiftLocalInput', () => {
+    it('moves a departure onto the new date, keeping the time', () => {
+      expect(shiftLocalInput('2026-11-08T12:20', '2026-11-08', '2026-11-07')).toBe(
+        '2026-11-07T12:20',
+      )
+    })
+
+    it('keeps an overnight arrival one day after departure', () => {
+      // Arrival 09:15 the morning after a 21:40 departure stays the morning after.
+      expect(shiftLocalInput('2026-11-07T09:15', '2026-11-06', '2026-11-20')).toBe(
+        '2026-11-21T09:15',
+      )
+    })
+
+    it('leaves an empty or malformed value alone', () => {
+      expect(shiftLocalInput('', '2026-11-08', '2026-11-07')).toBe('')
+      expect(shiftLocalInput('nonsense', '2026-11-08', '2026-11-07')).toBe('nonsense')
+    })
+
+    it('is a no-op when the date has not moved', () => {
+      expect(shiftLocalInput('2026-11-08T12:20', '2026-11-08', '2026-11-08')).toBe(
+        '2026-11-08T12:20',
+      )
     })
   })
 })
