@@ -201,15 +201,21 @@ export async function listTray(tripId: string): Promise<Suggestion[]> {
 /**
  * Move a tray draft into the plan.
  *
- * `acceptedBy` is who pressed Keep, and it is the last resort in a chain that
- * exists so the activity feed can name a person: the draft's own pick first,
- * then whoever asked for the draft, then whoever accepted it. Before this, an
- * AI draft — which names nobody, because a generator is not a person — wrote
- * null straight through and the dashboard said "Someone added to the plan"
- * about the couple's own itinerary.
+ * **Accepting is the act of adding.** Whoever presses Keep is who added these
+ * items to the plan, and that is what the feed reports — not the generator,
+ * who may have been an assistant, and not the person who asked for the draft
+ * three days ago on another phone. Pressing the button is the decision; asking
+ * for a draft is only a proposal.
  *
- * An item added by asking Claude is the user's item. They asked for it, and
- * they kept it.
+ * The one thing that outranks the accepter is a draft item that already names
+ * a real person. A blend draft is built out of the two of you — `proposed_by`
+ * there means "whose pick this was", which is information the plan screen
+ * shows and accepting must not overwrite. An AI draft names nobody, because a
+ * generator is not a person, and that null was what made the dashboard say
+ * "Someone added to the plan" about the couple's own itinerary.
+ *
+ * `created_by` on the tray is the last resort, for the case where there is no
+ * session user to credit. A draft is never anonymous.
  */
 export async function acceptSuggestion(id: string, acceptedBy: string | null): Promise<number> {
   const suggestion = unwrap(
@@ -244,7 +250,7 @@ export async function acceptSuggestion(id: string, acceptedBy: string | null): P
         category_id: item.category_id,
         notes: item.notes,
         url: item.url,
-        proposed_by: item.proposed_by ?? suggestion.created_by ?? acceptedBy,
+        proposed_by: item.proposed_by ?? acceptedBy ?? suggestion.created_by,
         scheduled_date: day.date,
         source: 'blend',
         sort_key: sortKey,

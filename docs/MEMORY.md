@@ -2730,23 +2730,35 @@ draft to the tray, and `acceptSuggestion` copied `proposed_by` straight off the
 draft payload. An AI draft names nobody — a generator is not a person — so it
 copied a null onto every item it created.
 
-**The author is the human on the other end.** An item added by asking Claude to
-plan a day is the user's item: they asked for it, and they pressed Keep on it.
-The MCP already acts as them, holding their grant and writing under their RLS,
-so the feed should read exactly as it would had they typed it in. The
-attribution chain is the draft's own pick, then whoever asked for the draft,
-then whoever accepted it — three chances to name a real person before
-"Someone" is reached at all.
+**Accepting is the act of adding.** Whoever presses Keep is the author. Asking
+for a draft is only a proposal, and the thing that produced it may not have
+been a person at all, so the generator does not get the credit and neither does
+the assistant. The one thing that outranks the accepter is a draft item that
+already names a real person — a blend draft is built out of the two of them and
+its `proposed_by` means "whose pick this was", which the plan screen shows and
+an accept must not overwrite. The tray's own author is the last resort, for a
+draft accepted with no session user to credit.
 
 **`created_by` on `suggestion_tray` is what carries it across the gap.**
 Generating and accepting can be days apart and on different phones, so the
 author has to be stored on the tray row rather than inferred at accept time.
 
-**The backfill is narrow on purpose.** 0033 repairs existing orphans by taking
-the trip's creator, but only for items with `source in ('blend','ai')` — the
-ones that came through a tray accept. A hand-typed item with a null author
-predates `proposed_by` being written at all, and filling that in would be
-inventing history rather than recovering it.
+**The backfill names one person, and it was asked rather than inferred.** The
+first draft of 0033 took `trips.created_by` as a stand-in. Checked against the
+real database that turned out to be the same person — but "happens to be" is
+not a reason to write somebody's name against 46 rows of someone else's
+holiday, so the migration carries the id the owner gave when asked directly.
+
+It is narrow and idempotent either way: only items with no author at all, and
+only those that came through a tray accept. A hand-typed item with a null
+author predates `proposed_by` being written at all, and filling that in would
+be inventing history rather than recovering it. An `exists` guard keeps the
+statement inert on any database where that profile is absent, which is every
+database except the one it was written for.
+
+**It was 46 rows, not the eight on screen.** The card slices to eight, so the
+dashboard showed a sixth of the problem. Worth remembering the next time a
+number on a screen is used to size a fix.
 
 ## Deviations from the spec
 

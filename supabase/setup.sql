@@ -6263,15 +6263,14 @@ comment on table public.mcp_grants is
 --
 -- ## Who the author is
 --
--- The person, not the assistant. An item added by asking Claude to plan a day
--- is the user's item: they asked for it, and they pressed Keep on it. The MCP
--- acts as them — it holds their grant and writes under their RLS — so the honest
--- attribution is the human on the other end, and the feed should read exactly
--- as it would had they typed it in themselves.
+-- The person who accepted it. Pressing Keep is the act of adding something to
+-- the plan; asking for a draft is only a proposal, and the thing that produced
+-- it may not have been a person at all. So the accepter is the author, and the
+-- feed reads exactly as it would had they typed the item in themselves.
 --
--- `created_by` on the tray is what carries that from the generating session
--- through to the accept, which may happen days later and on the other person's
--- phone.
+-- `created_by` on the tray is the last resort behind that, for a draft accepted
+-- with no session user to credit. It also records real provenance: who asked,
+-- which may have been days earlier and on the other person's phone.
 -- =============================================================================
 
 alter table public.suggestion_tray
@@ -6283,18 +6282,29 @@ comment on column public.suggestion_tray.created_by is
 -- -----------------------------------------------------------------------------
 -- Backfill: the rows that are already orphaned.
 --
--- Best effort, and deliberately narrow. Only items that came from a tray accept
--- (`source in ('blend','ai')`) with no author at all are touched, and they take
--- the trip's creator — the one person we can name who definitely planned this
--- trip. A hand-typed item with a null author is left alone: it predates
--- `proposed_by` being written at all, and guessing at it would be inventing
--- history rather than recovering it.
+-- Accepting is the act of adding, so these belong to whoever pressed Keep. The
+-- app knows that from now on; for rows written before it did, the id below is
+-- the answer the owner gave when asked directly: they generated the drafts and
+-- they accepted them.
+--
+-- An explicit id rather than a guess. The first draft of this migration took
+-- `trips.created_by` as a stand-in, which happens to be the same person here,
+-- but "happens to be" is not a reason to write somebody's name against 46 rows
+-- of someone else's holiday.
+--
+-- Narrow and idempotent. Only items with no author at all are touched, and
+-- only those that came through a tray accept — a hand-typed item with a null
+-- author predates `proposed_by` being written at all, and filling that in
+-- would be inventing history rather than recovering it. The `exists` guard
+-- keeps this inert on any database where that profile is not present, which
+-- is every database except the one it was written for.
 -- -----------------------------------------------------------------------------
 update public.itinerary_items i
-   set proposed_by = t.created_by
-  from public.trips t
- where i.trip_id = t.id
-   and i.proposed_by is null
-   and t.created_by is not null
-   and i.source in ('blend', 'ai');
+   set proposed_by = 'b8ea3e2d-bc16-4337-8879-36a973ceb97c'::uuid
+ where i.proposed_by is null
+   and i.source in ('blend', 'ai')
+   and exists (
+     select 1 from public.profiles p
+      where p.id = 'b8ea3e2d-bc16-4337-8879-36a973ceb97c'::uuid
+   );
 
