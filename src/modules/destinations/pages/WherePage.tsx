@@ -53,8 +53,9 @@ import {
   useSaveWeights,
   useWeights,
   useWishlistCities,
+  useUpdateDestination,
 } from '../hooks'
-import type { BoardColumn } from '../types'
+import type { BoardColumn, TripDestination } from '../types'
 
 export function WherePage({ tripId }: { tripId: string }) {
   const { self, partner, selfRef, partnerRef, tzSelf } = useCouple()
@@ -67,10 +68,12 @@ export function WherePage({ tripId }: { tripId: string }) {
   const addCandidate = useAddCandidate(tripId)
   const choose = useChooseDestination(tripId)
   const remove = useRemoveDestination(tripId)
+  const updateDestination = useUpdateDestination(tripId)
   const allowanceRules = useAllowanceRules()
   const entryLog = useEntryLog()
 
   const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<TripDestination | null>(null)
   const [equalOnly, setEqualOnly] = useState(false)
   const [weightsOpen, setWeightsOpen] = useState(false)
 
@@ -156,7 +159,12 @@ export function WherePage({ tripId }: { tripId: string }) {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-2">
         {!adding && (
-          <Button onClick={() => setAdding(true)}>
+          <Button
+            onClick={() => {
+              setEditing(null)
+              setAdding(true)
+            }}
+          >
             <Plus aria-hidden="true" />
             Add a candidate
           </Button>
@@ -184,7 +192,28 @@ export function WherePage({ tripId }: { tripId: string }) {
             <CandidateForm
               onCancel={() => setAdding(false)}
               pending={addCandidate.isPending}
-              onAdd={(input) => addCandidate.mutate(input, { onSuccess: () => setAdding(false) })}
+              onSave={(input) => addCandidate.mutate(input, { onSuccess: () => setAdding(false) })}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {editing && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Edit {editing.city}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CandidateForm
+              destination={editing}
+              onCancel={() => setEditing(null)}
+              pending={updateDestination.isPending}
+              onSave={(input) =>
+                updateDestination.mutate(
+                  { id: editing.id, patch: input },
+                  { onSuccess: () => setEditing(null) },
+                )
+              }
             />
           </CardContent>
         </Card>
@@ -206,6 +235,10 @@ export function WherePage({ tripId }: { tripId: string }) {
             showScores={scoringEnabled(weights)}
             onChoose={(column, chosen) => choose.mutate({ id: column.destination.id, chosen })}
             onRemove={(column) => remove.mutate(column.destination.id)}
+            onEdit={(column) => {
+              setAdding(false)
+              setEditing(column.destination)
+            }}
           />
 
           {equalOnly && visible.length === 0 && (
@@ -238,12 +271,22 @@ export function WherePage({ tripId }: { tripId: string }) {
   )
 }
 
+/**
+ * One candidate, new or existing.
+ *
+ * Editing matters more here than the shape of the form suggests: a candidate
+ * saved without coordinates compares against nothing — no flight times, no
+ * fairness, no allowance check — and until now the only way to give it a
+ * location was to delete it and lose the votes with it.
+ */
 function CandidateForm({
-  onAdd,
+  destination,
+  onSave,
   onCancel,
   pending,
 }: {
-  onAdd: (input: {
+  destination?: TripDestination | null
+  onSave: (input: {
     city: string
     country_code: string | null
     lat: number | null
@@ -253,12 +296,20 @@ function CandidateForm({
   onCancel: () => void
   pending: boolean
 }) {
-  const [city, setCity] = useState('')
+  const [city, setCity] = useState(destination?.city ?? '')
   const [picked, setPicked] = useState<{
     country_code: string | null
     lat: number | null
     lng: number | null
-  } | null>(null)
+  } | null>(
+    destination && destination.lat !== null && destination.lng !== null
+      ? {
+          country_code: destination.country_code,
+          lat: Number(destination.lat),
+          lng: Number(destination.lng),
+        }
+      : null,
+  )
 
   return (
     <div className="space-y-4">
@@ -300,19 +351,20 @@ function CandidateForm({
         <Button
           disabled={!city.trim() || pending}
           onClick={() =>
-            onAdd({
+            onSave({
               city: city.trim(),
               country_code: picked?.country_code ?? null,
               lat: picked?.lat ?? null,
               lng: picked?.lng ?? null,
               // A zone is not a timezone; the trip takes the city's zone when
               // this candidate is chosen, and Module 4's tz-lookup lands with
-              // the coordinates it needs in a later pass.
-              timezone: null,
+              // the coordinates it needs in a later pass. Editing keeps the
+              // zone already resolved rather than blanking it.
+              timezone: destination?.timezone ?? null,
             })
           }
         >
-          {pending ? 'Adding…' : 'Add to the board'}
+          {pending ? 'Saving…' : destination ? 'Save changes' : 'Add to the board'}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
           Cancel

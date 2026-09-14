@@ -8,7 +8,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { CalendarPlus, Plus, Trash2, TriangleAlert } from 'lucide-react'
+import { CalendarPlus, Pencil, Plus, Trash2, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -47,6 +47,7 @@ export function AllowancePage() {
   const suggestions = useLogSuggestions()
   const addEntry = useLogEntry()
   const removeEntry = useDeleteLogEntry()
+  const [editingEntry, setEditingEntry] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
 
   const today = todayIn(tzSelf)
@@ -104,7 +105,12 @@ export function AllowancePage() {
         description="How long each of you may stay, counted from the crossings you log."
         actions={
           !adding && (
-            <Button onClick={() => setAdding(true)}>
+            <Button
+              onClick={() => {
+                setEditingEntry(null)
+                setAdding(true)
+              }}
+            >
               <Plus aria-hidden="true" />
               Log a crossing
             </Button>
@@ -215,37 +221,61 @@ export function AllowancePage() {
           <section className="space-y-3">
             <h2 className="text-sm font-semibold">The log</h2>
             <div className="space-y-2">
-              {entries.map((entry) => (
-                <div
-                  key={entry.id}
-                  className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-3 text-sm"
-                >
-                  <PersonBadge person={refFor(entry.user_id)} size="xs" />
-                  <span className="font-medium">{entry.country_code}</span>
-                  <span className="text-muted-foreground">
-                    {formatInZone(parseDateOnly(entry.entered_on), 'UTC', 'd MMM yyyy')} –{' '}
-                    {entry.exited_on
-                      ? formatInZone(parseDateOnly(entry.exited_on), 'UTC', 'd MMM yyyy')
-                      : 'still there'}
-                  </span>
-                  {entry.is_estimated && (
-                    <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
-                      Estimated
+              {entries.map((entry) =>
+                editingEntry === entry.id ? (
+                  <div key={entry.id} className="rounded-lg border border-border p-3">
+                    <LogEditor entry={entry} onClose={() => setEditingEntry(null)} />
+                  </div>
+                ) : (
+                  <div
+                    key={entry.id}
+                    className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-3 text-sm"
+                  >
+                    <PersonBadge person={refFor(entry.user_id)} size="xs" />
+                    <span className="font-medium">{entry.country_code}</span>
+                    <span className="text-muted-foreground">
+                      {formatInZone(parseDateOnly(entry.entered_on), 'UTC', 'd MMM yyyy')} –{' '}
+                      {entry.exited_on
+                        ? formatInZone(parseDateOnly(entry.exited_on), 'UTC', 'd MMM yyyy')
+                        : 'still there'}
                     </span>
-                  )}
-                  {entry.user_id === selfRef?.id && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="ml-auto size-8"
-                      onClick={() => removeEntry.mutate(entry.id)}
-                    >
-                      <Trash2 aria-hidden="true" />
-                      <span className="sr-only">Remove this crossing</span>
-                    </Button>
-                  )}
-                </div>
-              ))}
+                    {entry.is_estimated && (
+                      <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+                        Estimated
+                      </span>
+                    )}
+                    {/* Only your own, for the same reason you cannot add one
+                        for them: the row records who crossed a border. */}
+                    {entry.user_id === selfRef?.id && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="ml-auto size-8"
+                          onClick={() => {
+                            setAdding(false)
+                            setEditingEntry(entry.id)
+                          }}
+                        >
+                          <Pencil aria-hidden="true" />
+                          <span className="sr-only">
+                            Edit this crossing, {entry.country_code}
+                          </span>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          onClick={() => removeEntry.mutate(entry.id)}
+                        >
+                          <Trash2 aria-hidden="true" />
+                          <span className="sr-only">Remove this crossing</span>
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                ),
+              )}
             </div>
           </section>
         </div>

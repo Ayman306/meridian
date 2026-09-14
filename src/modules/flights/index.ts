@@ -7,6 +7,7 @@ export { HandoffCard } from './components/HandoffCard'
 export { JourneyBuilder } from './components/JourneyBuilder'
 export { JourneyCard } from './components/JourneyCard'
 export { AirportPicker } from './components/AirportPicker'
+export { EditFlightForm } from './components/EditFlightForm'
 export {
   useFlights,
   useFlight,
@@ -44,6 +45,10 @@ export {
   computeTimes,
   connectionRisk,
   connectionsFor,
+  applyOverride,
+  flightEditPatch,
+  routeEndpoint,
+  OVERRIDABLE_FIELDS,
   isInternationalConnection,
   estimatedPosition,
   groupFlight,
@@ -63,6 +68,7 @@ export {
 export { buildFlightState } from './state'
 export { computeHandoff, describeBreakdown, estimateDriveMinutes, immigrationMinutes } from './handoff'
 export { parseConfirmation, findDate } from './parse'
+export type { FlightEditPatch, OverridableField } from './logic'
 export type {
   Connection,
   ConnectionRisk,

@@ -10,7 +10,7 @@
 
 import { useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
-import { Crosshair, RefreshCw, Trash2 } from 'lucide-react'
+import { Crosshair, Pencil, RefreshCw, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -23,6 +23,7 @@ import { formatInZone } from '@/lib/dates'
 import { pluralise } from '@/lib/utils'
 import { useCouple } from '@/providers/CoupleProvider'
 import { HandoffCard } from '../components/HandoffCard'
+import { EditFlightForm } from '../components/EditFlightForm'
 import {
   useDeleteFlight,
   useFlight,
@@ -54,6 +55,7 @@ export function FlightLivePage({ flightId }: { flightId: string }) {
 
   const [following, setFollowing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [editing, setEditing] = useState(false)
 
   const rows = useMemo(() => (flight.data ? [flight.data] : []), [flight.data])
   const phases = useMemo(() => (state ? { [state.id]: state.phase } : {}), [state])
@@ -89,6 +91,15 @@ export function FlightLivePage({ flightId }: { flightId: string }) {
             <Button
               variant="ghost"
               size="icon"
+              aria-label="Edit flight"
+              title="Edit flight"
+              onClick={() => setEditing((open) => !open)}
+            >
+              <Pencil aria-hidden="true" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               aria-label="Delete flight"
               onClick={() => setConfirmDelete(true)}
             >
@@ -97,6 +108,15 @@ export function FlightLivePage({ flightId }: { flightId: string }) {
           </div>
         }
       />
+
+      {editing && flight.data && (
+        <Card>
+          <CardContent className="py-5">
+            <h2 className="mb-4 text-sm font-medium">Edit this flight</h2>
+            <EditFlightForm flight={flight.data} onClose={() => setEditing(false)} />
+          </CardContent>
+        </Card>
+      )}
 
       <FlightMap
         state={state}

@@ -11,8 +11,8 @@
  */
 'use client'
 
-import { useState } from 'react'
-import { ExternalLink, Plus, Trash2, TriangleAlert } from 'lucide-react'
+import { useId, useState } from 'react'
+import { ExternalLink, Pencil, Plus, Trash2, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -23,8 +23,14 @@ import { formatDateOnly, todayIn } from '@/lib/dates'
 import { freshness } from '@/lib/advisory'
 import { useCouple } from '@/providers/CoupleProvider'
 import { NOT_CHECKED, checkSupply, describeSupply, matchRestrictions, restrictionNotice } from '../logic'
-import { useAddRecord, useDeleteRecord, useHealthRecords, useRestrictions } from '../hooks'
-import type { RecordKind } from '../types'
+import {
+  useAddRecord,
+  useDeleteRecord,
+  useHealthRecords,
+  useRestrictions,
+  useUpdateRecord,
+} from '../hooks'
+import type { HealthRecord, RecordKind } from '../types'
 
 const KINDS: { value: RecordKind; label: string }[] = [
   { value: 'medication', label: 'Medications' },
@@ -50,16 +56,11 @@ export function MedicationsPanel({
   // Only this person's own documents — see the note beside the picker.
   const documents = useDocuments()
   const myDocuments = (documents.data ?? []).filter((doc) => doc.owner_id === ownerId)
-  const add = useAddRecord()
   const remove = useDeleteRecord()
 
   const [kind, setKind] = useState<RecordKind>('medication')
   const [adding, setAdding] = useState(false)
-  const [label, setLabel] = useState('')
-  const [dosage, setDosage] = useState('')
-  const [perDay, setPerDay] = useState('')
-  const [remaining, setRemaining] = useState('')
-  const [documentId, setDocumentId] = useState('')
+  const [editing, setEditing] = useState<string | null>(null)
 
   if (records.isLoading) return <SkeletonList rows={3} />
   if (records.error) return <ErrorState error={records.error} title="That did not load" />
@@ -165,127 +166,19 @@ export function MedicationsPanel({
 
       {!readOnly &&
         (adding ? (
-          <Card className="space-y-3 p-5">
-            <div className="space-y-1">
-              <label htmlFor="record-label" className="text-sm">
-                Name
-              </label>
-              <Input
-                id="record-label"
-                autoFocus
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-              />
-            </div>
-
-            {kind === 'medication' && (
-              <>
-                <div className="space-y-1">
-                  <label htmlFor="record-dosage" className="text-sm">
-                    Dosage
-                  </label>
-                  <Input
-                    id="record-dosage"
-                    placeholder="50mg"
-                    value={dosage}
-                    onChange={(e) => setDosage(e.target.value)}
-                  />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-1">
-                    <label htmlFor="record-per-day" className="text-sm">
-                      Doses a day
-                    </label>
-                    <Input
-                      id="record-per-day"
-                      inputMode="decimal"
-                      value={perDay}
-                      onChange={(e) => setPerDay(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label htmlFor="record-remaining" className="text-sm">
-                      How many left
-                    </label>
-                    <Input
-                      id="record-remaining"
-                      inputMode="decimal"
-                      value={remaining}
-                      onChange={(e) => setRemaining(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Both optional. With them, the app can say whether a trip runs you short.
-                </p>
-              </>
-            )}
-
-            {/* The certificate itself. `document_id` has been on the row since
-                Phase 14 with no picker, so a yellow fever card could sit in the
-                vault and the vaccination record beside it could not point at
-                it — which is the one moment you need both: at a border.
-
-                Only the owner's own documents are offered. A vaccination record
-                is owner-private, and letting it reference the partner's
-                paperwork would leak which documents they hold. */}
-            {(kind === 'vaccination' || kind === 'medication') && myDocuments.length > 0 && (
-              <div className="space-y-1">
-                <label htmlFor="record-document" className="text-sm">
-                  {kind === 'vaccination' ? 'Certificate' : 'Prescription'} in the vault
-                </label>
-                <select
-                  id="record-document"
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  value={documentId}
-                  onChange={(e) => setDocumentId(e.target.value)}
-                >
-                  <option value="">Not linked</option>
-                  {myDocuments.map((doc) => (
-                    <option key={doc.id} value={doc.id}>
-                      {doc.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            <div className="flex gap-2">
-              <Button
-                disabled={!label.trim() || add.isPending}
-                onClick={() =>
-                  add.mutate(
-                    {
-                      kind,
-                      label: label.trim(),
-                      dosage: dosage.trim() || null,
-                      doses_per_day: perDay ? Number(perDay) : null,
-                      quantity_remaining: remaining ? Number(remaining) : null,
-                      document_id: documentId || null,
-                    },
-                    {
-                      onSuccess: () => {
-                        setAdding(false)
-                        setLabel('')
-                        setDosage('')
-                        setPerDay('')
-                        setRemaining('')
-                        setDocumentId('')
-                      },
-                    },
-                  )
-                }
-              >
-                {add.isPending ? 'Saving…' : 'Save'}
-              </Button>
-              <Button variant="ghost" onClick={() => setAdding(false)}>
-                Cancel
-              </Button>
-            </div>
-            {add.error ? <ErrorState error={add.error} title="That did not save" /> : null}
-          </Card>
+          <RecordForm
+            kind={kind}
+            documents={myDocuments}
+            onDone={() => setAdding(false)}
+          />
         ) : (
-          <Button variant="outline" onClick={() => setAdding(true)}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setEditing(null)
+              setAdding(true)
+            }}
+          >
             <Plus aria-hidden="true" />
             Add
           </Button>
@@ -299,29 +192,215 @@ export function MedicationsPanel({
         />
       ) : (
         <ul className="divide-y divide-border rounded-lg border border-border">
-          {shown.map((row) => (
-            <li key={row.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">{row.label}</p>
-                <p className="text-xs text-muted-foreground">
-                  {[row.dosage, row.frequency].filter(Boolean).join(' · ')}
-                  {row.valid_until && ` · valid to ${row.valid_until}`}
-                </p>
-              </div>
-              {!readOnly && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Delete ${row.label}`}
-                  onClick={() => remove.mutate(row.id)}
-                >
-                  <Trash2 className="size-4" aria-hidden="true" />
-                </Button>
-              )}
-            </li>
-          ))}
+          {shown.map((row) =>
+            editing === row.id ? (
+              <li key={row.id} className="p-3">
+                <RecordForm
+                  kind={kind}
+                  record={row}
+                  documents={myDocuments}
+                  onDone={() => setEditing(null)}
+                />
+              </li>
+            ) : (
+              <li key={row.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium">{row.label}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {[row.dosage, row.frequency].filter(Boolean).join(' · ')}
+                    {row.valid_until && ` · valid to ${row.valid_until}`}
+                  </p>
+                </div>
+                {!readOnly && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Edit ${row.label}`}
+                      onClick={() => {
+                        setAdding(false)
+                        setEditing(row.id)
+                      }}
+                    >
+                      <Pencil className="size-4" aria-hidden="true" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Delete ${row.label}`}
+                      onClick={() => remove.mutate(row.id)}
+                    >
+                      <Trash2 className="size-4" aria-hidden="true" />
+                    </Button>
+                  </>
+                )}
+              </li>
+            ),
+          )}
         </ul>
       )}
     </div>
+  )
+}
+
+/**
+ * One record, new or existing.
+ *
+ * Extracted from the panel when editing arrived: the add form and the edit
+ * form differ only in where the initial values come from and which mutation
+ * runs, and keeping one of them inline would have meant maintaining the dosage
+ * fields and the document picker twice.
+ *
+ * Editing matters most for the numbers. `quantity_remaining` is the one field
+ * here that is wrong the day after you enter it — it goes down every time a
+ * dose is taken — and `checkSupply` reads it to decide whether a trip runs you
+ * short. A supply warning computed from a count nobody could correct is worse
+ * than no warning.
+ */
+function RecordForm({
+  kind,
+  record,
+  documents,
+  onDone,
+}: {
+  kind: RecordKind
+  record?: HealthRecord | null
+  documents: { id: string; label: string }[]
+  onDone: () => void
+}) {
+  const add = useAddRecord()
+  const update = useUpdateRecord()
+  // The add form and an open editor can be on the page together, and a
+  // duplicated `id` binds both labels to whichever input rendered first.
+  const uid = useId()
+
+  const [label, setLabel] = useState(record?.label ?? '')
+  const [dosage, setDosage] = useState(record?.dosage ?? '')
+  const [perDay, setPerDay] = useState(
+    record?.doses_per_day === null || record?.doses_per_day === undefined
+      ? ''
+      : String(record.doses_per_day),
+  )
+  const [remaining, setRemaining] = useState(
+    record?.quantity_remaining === null || record?.quantity_remaining === undefined
+      ? ''
+      : String(record.quantity_remaining),
+  )
+  const [documentId, setDocumentId] = useState(record?.document_id ?? '')
+
+  // An existing record keeps its own kind; a new one takes the open tab's.
+  const recordKind = record?.kind ?? kind
+  const pending = add.isPending || update.isPending
+  const error = add.error ?? update.error
+
+  const save = () => {
+    const payload = {
+      kind: recordKind,
+      label: label.trim(),
+      dosage: dosage.trim() || null,
+      doses_per_day: perDay ? Number(perDay) : null,
+      quantity_remaining: remaining ? Number(remaining) : null,
+      document_id: documentId || null,
+    }
+    if (record) update.mutate({ id: record.id, patch: payload }, { onSuccess: onDone })
+    else add.mutate(payload, { onSuccess: onDone })
+  }
+
+  return (
+    <Card className="space-y-3 p-5">
+      <div className="space-y-1">
+        <label htmlFor={`record-label-${uid}`} className="text-sm">
+          Name
+        </label>
+        <Input
+          id={`record-label-${uid}`}
+          autoFocus
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+        />
+      </div>
+
+      {recordKind === 'medication' && (
+        <>
+          <div className="space-y-1">
+            <label htmlFor={`record-dosage-${uid}`} className="text-sm">
+              Dosage
+            </label>
+            <Input
+              id={`record-dosage-${uid}`}
+              placeholder="50mg"
+              value={dosage}
+              onChange={(e) => setDosage(e.target.value)}
+            />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label htmlFor={`record-per-day-${uid}`} className="text-sm">
+                Doses a day
+              </label>
+              <Input
+                id={`record-per-day-${uid}`}
+                inputMode="decimal"
+                value={perDay}
+                onChange={(e) => setPerDay(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <label htmlFor={`record-remaining-${uid}`} className="text-sm">
+                How many left
+              </label>
+              <Input
+                id={`record-remaining-${uid}`}
+                inputMode="decimal"
+                value={remaining}
+                onChange={(e) => setRemaining(e.target.value)}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Both optional. With them, the app can say whether a trip runs you short.
+          </p>
+        </>
+      )}
+
+      {/* The certificate itself. `document_id` has been on the row since
+          Phase 14 with no picker, so a yellow fever card could sit in the
+          vault and the vaccination record beside it could not point at
+          it — which is the one moment you need both: at a border.
+
+          Only the owner's own documents are offered. A vaccination record
+          is owner-private, and letting it reference the partner's
+          paperwork would leak which documents they hold. */}
+      {(recordKind === 'vaccination' || recordKind === 'medication') && documents.length > 0 && (
+        <div className="space-y-1">
+          <label htmlFor={`record-document-${uid}`} className="text-sm">
+            {recordKind === 'vaccination' ? 'Certificate' : 'Prescription'} in the vault
+          </label>
+          <select
+            id={`record-document-${uid}`}
+            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            value={documentId}
+            onChange={(e) => setDocumentId(e.target.value)}
+          >
+            <option value="">Not linked</option>
+            {documents.map((doc) => (
+              <option key={doc.id} value={doc.id}>
+                {doc.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <Button disabled={!label.trim() || pending} onClick={save}>
+          {pending ? 'Saving…' : 'Save'}
+        </Button>
+        <Button variant="ghost" onClick={onDone}>
+          Cancel
+        </Button>
+      </div>
+      {error ? <ErrorState error={error} title="That did not save" /> : null}
+    </Card>
   )
 }

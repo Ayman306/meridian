@@ -8,7 +8,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, Plane, Star, Trash2, Undo2 } from 'lucide-react'
+import { Check, Pencil, Plane, Star, Trash2, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PersonBadge } from '@/components/PersonBadge'
 import { AllowanceWarning } from '@/modules/allowance'
@@ -31,6 +31,7 @@ export function BoardTable({
   showScores,
   onChoose,
   onRemove,
+  onEdit,
 }: {
   columns: BoardColumn[]
   people: PersonRef[]
@@ -38,6 +39,9 @@ export function BoardTable({
   showScores: boolean
   onChoose: (column: BoardColumn, chosen: boolean) => void
   onRemove: (column: BoardColumn) => void
+  /** Correcting a candidate in place — a misspelled city, or one saved
+      without coordinates and so without flight times. */
+  onEdit: (column: BoardColumn) => void
 }) {
   const [openScore, setOpenScore] = useState<string | null>(null)
   const { tzSelf } = useCouple()
@@ -273,6 +277,15 @@ export function BoardTable({
                       Choose
                     </Button>
                   )}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8"
+                    onClick={() => onEdit(column)}
+                  >
+                    <Pencil aria-hidden="true" />
+                    <span className="sr-only">Edit {column.destination.city}</span>
+                  </Button>
                   <Button
                     variant="ghost"
                     size="icon"
