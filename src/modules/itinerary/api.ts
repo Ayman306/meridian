@@ -198,7 +198,20 @@ export async function listTray(tripId: string): Promise<Suggestion[]> {
  * is nothing special about it, which is the point: a suggestion you kept is
  * just part of your plan.
  */
-export async function acceptSuggestion(id: string): Promise<number> {
+/**
+ * Move a tray draft into the plan.
+ *
+ * `acceptedBy` is who pressed Keep, and it is the last resort in a chain that
+ * exists so the activity feed can name a person: the draft's own pick first,
+ * then whoever asked for the draft, then whoever accepted it. Before this, an
+ * AI draft — which names nobody, because a generator is not a person — wrote
+ * null straight through and the dashboard said "Someone added to the plan"
+ * about the couple's own itinerary.
+ *
+ * An item added by asking Claude is the user's item. They asked for it, and
+ * they kept it.
+ */
+export async function acceptSuggestion(id: string, acceptedBy: string | null): Promise<number> {
   const suggestion = unwrap(
     await supabase.from('suggestion_tray').select('*').eq('id', id).single(),
   )
@@ -231,7 +244,7 @@ export async function acceptSuggestion(id: string): Promise<number> {
         category_id: item.category_id,
         notes: item.notes,
         url: item.url,
-        proposed_by: item.proposed_by,
+        proposed_by: item.proposed_by ?? suggestion.created_by ?? acceptedBy,
         scheduled_date: day.date,
         source: 'blend',
         sort_key: sortKey,

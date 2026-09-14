@@ -2696,6 +2696,58 @@ started this now reads "14 days 8h". It lives in `lib/dates.ts` and the handoff
 breakdown uses it too, so "45 min" and "4h 30m" come out of one function rather
 than two conventions.
 
+### D132 — Marking the feed seen now dismisses it, and D133's "Someone" is gone
+
+Two bugs on the same card, reported together from the live dashboard.
+
+**"Mark seen" appeared to do nothing.** D-era reasoning was that a card which
+empties the moment you look at it teaches you not to look, so the feed fetched
+a fortnight and merely *dotted* what was new. In use that reads as a broken
+button: you press it, and the eight rows you just acknowledged are still
+sitting there. The only thing that moved was a heading and eight small dots.
+
+The original worry was real but the remedy was aimed at the wrong thing. What
+should not be destroyed is the *history*; what should go away is the *card*.
+So `partitionBySeen` splits the feed and the card renders only when there is
+something unseen from them. Dismissed means dismissed. The earlier entries move
+one disclosure down, reachable while the card is up, and once everything is
+read the card stops rendering at all rather than sitting there restating what
+you have already dealt with.
+
+The card is a notification again, which is what it always claimed to be.
+
+### D133 — An item added through the MCP belongs to the person, not to "Someone"
+
+The dashboard rendered eight rows of "Someone added to the plan" about the
+couple's own Goa itinerary. `describeActivity` falls back to "Someone" when it
+cannot name an actor, which was written for rows created before `created_by`
+existed — not for the normal way this couple plans a trip.
+
+**The path that lost the author.** `activity_feed` reads
+`itinerary_items.proposed_by`. The MCP's `add_itinerary_item` sets it. What
+does not is the route those rows actually took: `suggest_itinerary` writes a
+draft to the tray, and `acceptSuggestion` copied `proposed_by` straight off the
+draft payload. An AI draft names nobody — a generator is not a person — so it
+copied a null onto every item it created.
+
+**The author is the human on the other end.** An item added by asking Claude to
+plan a day is the user's item: they asked for it, and they pressed Keep on it.
+The MCP already acts as them, holding their grant and writing under their RLS,
+so the feed should read exactly as it would had they typed it in. The
+attribution chain is the draft's own pick, then whoever asked for the draft,
+then whoever accepted it — three chances to name a real person before
+"Someone" is reached at all.
+
+**`created_by` on `suggestion_tray` is what carries it across the gap.**
+Generating and accepting can be days apart and on different phones, so the
+author has to be stored on the tray row rather than inferred at accept time.
+
+**The backfill is narrow on purpose.** 0033 repairs existing orphans by taking
+the trip's creator, but only for items with `source in ('blend','ai')` — the
+ones that came through a tray accept. A hand-typed item with a null author
+predates `proposed_by` being written at all, and filling that in would be
+inventing history rather than recovering it.
+
 ## Deviations from the spec
 
 | Spec | Code | Why |

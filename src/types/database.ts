@@ -2424,6 +2424,7 @@ export type Database = {
         Row: {
           accepted_at: string | null
           couple_id: string
+          created_by: string | null
           dismissed_at: string | null
           generated_at: string
           id: string
@@ -2434,6 +2435,7 @@ export type Database = {
         Insert: {
           accepted_at?: string | null
           couple_id: string
+          created_by?: string | null
           dismissed_at?: string | null
           generated_at?: string
           id?: string
@@ -2444,6 +2446,7 @@ export type Database = {
         Update: {
           accepted_at?: string | null
           couple_id?: string
+          created_by?: string | null
           dismissed_at?: string | null
           generated_at?: string
           id?: string
@@ -2457,6 +2460,13 @@ export type Database = {
             columns: ["couple_id"]
             isOneToOne: false
             referencedRelation: "couples"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "suggestion_tray_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {

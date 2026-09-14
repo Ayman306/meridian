@@ -13,6 +13,7 @@ import {
   describeActivity,
   hrefForActivity,
   isUnseen,
+  partitionBySeen,
   splitByActor,
   wantsEvent,
 } from './logic'
@@ -127,5 +128,41 @@ describe('which events a webhook wants', () => {
     const subscribed: ActivityEvent[] = ['stay_booked', 'flight_added']
     expect(wantsEvent(subscribed, 'stay_booked')).toBe(true)
     expect(wantsEvent(subscribed, 'expense_logged')).toBe(false)
+  })
+})
+
+describe('what survives being marked seen', () => {
+  const at = (iso: string): Activity =>
+    ({ event: 'plan_added', id: iso, title: iso, subtitle: null, actorId: 'them', tripId: null, at: iso }) as Activity
+
+  const rows = [at('2026-03-03T10:00:00Z'), at('2026-03-02T10:00:00Z'), at('2026-03-01T10:00:00Z')]
+
+  it('splits on the marker', () => {
+    const { unseen, earlier } = partitionBySeen(rows, '2026-03-02T00:00:00Z')
+    expect(unseen.map((a) => a.id)).toEqual(['2026-03-03T10:00:00Z', '2026-03-02T10:00:00Z'])
+    expect(earlier.map((a) => a.id)).toEqual(['2026-03-01T10:00:00Z'])
+  })
+
+  it('treats everything as new before the first mark', () => {
+    const { unseen, earlier } = partitionBySeen(rows, null)
+    expect(unseen).toHaveLength(3)
+    expect(earlier).toHaveLength(0)
+  })
+
+  it('leaves nothing unseen once the marker passes everything', () => {
+    // The bug: after "Mark seen" the card still listed all three.
+    const { unseen, earlier } = partitionBySeen(rows, '2026-03-04T00:00:00Z')
+    expect(unseen).toHaveLength(0)
+    expect(earlier).toHaveLength(3)
+  })
+
+  it('keeps the input order within each half', () => {
+    const { unseen } = partitionBySeen(rows, '2026-03-01T12:00:00Z')
+    expect(unseen.map((a) => a.id)).toEqual(['2026-03-03T10:00:00Z', '2026-03-02T10:00:00Z'])
+  })
+
+  it('loses nothing — every row lands on one side', () => {
+    const { unseen, earlier } = partitionBySeen(rows, '2026-03-02T10:00:00Z')
+    expect(unseen.length + earlier.length).toBe(rows.length)
   })
 })
