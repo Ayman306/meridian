@@ -3,6 +3,9 @@ import {
   DEFAULT_BAGGAGE_MINUTES,
   IMMIGRATION_DEFAULTS,
   computeHandoff,
+  MAX_PICKUP_KM,
+  distanceBetween,
+  travelTimes,
   describeBreakdown,
   estimateDriveMinutes,
   immigrationMinutes,
@@ -218,5 +221,81 @@ describe('describeBreakdown', () => {
     expect(labels).not.toContain('Baggage')
     expect(labels).not.toContain('Immigration')
     expect(labels).toContain('Off the plane')
+  })
+})
+
+describe('a watcher too far away to drive', () => {
+  // The bug this exists to stop: a watcher in Toronto and a flight landing in
+  // Lisbon produced a pickup plan built on a 5,700 km "drive".
+  const TORONTO = { lat: 43.65, lng: -79.38 }
+
+  it('produces no pickup plan at all', () => {
+    expect(computeHandoff(state(), { watcherHome: TORONTO })).toBeNull()
+  })
+
+  it('still plans a pickup from a plausible distance', () => {
+    // Porto to Lisbon — a long drive, but one somebody would actually make.
+    const plan = computeHandoff(state(), { watcherHome: { lat: 41.15, lng: -8.61 } })
+    expect(plan).not.toBeNull()
+    expect(plan!.breakdown.drive).toBeGreaterThan(0)
+    // Three hours on the A1 in reality; the estimate should be in that region,
+    // not the eight and a half hours a flat town speed produced.
+    expect(plan!.breakdown.drive).toBeLessThan(5 * 60)
+  })
+
+  it('keeps planning when the watcher is at the airport itself', () => {
+    const plan = computeHandoff(state(), { watcherHome: { lat: 38.77, lng: -9.13 } })
+    expect(plan).not.toBeNull()
+    expect(plan!.breakdown.drive).toBe(0)
+  })
+
+  it('plans as before when no home is known', () => {
+    // An unset home is not a far-away one; it means no drive leg, not no plan.
+    expect(computeHandoff(state())).not.toBeNull()
+  })
+})
+
+describe('the distance cap', () => {
+  it('is expressed in km so tuning the speed model cannot move it', () => {
+    expect(MAX_PICKUP_KM).toBeGreaterThan(0)
+  })
+})
+
+describe('travelTimes', () => {
+  it('is quickest by plane and slowest on foot', () => {
+    const [plane, car, bike, walk] = travelTimes(1000)
+    expect(plane!.minutes).toBeLessThan(car!.minutes)
+    expect(car!.minutes).toBeLessThan(bike!.minutes)
+    expect(bike!.minutes).toBeLessThan(walk!.minutes)
+  })
+
+  it('only the ground modes take the road detour', () => {
+    const [plane] = travelTimes(800)
+    // 800 km at 800 km/h, straight: one hour, no 1.4 applied.
+    expect(plane!.minutes).toBe(60)
+  })
+
+  it('labels every mode', () => {
+    expect(travelTimes(100).map((t) => t.mode)).toEqual(['plane', 'car', 'bike', 'walk'])
+    expect(travelTimes(100).every((t) => t.label.length > 0)).toBe(true)
+  })
+
+  it('says nothing about a zero or nonsense distance', () => {
+    expect(travelTimes(0)).toEqual([])
+    expect(travelTimes(-1)).toEqual([])
+    expect(travelTimes(Number.NaN)).toEqual([])
+  })
+})
+
+describe('distanceBetween', () => {
+  it('measures the great circle', () => {
+    const km = distanceBetween({ lat: 43.65, lng: -79.38 }, { lat: 25.25, lng: 55.36 })
+    expect(km).toBeGreaterThan(10_500)
+    expect(km).toBeLessThan(11_500)
+  })
+
+  it('is null without both ends', () => {
+    expect(distanceBetween(null, { lat: 1, lng: 1 })).toBeNull()
+    expect(distanceBetween({ lat: 1, lng: 1 }, { lat: null, lng: null })).toBeNull()
   })
 })

@@ -13,6 +13,9 @@ import {
   applyOverride,
   flightEditPatch,
   routeEndpoint,
+  attachableFlights,
+  flightFallsInTrip,
+  suggestTripForFlight,
   estimatedPosition,
   groupFlight,
   isDiverted,
@@ -744,6 +747,85 @@ describe('routeEndpoint', () => {
       tz: null,
       lat: null,
       lng: null,
+    })
+  })
+})
+
+describe('attaching a flight to a trip', () => {
+  const goa = { id: 't1', title: 'Goa', start_date: '2026-03-01', end_date: '2026-03-14' }
+  const sideTrip = { id: 't2', title: 'Hampi', start_date: '2026-03-05', end_date: '2026-03-07' }
+  const undated = { id: 't3', title: 'Someday', start_date: null, end_date: null }
+
+  describe('flightFallsInTrip', () => {
+    it('includes both ends — you fly out on day one and home on the last', () => {
+      expect(flightFallsInTrip('2026-03-01', goa)).toBe(true)
+      expect(flightFallsInTrip('2026-03-14', goa)).toBe(true)
+    })
+
+    it('excludes a date outside the window', () => {
+      expect(flightFallsInTrip('2026-02-28', goa)).toBe(false)
+      expect(flightFallsInTrip('2026-03-15', goa)).toBe(false)
+    })
+
+    it('treats a trip with only a start as a single day', () => {
+      const oneDay = { start_date: '2026-03-01', end_date: null }
+      expect(flightFallsInTrip('2026-03-01', oneDay)).toBe(true)
+      expect(flightFallsInTrip('2026-03-02', oneDay)).toBe(false)
+    })
+
+    it('matches nothing for an undated trip or an undated flight', () => {
+      expect(flightFallsInTrip('2026-03-01', undated)).toBe(false)
+      expect(flightFallsInTrip(null, goa)).toBe(false)
+    })
+  })
+
+  describe('suggestTripForFlight', () => {
+    it('picks the trip whose window contains the date', () => {
+      expect(suggestTripForFlight('2026-03-02', [goa, undated])?.id).toBe('t1')
+    })
+
+    it('prefers the narrower window when trips overlap', () => {
+      // The side trip sits inside the longer one; the specific claim wins.
+      expect(suggestTripForFlight('2026-03-06', [goa, sideTrip])?.id).toBe('t2')
+    })
+
+    it('suggests nothing when no window contains the date', () => {
+      expect(suggestTripForFlight('2026-06-01', [goa, sideTrip])).toBeNull()
+    })
+
+    it('never guesses an undated trip', () => {
+      expect(suggestTripForFlight('2026-03-02', [undated])).toBeNull()
+    })
+  })
+
+  describe('attachableFlights', () => {
+    const rows = [
+      { id: 'a', trip_id: null, flight_date: '2026-03-02' },
+      { id: 'b', trip_id: null, flight_date: '2026-08-01' },
+      { id: 'c', trip_id: 't1', flight_date: '2026-03-03' },
+      { id: 'd', trip_id: 't9', flight_date: '2026-03-04' },
+      { id: 'e', trip_id: null, flight_date: null },
+    ]
+
+    it('drops the flights already on this trip', () => {
+      expect(attachableFlights(rows, goa).map((f) => f.id)).not.toContain('c')
+    })
+
+    it('offers loose in-window flights first, then loose, then spoken for', () => {
+      expect(attachableFlights(rows, goa).map((f) => f.id)).toEqual(['a', 'b', 'e', 'd'])
+    })
+
+    it('still offers a flight filed against another trip, so it can be moved', () => {
+      expect(attachableFlights(rows, goa).map((f) => f.id)).toContain('d')
+    })
+
+    it('sorts undated flights last within their group', () => {
+      const loose = attachableFlights(rows, goa).filter((f) => f.trip_id === null)
+      expect(loose[loose.length - 1]!.id).toBe('e')
+    })
+
+    it('returns everything when the trip has no flights yet', () => {
+      expect(attachableFlights(rows, sideTrip)).toHaveLength(5)
     })
   })
 })

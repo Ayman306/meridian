@@ -9,6 +9,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { Crosshair, Pencil, RefreshCw, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -22,7 +23,9 @@ import { DualTime } from '@/components/DualTime'
 import { formatInZone } from '@/lib/dates'
 import { pluralise } from '@/lib/utils'
 import { useCouple } from '@/providers/CoupleProvider'
+import { useTrip } from '@/modules/trips'
 import { HandoffCard } from '../components/HandoffCard'
+import { DistanceCard } from '../components/DistanceCard'
 import { EditFlightForm } from '../components/EditFlightForm'
 import {
   useDeleteFlight,
@@ -36,6 +39,7 @@ import {
   useStopTracking,
 } from '../hooks'
 import { PHASE_LABELS, isAirbornePhase, isFinished } from '../logic'
+import { distanceBetween } from '../handoff'
 import type { FlightState } from '../types'
 
 const FlightMap = dynamic(() => import('../components/FlightMap').then((m) => m.FlightMap), {
@@ -50,6 +54,7 @@ export function FlightLivePage({ flightId }: { flightId: string }) {
   const track = useFlightTrack(flightId, Boolean(state && isAirbornePhase(state.phase)))
   const reducedMotion = usePrefersReducedMotion()
   const stopTracking = useStopTracking()
+  const trip = useTrip(flight.data?.trip_id ?? undefined)
   const remove = useDeleteFlight()
   useFlightRealtime(coupleId)
 
@@ -66,6 +71,8 @@ export function FlightLivePage({ flightId }: { flightId: string }) {
     watcherProfile?.home_lat != null && watcherProfile?.home_lng != null
       ? { lat: Number(watcherProfile.home_lat), lng: Number(watcherProfile.home_lng) }
       : null
+
+  const apartKm = state ? distanceBetween(watcherHome, { lat: state.dest.lat, lng: state.dest.lng }) : null
 
   if (flight.isLoading || !state) return <Skeleton className="h-[70vh] w-full rounded-lg" />
 
@@ -144,12 +151,40 @@ export function FlightLivePage({ flightId }: { flightId: string }) {
         )}
       </div>
 
-      {state.handoff && <HandoffCard state={state} timezone={tzSelf} />}
+      {state.handoff ? (
+        <HandoffCard state={state} timezone={tzSelf} />
+      ) : (
+        /* No plan means either nobody is on the ground or they are too far to
+           drive. In the second case the distance is the thing worth saying. */
+        watcherHome &&
+        apartKm !== null && (
+          <DistanceCard km={apartKm} travelerName={state.traveler?.displayName ?? 'they'} />
+        )
+      )}
 
       <Card>
         <CardContent className="space-y-5 py-5">
           <div className="flex flex-wrap items-center gap-3">
             <PersonBadge person={state.traveler} size="sm" withName />
+            {/* Which trip it counts towards, and a way in when it counts
+                towards none — the trip view filters on this, so a flight
+                without one is invisible there. */}
+            {flight.data?.trip_id && trip.data ? (
+              <Link
+                href={`/trips/${flight.data.trip_id}/flights`}
+                className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium underline-offset-2 hover:underline"
+              >
+                {trip.data.title}
+              </Link>
+            ) : (
+              <button
+                type="button"
+                className="rounded-full border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setEditing(true)}
+              >
+                Not on a trip — add it to one
+              </button>
+            )}
             <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium">
               {PHASE_LABELS[state.phase]}
             </span>

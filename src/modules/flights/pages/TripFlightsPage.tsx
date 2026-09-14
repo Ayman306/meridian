@@ -8,14 +8,16 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Plane, Plus, TriangleAlert } from 'lucide-react'
+import { Link2, Plane, Plus, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState, ErrorState, SkeletonList } from '@/components/common/states'
 import { pluralise } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { useCouple } from '@/providers/CoupleProvider'
+import { useTrip } from '@/modules/trips'
 import { AddFlightForm } from '../components/AddFlightForm'
+import { AttachFlightPanel } from '../components/AttachFlightPanel'
 import { FlightCard } from '../components/FlightCard'
 import {
   useAirportCountries,
@@ -28,7 +30,9 @@ import { connectionsFor } from '../logic'
 export function TripFlightsPage({ tripId }: { tripId: string }) {
   const { coupleId, tzSelf } = useCouple()
   const flights = useFlights()
+  const { data: trip } = useTrip(tripId)
   const [adding, setAdding] = useState(false)
+  const [attaching, setAttaching] = useState(false)
   useFlightRealtime(coupleId)
 
   const rows = useMemo(
@@ -59,12 +63,35 @@ export function TripFlightsPage({ tripId }: { tripId: string }) {
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-muted-foreground">Flights on this trip</h2>
-        {!adding && (
-          <Button size="sm" onClick={() => setAdding(true)}>
-            <Plus aria-hidden="true" />
-            Add a flight
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* A flight logged before the trip existed is the common case, not
+              the exception — you book it, then plan around it. */}
+          {!attaching && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setAdding(false)
+                setAttaching(true)
+              }}
+            >
+              <Link2 aria-hidden="true" />
+              Add an existing flight
+            </Button>
+          )}
+          {!adding && (
+            <Button
+              size="sm"
+              onClick={() => {
+                setAttaching(false)
+                setAdding(true)
+              }}
+            >
+              <Plus aria-hidden="true" />
+              Add a flight
+            </Button>
+          )}
+        </div>
       </div>
 
       {adding && (
@@ -74,6 +101,22 @@ export function TripFlightsPage({ tripId }: { tripId: string }) {
           </CardHeader>
           <CardContent>
             <AddFlightForm tripId={tripId} onClose={() => setAdding(false)} />
+          </CardContent>
+        </Card>
+      )}
+
+      {attaching && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Add an existing flight</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AttachFlightPanel
+              tripId={tripId}
+              tripStart={trip?.start_date ?? null}
+              tripEnd={trip?.end_date ?? null}
+              onClose={() => setAttaching(false)}
+            />
           </CardContent>
         </Card>
       )}
@@ -114,8 +157,15 @@ export function TripFlightsPage({ tripId }: { tripId: string }) {
         <EmptyState
           icon={<Plane className="size-5" aria-hidden="true" />}
           title="No flights on this trip yet"
-          description="Add one and the arrival handoff — when to leave to meet them — works itself out."
-          action={<Button onClick={() => setAdding(true)}>Add a flight</Button>}
+          description="Add one and the arrival handoff — when to leave to meet them — works itself out. A flight you already saved from the Flights tab can be moved onto this trip."
+          action={
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button onClick={() => setAdding(true)}>Add a flight</Button>
+              <Button variant="outline" onClick={() => setAttaching(true)}>
+                Add an existing one
+              </Button>
+            </div>
+          }
         />
       ) : (
         <div className="space-y-3">

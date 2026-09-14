@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  humaniseMinutes,
   addDaysTo,
   dateRange,
   daysBetween,
@@ -140,5 +141,46 @@ describe('zone helpers', () => {
     const at = new Date('2026-06-15T22:30:00Z')
     // 18:30 in Toronto → 5h30m until midnight there.
     expect(msUntilMidnightIn('America/Toronto', at)).toBe(5.5 * 3600 * 1000)
+  })
+})
+
+describe('humaniseMinutes', () => {
+  it('keeps minutes under an hour', () => {
+    expect(humaniseMinutes(1)).toBe('1 min')
+    expect(humaniseMinutes(45)).toBe('45 min')
+    expect(humaniseMinutes(59)).toBe('59 min')
+  })
+
+  it('climbs to hours at an hour', () => {
+    expect(humaniseMinutes(60)).toBe('1h')
+    expect(humaniseMinutes(90)).toBe('1h 30m')
+    expect(humaniseMinutes(1439)).toBe('23h 59m')
+  })
+
+  it('climbs to days at a day', () => {
+    expect(humaniseMinutes(1440)).toBe('1 day')
+    expect(humaniseMinutes(2880)).toBe('2 days')
+    expect(humaniseMinutes(1440 + 300)).toBe('1 day 5h')
+  })
+
+  it('climbs to months past thirty days', () => {
+    expect(humaniseMinutes(30 * 1440)).toBe('1 month')
+    expect(humaniseMinutes(75 * 1440)).toBe('2 months 15 days')
+  })
+
+  it('turns the drive that started this into something sayable', () => {
+    // The live IXE → DXB flight rendered "Drive 20666 min".
+    expect(humaniseMinutes(20666)).toBe('14 days 8h')
+  })
+
+  it('never rounds up into a bare extra unit', () => {
+    // 23h 40m of remainder must not read as "1 day 24h".
+    expect(humaniseMinutes(1440 + 1420)).toBe('2 days')
+  })
+
+  it('handles zero and nonsense without throwing', () => {
+    expect(humaniseMinutes(0)).toBe('under a minute')
+    expect(humaniseMinutes(-5)).toBe('under a minute')
+    expect(humaniseMinutes(Number.NaN)).toBe('—')
   })
 })
