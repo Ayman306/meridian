@@ -781,3 +781,144 @@ export function describeJourney(summary: JourneySummary): string {
 export function nextLegIndex(flights: readonly FlightRow[]): number {
   return flights.reduce((max, f) => Math.max(max, f.leg_index), 0) + 1
 }
+
+// ---------------------------------------------------------------------------
+// Editing
+// ---------------------------------------------------------------------------
+
+/**
+ * The fields `applyOverride` will re-apply after a poll.
+ *
+ * Editing any of these as a plain column is not enough: `refreshFlight` writes
+ * the provider's value straight back over it, so a corrected departure time
+ * would survive until the next refresh and then quietly revert. Writing the
+ * same value into `manual_override` as well is what makes the edit permanent —
+ * which is the whole point of the column, and why `setManualOverride` has
+ * existed since Phase 9 with nothing calling it.
+ */
+export const OVERRIDABLE_FIELDS = [
+  'phase',
+  'gate',
+  'terminal',
+  'baggage_belt',
+  'estimated_departure',
+  'estimated_arrival',
+  'actual_departure',
+  'actual_arrival',
+  'scheduled_departure',
+  'scheduled_arrival',
+] as const
+
+export type OverridableField = (typeof OVERRIDABLE_FIELDS)[number]
+
+/** What an edit writes: the columns, and the subset that must also be pinned. */
+export interface FlightEditPatch {
+  /** Every changed field, as a column update. */
+  columns: Record<string, unknown>
+  /** The changed fields a provider poll would otherwise overwrite. */
+  override: Record<string, unknown>
+  /** False when nothing actually changed, so a no-op save writes nothing. */
+  changed: boolean
+}
+
+/**
+ * Split an edit into the columns to write and the values to pin.
+ *
+ * Only fields that genuinely differ are included. Saving a form the user
+ * opened and closed unchanged must not stamp `manual_override` onto a flight —
+ * that would flip its status source to "manual" and freeze it against the
+ * provider for the sake of an edit nobody made.
+ */
+export function flightEditPatch(
+  current: Pick<FlightRow, never> & Record<string, unknown>,
+  edits: Record<string, unknown>,
+): FlightEditPatch {
+  const columns: Record<string, unknown> = {}
+  const override: Record<string, unknown> = {}
+  const overridable = new Set<string>(OVERRIDABLE_FIELDS)
+
+  for (const [key, value] of Object.entries(edits)) {
+    // `undefined` means "the form does not manage this field", which is not
+    // the same as `null`, which means "the user cleared it".
+    if (value === undefined) continue
+    if (sameValue(current[key], value)) continue
+
+    columns[key] = value
+    // A cleared field cannot be pinned: `applyOverride` skips nulls, so
+    // writing one would pin nothing while still marking the flight manual.
+    if (overridable.has(key) && value !== null) override[key] = value
+  }
+
+  return { columns, override, changed: Object.keys(columns).length > 0 }
+}
+
+/**
+ * Loose equality for a form value against a column.
+ *
+ * An empty input reads as `''` and an absent column as `null`; treating those
+ * as different would make every save of an untouched form an edit. Timestamps
+ * are compared as instants because `2026-01-01T09:00:00+00:00` and
+ * `2026-01-01T09:00:00Z` are the same moment spelled two ways, and the
+ * database picks the spelling.
+ */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if ((a === null || a === '') && (b === null || b === '')) return true
+  if (typeof a === 'string' && typeof b === 'string' && isInstant(a) && isInstant(b)) {
+    const left = new Date(a).getTime()
+    const right = new Date(b).getTime()
+    if (!Number.isNaN(left) && !Number.isNaN(right)) return left === right
+  }
+  return false
+}
+
+function isInstant(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)
+}
+
+/**
+ * The endpoint fields for one side of an edited route.
+ *
+ * Three cases, and the third is the one that bites. The picker commits any
+ * three letters as a code — an airport missing from the reference table still
+ * saves, by design — and hands back `null` for the row. So an edit that
+ * retypes `DXB` as `BCN` for an airport we do not have gets a new code with no
+ * new coordinates, and keeping the stored ones would leave the flight claiming
+ * to depart from Barcelona at Dubai's latitude. The map would draw the leg
+ * from the wrong continent.
+ *
+ * Clearing them is the honest answer: `AirportPicker` already warns that an
+ * unlisted code will not draw, and a missing endpoint degrades the map, which
+ * is the documented state. A stale one lies.
+ */
+export function routeEndpoint(
+  iata: string,
+  picked: { name: string | null; timezone: string | null; lat: unknown; lng: unknown } | null,
+  stored: {
+    iata: string | null
+    name: string | null
+    tz: string | null
+    lat: number | null
+    lng: number | null
+  },
+): { iata: string | null; name: string | null; tz: string | null; lat: number | null; lng: number | null } {
+  const code = iata.trim().toUpperCase() || null
+
+  // Picked from the list: everything comes from the row.
+  if (picked) {
+    return {
+      iata: code,
+      name: picked.name,
+      tz: picked.timezone,
+      lat: picked.lat === null || picked.lat === undefined ? null : Number(picked.lat),
+      lng: picked.lng === null || picked.lng === undefined ? null : Number(picked.lng),
+    }
+  }
+
+  // Untouched: keep what is already on the row, timezone included.
+  if (code === stored.iata) return { ...stored, iata: code }
+
+  // Changed to something we cannot resolve. Nothing about the old airport
+  // still applies.
+  return { iata: code, name: null, tz: null, lat: null, lng: null }
+}

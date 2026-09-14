@@ -31,6 +31,11 @@ them, and read the day list or the month grid depending on how long the stay is.
 tool.** Sign in, pair, create a trip, plan it, store the documents it needs,
 and see the whole thing from the dashboard.
 
+Everything a screen can create, a screen can now correct. Flights, destination
+candidates, border crossings and health records were create-and-delete only
+until D129; editing a flight pins the correction through `manual_override` so
+the next status poll cannot revert it.
+
 On top of that, Phases 6 and 7: save places to a shared wishlist without either
 of you having to agree yet, see the overlap on the blend screen, push what you
 both wanted into the plan, and have the app lay out a draft — arithmetic, no
@@ -2537,6 +2542,72 @@ genuine regression in reproducibility against the old design, where everything
 was in the repo, and it is the price of not maintaining an authorization server.
 
 ---
+
+### D129 — Editing exists everywhere the data layer already allowed it
+
+Every module shipped an `update*` in `api.ts` and a `use*Update*` wrapper in
+`hooks.ts`, because the module checklist asks for them. Four modules never grew
+the screen to call one, so four kinds of row could be created and deleted but
+never corrected: a flight, a destination candidate, a border crossing, and a
+health record. The data layer, the RLS and the types were already right; the
+gap was entirely UI, which is why this pass adds no migration.
+
+**A flight edit is written twice, on purpose.** `refreshFlight` in the
+orchestrator writes the provider's answer back over `scheduled_departure`,
+`gate`, `terminal` and the rest on every poll. A correction saved as a plain
+column therefore survives until the next refresh and then silently reverts —
+the user fixes a departure time, sees it take, and finds it wrong again an hour
+later. `manual_override` is what makes it permanent: `applyOverride` re-applies
+those fields last, after every reconcile, and it has existed since Phase 9 with
+nothing calling it. So `EditFlightForm` writes the column (so the screen is
+right immediately) *and* the override (so the poll cannot undo it), for the ten
+fields on the allowlist only.
+
+`flightEditPatch` is the pure function that splits an edit into the two, and it
+has two jobs beyond the obvious one. It compares timestamps as **instants**, not
+strings, because the database returns `+00:00` where the form produces `Z` and a
+string compare would call every save a change. And it returns `changed: false`
+for a form opened and closed untouched — which matters more than it sounds,
+because stamping an empty `manual_override` onto a flight flips its status
+source to "manual" in `computeFreshness` and freezes it against the provider
+for the sake of an edit nobody made.
+
+**An override is reversible.** Handing control back is a real thing to want —
+you corrected a gate from a booking email, the airline later changed it, and
+your correction is now the wrong one — so a flight carrying an override offers
+"Use live data again", which nulls the column rather than merging into it.
+`setManualOverride` merges by design, so clearing cannot go through it.
+
+**What editing fixed that was not a missing button.** Three of the four gaps
+were hiding a real defect:
+
+- `LogEditor` collected a notes field and dropped it on the floor — it was never
+  in the insert. Adding the edit path meant reading the column, which is how it
+  surfaced.
+- A destination candidate saved without coordinates compares against nothing:
+  no flight times, no fairness, no allowance check. The only way to give it a
+  location was to delete it and lose the votes with it.
+- `quantity_remaining` on a medication is wrong the day after it is entered,
+  and `checkSupply` reads it to decide whether a trip runs you short. A supply
+  warning computed from a count nobody can correct is worse than no warning.
+
+**Editing a route can strand coordinates, so it clears them.** `AirportPicker`
+commits any three letters as a code — an airport missing from the 135-row
+reference table still saves, by design — and returns `null` for the row. On a
+*new* flight that is harmless. On an edit it is not: retyping `DXB` as `BCN`
+for an airport we have no row for would have kept Dubai's name, zone and
+latitude under a Barcelona code, and the map would have drawn the leg from the
+wrong continent. `routeEndpoint` is the three-case decision — picked row wins,
+untouched keeps what is stored, changed-and-unresolvable clears the lot — and
+the cleared case is the honest one, because the picker already warns that an
+unlisted code will not draw. A missing endpoint degrades the map, which is
+documented. A stale one lies.
+
+**A corrected crossing is no longer estimated.** `is_estimated` goes false on
+any hand-edit of an entry-exit row, whatever it started as: the estimate is
+precisely what the user just overruled. The own-row rule from the delete button
+carries over unchanged — you may not edit your partner's crossing, because the
+row records who crossed a border.
 
 ## Deviations from the spec
 

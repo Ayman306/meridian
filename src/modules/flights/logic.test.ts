@@ -10,6 +10,9 @@ import {
   computeTimes,
   connectionRisk,
   connectionsFor,
+  applyOverride,
+  flightEditPatch,
+  routeEndpoint,
   estimatedPosition,
   groupFlight,
   isDiverted,
@@ -635,5 +638,112 @@ describe('journeys', () => {
   it('picks a leg index that cannot collide after a removal', () => {
     expect(nextLegIndex([])).toBe(1)
     expect(nextLegIndex([leg({ leg_index: 1 }), leg({ leg_index: 3 })])).toBe(4)
+  })
+})
+
+describe('flightEditPatch', () => {
+  const current = {
+    flight_number: 'AC42',
+    gate: 'A1',
+    terminal: null,
+    scheduled_departure: '2026-01-01T09:00:00+00:00',
+    has_checked_bags: true,
+  }
+
+  it('writes nothing when nothing changed', () => {
+    const patch = flightEditPatch(current, {
+      flight_number: 'AC42',
+      gate: 'A1',
+      scheduled_departure: '2026-01-01T09:00:00Z',
+    })
+    expect(patch.changed).toBe(false)
+    expect(patch.columns).toEqual({})
+    expect(patch.override).toEqual({})
+  })
+
+  it('pins an overridable change so a poll cannot undo it', () => {
+    const patch = flightEditPatch(current, { gate: 'B7' })
+    expect(patch.columns).toEqual({ gate: 'B7' })
+    expect(patch.override).toEqual({ gate: 'B7' })
+  })
+
+  it('leaves a non-overridable change out of the override', () => {
+    const patch = flightEditPatch(current, { flight_number: 'AC99' })
+    expect(patch.columns).toEqual({ flight_number: 'AC99' })
+    expect(patch.override).toEqual({})
+    expect(patch.changed).toBe(true)
+  })
+
+  it('clears a field as a column but never pins the null', () => {
+    const patch = flightEditPatch(current, { gate: null })
+    expect(patch.columns).toEqual({ gate: null })
+    expect(patch.override).toEqual({})
+  })
+
+  it('treats an empty string and a null column as the same', () => {
+    const patch = flightEditPatch(current, { terminal: '' })
+    expect(patch.changed).toBe(false)
+  })
+
+  it('ignores fields the form does not manage', () => {
+    const patch = flightEditPatch(current, { gate: undefined, flight_number: 'AC42' })
+    expect(patch.changed).toBe(false)
+  })
+
+  it('compares timestamps as instants, not strings', () => {
+    const moved = flightEditPatch(current, { scheduled_departure: '2026-01-01T11:30:00Z' })
+    expect(moved.columns).toEqual({ scheduled_departure: '2026-01-01T11:30:00Z' })
+    expect(moved.override).toEqual({ scheduled_departure: '2026-01-01T11:30:00Z' })
+  })
+
+  it('survives a round trip through applyOverride', () => {
+    const patch = flightEditPatch(current, { gate: 'B7', scheduled_departure: null })
+    const row = flight({ gate: 'Z9', manual_override: patch.override as never })
+    // The provider said Z9; the user said B7, and the user wins.
+    expect(applyOverride(row).gate).toBe('B7')
+  })
+})
+
+describe('routeEndpoint', () => {
+  const stored = { iata: 'DXB', name: 'Dubai International', tz: 'Asia/Dubai', lat: 25.25, lng: 55.36 }
+
+  it('takes everything from a picked airport', () => {
+    const picked = { name: 'Barcelona El Prat', timezone: 'Europe/Madrid', lat: '41.29', lng: '2.07' }
+    expect(routeEndpoint('BCN', picked, stored)).toEqual({
+      iata: 'BCN',
+      name: 'Barcelona El Prat',
+      tz: 'Europe/Madrid',
+      lat: 41.29,
+      lng: 2.07,
+    })
+  })
+
+  it('keeps the stored endpoint when the code is untouched', () => {
+    expect(routeEndpoint('DXB', null, stored)).toEqual(stored)
+  })
+
+  it('is case- and space-insensitive about "untouched"', () => {
+    expect(routeEndpoint(' dxb ', null, stored)).toEqual(stored)
+  })
+
+  it('drops the old coordinates when the code changes to an unknown airport', () => {
+    // The bug this exists to prevent: BCN at Dubai's latitude.
+    expect(routeEndpoint('BCN', null, stored)).toEqual({
+      iata: 'BCN',
+      name: null,
+      tz: null,
+      lat: null,
+      lng: null,
+    })
+  })
+
+  it('clears the endpoint entirely when the code is emptied', () => {
+    expect(routeEndpoint('', null, stored)).toEqual({
+      iata: null,
+      name: null,
+      tz: null,
+      lat: null,
+      lng: null,
+    })
   })
 })
