@@ -13,11 +13,19 @@
  * The database returns both, because the same query answers "what has happened
  * lately" for an assistant, where excluding the caller would be wrong.
  *
- * ## Marking it read does not empty it
+ * ## Marking it seen dismisses it
  *
- * A card that goes blank the moment you look at it is a card that teaches you
- * not to look. It fetches a fortnight and bolds what is new, so "seen" moves a
- * line rather than deleting history.
+ * This used to list the whole fortnight and merely dot what was new, so that
+ * the card would not empty itself the moment you looked at it. In use that was
+ * the wrong call: "Mark seen" appeared to do nothing. The rows you had just
+ * acknowledged stayed exactly where they were, and the only thing that moved
+ * was a heading and eight small dots.
+ *
+ * So the card is now what it always claimed to be — a notice that something
+ * happened while you were asleep. It renders only when there is something new
+ * from them, and marking it seen puts it away. History is not deleted for
+ * that: the older entries move one disclosure down, and the card simply stops
+ * competing for attention once it has been read.
  */
 'use client'
 
@@ -42,7 +50,7 @@ import { useCouple } from '@/providers/CoupleProvider'
 import { useAuth } from '@/providers/AuthProvider'
 import { pluralise } from '@/lib/utils'
 import { useActivity, useActivitySeenAt, useMarkActivitySeen } from '../hooks'
-import { countUnseen, describeActivity, hrefForActivity, isUnseen } from '../logic'
+import { describeActivity, hrefForActivity, partitionBySeen } from '../logic'
 import type { Activity, ActivityEvent } from '../types'
 
 const ICONS: Record<ActivityEvent, typeof Heart> = {
@@ -65,18 +73,19 @@ export function ActivityFeed() {
   const seenAt = useActivitySeenAt()
   const markSeen = useMarkActivitySeen()
   const [showMine, setShowMine] = useState(false)
+  const [showEarlier, setShowEarlier] = useState(false)
 
   if (activity.isLoading) return <SkeletonList rows={2} />
 
   const all = activity.data ?? []
   const theirs = all.filter((a) => a.actorId !== user?.id)
   const mine = all.filter((a) => a.actorId === user?.id)
-  const unseen = countUnseen(theirs, seenAt)
+  const { unseen, earlier } = partitionBySeen(theirs, seenAt)
 
-  // Nothing at all is the common case for a couple who both just looked. A card
-  // that says "no activity" every morning is one people stop reading, so it
-  // renders nothing rather than an empty state.
-  if (theirs.length === 0 && mine.length === 0) return null
+  // Nothing new from them means nothing to notify about, whatever else is in
+  // the fortnight. A card that says "no activity" every morning — or worse,
+  // re-lists what you already dismissed — is one people stop reading.
+  if (unseen.length === 0) return null
 
   const nameFor = (actorId: string | null) =>
     actorId === user?.id
@@ -89,64 +98,92 @@ export function ActivityFeed() {
     <Card className="space-y-3 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-medium">
-          {unseen > 0
-            ? `${pluralise(unseen, 'thing')} since you last looked`
-            : 'Recently, between you'}
+          {pluralise(unseen.length, 'thing')} since you last looked
         </h2>
-        {unseen > 0 && (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={markSeen.isPending}
-            onClick={() => markSeen.mutate()}
-          >
-            <Check aria-hidden="true" />
-            Mark seen
-          </Button>
-        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={markSeen.isPending}
+          onClick={() => markSeen.mutate()}
+        >
+          <Check aria-hidden="true" />
+          {markSeen.isPending ? 'Marking…' : 'Mark seen'}
+        </Button>
       </div>
 
-      {theirs.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          Nothing from {partnerRef?.displayName ?? 'them'} lately.
-        </p>
-      ) : (
-        <ul className="space-y-1">
-          {theirs.slice(0, 8).map((item) => (
+      <ul className="space-y-1">
+        {unseen.slice(0, 8).map((item) => (
+          <Row
+            key={`${item.event}-${item.id}`}
+            activity={item}
+            name={nameFor(item.actorId)}
+            isNew
+          />
+        ))}
+      </ul>
+
+      {/* Read, not deleted. One disclosure down, so dismissing the card never
+          costs you the ability to go back and find what it said. */}
+      {earlier.length > 0 && (
+        <Disclosure
+          open={showEarlier}
+          onToggle={() => setShowEarlier((v) => !v)}
+          label={`${pluralise(earlier.length, 'earlier thing')} from ${partnerRef?.displayName ?? 'them'}`}
+        >
+          {earlier.slice(0, 8).map((item) => (
             <Row
               key={`${item.event}-${item.id}`}
               activity={item}
               name={nameFor(item.actorId)}
-              isNew={isUnseen(item, seenAt)}
+              isNew={false}
             />
           ))}
-        </ul>
+        </Disclosure>
       )}
 
       {mine.length > 0 && (
-        <div className="border-t border-border pt-2">
-          <button
-            className="text-xs text-muted-foreground underline-offset-2 hover:underline"
-            aria-expanded={showMine}
-            onClick={() => setShowMine((v) => !v)}
-          >
-            {showMine ? 'Hide' : 'Show'} {pluralise(mine.length, 'thing')} you added
-          </button>
-          {showMine && (
-            <ul className="mt-2 space-y-1">
-              {mine.slice(0, 8).map((item) => (
-                <Row
-                  key={`${item.event}-${item.id}`}
-                  activity={item}
-                  name={nameFor(item.actorId)}
-                  isNew={false}
-                />
-              ))}
-            </ul>
-          )}
-        </div>
+        <Disclosure
+          open={showMine}
+          onToggle={() => setShowMine((v) => !v)}
+          label={`${pluralise(mine.length, 'thing')} you added`}
+        >
+          {mine.slice(0, 8).map((item) => (
+            <Row
+              key={`${item.event}-${item.id}`}
+              activity={item}
+              name={nameFor(item.actorId)}
+              isNew={false}
+            />
+          ))}
+        </Disclosure>
       )}
     </Card>
+  )
+}
+
+/** "Show 3 things you added", and what it hides. */
+function Disclosure({
+  open,
+  onToggle,
+  label,
+  children,
+}: {
+  open: boolean
+  onToggle: () => void
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="border-t border-border pt-2">
+      <button
+        className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        {open ? 'Hide' : 'Show'} {label}
+      </button>
+      {open && <ul className="mt-2 space-y-1">{children}</ul>}
+    </div>
   )
 }
 

@@ -126,6 +126,33 @@ export function isUnseen(activity: Activity, seenAt: string | null | undefined):
   return !seenAt || activity.at > seenAt
 }
 
+/**
+ * New since the marker, and everything before it.
+ *
+ * The card used to list the whole fortnight and merely *dot* what was new, on
+ * the reasoning that a card which empties when you look at it teaches you not
+ * to look. In use that was wrong: "Mark seen" appeared to do nothing at all.
+ * The eight rows you had just acknowledged were still sitting there, and the
+ * only thing that changed was a heading and eight small dots — so the button
+ * read as broken rather than as moving a line.
+ *
+ * A notification you have dismissed should go away. History does not need
+ * deleting for that to be true, so the earlier items stay, one disclosure
+ * down, and it is the *card* that stops competing for attention.
+ */
+export function partitionBySeen(
+  activities: readonly Activity[],
+  seenAt: string | null | undefined,
+): { unseen: Activity[]; earlier: Activity[] } {
+  const unseen: Activity[] = []
+  const earlier: Activity[] = []
+  for (const activity of activities) {
+    if (isUnseen(activity, seenAt)) unseen.push(activity)
+    else earlier.push(activity)
+  }
+  return { unseen, earlier }
+}
+
 /** Whether an integration wants this event. Empty means all of them. */
 export function wantsEvent(subscribed: readonly string[], event: string): boolean {
   return subscribed.length === 0 || subscribed.includes(event)

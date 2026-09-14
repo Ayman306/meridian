@@ -634,6 +634,23 @@ select assert(
   'and it stays unaccepted until someone says so'
 );
 
+-- A draft remembers who asked for it (0033). Without this the accept has
+-- nobody to attribute the items to, and the feed says "Someone added to the
+-- plan" about the couple's own itinerary.
+insert into public.suggestion_tray (couple_id, trip_id, payload, source, created_by)
+values (:'ada_couple', :'ada_trip', '{"kind":"draft","days":[]}'::jsonb, 'ai', :'ada_ada')
+returning id as authored \gset ada_
+
+select assert(
+  (select created_by from public.suggestion_tray where id = :'ada_authored') = :'ada_ada',
+  'a draft records who asked for it, so an accepted item can name a person'
+);
+select assert(
+  (select count(*) from public.suggestion_tray
+    where id = :'ada_authored' and created_by is not null) = 1,
+  'and that author survives being read back'
+);
+
 -- ---------------------------------------------------------------------------
 \echo ''
 \echo '== destinations: choosing is one transaction =='

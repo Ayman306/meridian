@@ -198,7 +198,26 @@ export async function listTray(tripId: string): Promise<Suggestion[]> {
  * is nothing special about it, which is the point: a suggestion you kept is
  * just part of your plan.
  */
-export async function acceptSuggestion(id: string): Promise<number> {
+/**
+ * Move a tray draft into the plan.
+ *
+ * **Accepting is the act of adding.** Whoever presses Keep is who added these
+ * items to the plan, and that is what the feed reports — not the generator,
+ * who may have been an assistant, and not the person who asked for the draft
+ * three days ago on another phone. Pressing the button is the decision; asking
+ * for a draft is only a proposal.
+ *
+ * The one thing that outranks the accepter is a draft item that already names
+ * a real person. A blend draft is built out of the two of you — `proposed_by`
+ * there means "whose pick this was", which is information the plan screen
+ * shows and accepting must not overwrite. An AI draft names nobody, because a
+ * generator is not a person, and that null was what made the dashboard say
+ * "Someone added to the plan" about the couple's own itinerary.
+ *
+ * `created_by` on the tray is the last resort, for the case where there is no
+ * session user to credit. A draft is never anonymous.
+ */
+export async function acceptSuggestion(id: string, acceptedBy: string | null): Promise<number> {
   const suggestion = unwrap(
     await supabase.from('suggestion_tray').select('*').eq('id', id).single(),
   )
@@ -231,7 +250,7 @@ export async function acceptSuggestion(id: string): Promise<number> {
         category_id: item.category_id,
         notes: item.notes,
         url: item.url,
-        proposed_by: item.proposed_by,
+        proposed_by: item.proposed_by ?? acceptedBy ?? suggestion.created_by,
         scheduled_date: day.date,
         source: 'blend',
         sort_key: sortKey,

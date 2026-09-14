@@ -204,6 +204,10 @@ const suggestItinerary = defineTool({
       trip_id: input.trip_id,
       payload: draft as unknown as Json,
       source: 'ai',
+      // Whoever asked for the plan is its author. Accepting can happen days
+      // later, on the other person's phone, so it has to be carried on the
+      // tray row rather than inferred at that point.
+      created_by: ctx.userId,
     })
     if (error) throw new Error(error.message)
 

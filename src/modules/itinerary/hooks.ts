@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { qk } from '@/lib/queryClient'
 import { supabase } from '@/lib/supabase/client'
 import { useCouple } from '@/providers/CoupleProvider'
+import { useAuth } from '@/providers/AuthProvider'
 import type { DateOnly } from '@/lib/dates'
 import * as api from './api'
 import type { ItineraryItem } from './types'
@@ -134,8 +135,11 @@ export function useSuggestionTray(tripId: string | undefined) {
 
 export function useAcceptSuggestion(tripId: string) {
   const qc = useQueryClient()
+  const { user } = useAuth()
   return useMutation({
-    mutationFn: (id: string) => api.acceptSuggestion(id),
+    // Keeping a draft makes it yours, so the feed can name you rather than
+    // falling back to "Someone".
+    mutationFn: (id: string) => api.acceptSuggestion(id, user?.id ?? null),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: qk.tray(tripId) })
       invalidatePlan(qc, tripId)

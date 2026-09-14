@@ -2696,6 +2696,85 @@ started this now reads "14 days 8h". It lives in `lib/dates.ts` and the handoff
 breakdown uses it too, so "45 min" and "4h 30m" come out of one function rather
 than two conventions.
 
+### D132 — Marking the feed seen now dismisses it, and D133's "Someone" is gone
+
+Two bugs on the same card, reported together from the live dashboard.
+
+**"Mark seen" appeared to do nothing.** D-era reasoning was that a card which
+empties the moment you look at it teaches you not to look, so the feed fetched
+a fortnight and merely *dotted* what was new. In use that reads as a broken
+button: you press it, and the eight rows you just acknowledged are still
+sitting there. The only thing that moved was a heading and eight small dots.
+
+The original worry was real but the remedy was aimed at the wrong thing. What
+should not be destroyed is the *history*; what should go away is the *card*.
+So `partitionBySeen` splits the feed and the card renders only when there is
+something unseen from them. Dismissed means dismissed. The earlier entries move
+one disclosure down, reachable while the card is up, and once everything is
+read the card stops rendering at all rather than sitting there restating what
+you have already dealt with.
+
+The card is a notification again, which is what it always claimed to be.
+
+### D133 — An item added through the MCP belongs to the person, not to "Someone"
+
+The dashboard rendered eight rows of "Someone added to the plan" about the
+couple's own Goa itinerary. `describeActivity` falls back to "Someone" when it
+cannot name an actor, which was written for rows created before `created_by`
+existed — not for the normal way this couple plans a trip.
+
+**The path that lost the author.** `activity_feed` reads
+`itinerary_items.proposed_by`. The MCP's `add_itinerary_item` sets it. What
+does not is the route those rows actually took: `suggest_itinerary` writes a
+draft to the tray, and `acceptSuggestion` copied `proposed_by` straight off the
+draft payload. An AI draft names nobody — a generator is not a person — so it
+copied a null onto every item it created.
+
+**Accepting is the act of adding.** Whoever presses Keep is the author. Asking
+for a draft is only a proposal, and the thing that produced it may not have
+been a person at all, so the generator does not get the credit and neither does
+the assistant. The one thing that outranks the accepter is a draft item that
+already names a real person — a blend draft is built out of the two of them and
+its `proposed_by` means "whose pick this was", which the plan screen shows and
+an accept must not overwrite. The tray's own author is the last resort, for a
+draft accepted with no session user to credit.
+
+**`created_by` on `suggestion_tray` is what carries it across the gap.**
+Generating and accepting can be days apart and on different phones, so the
+author has to be stored on the tray row rather than inferred at accept time.
+
+**There is no backfill in the migration, on purpose.** Rows written before this
+have no author and no rule recovers one — the tray entry that would have named
+them did not store it, which is the whole bug. Anything 0033 could do would be
+a guess dressed as schema.
+
+An earlier draft took `trips.created_by` as a stand-in, and a later one
+hardcoded the owner's uuid after asking him directly. Both were wrong for the
+same reason: **a migration is shared and permanent, and this repair is neither.**
+Every future clone and CI run would replay a statement about one person's
+holiday, with their id sitting in version control to make it possible. The
+migration is now pure DDL — one `add column if not exists` and a comment,
+idempotent and true of any database.
+
+**What was actually run, once, by hand.** On 14 Sep 2026, against the live
+project only:
+
+```sql
+update public.itinerary_items
+   set proposed_by = '<the owner>'
+ where proposed_by is null
+   and source in ('blend','ai')
+   and deleted_at is null;
+```
+
+46 rows, all on AZ WEEK, all written in a single accept at 07:50:09 — one
+draft, kept once. Reversing it is `set proposed_by = null` over that same
+`trip_id`, `source` and `created_at`.
+
+**It was 46 rows, not the eight on screen.** The card slices to eight, so the
+dashboard showed a sixth of the problem. Worth remembering the next time a
+number on a screen is used to size a fix.
+
 ## Deviations from the spec
 
 | Spec | Code | Why |
