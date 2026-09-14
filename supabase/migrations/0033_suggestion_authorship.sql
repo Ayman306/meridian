@@ -21,6 +21,18 @@
 -- `created_by` on the tray is the last resort behind that, for a draft accepted
 -- with no session user to credit. It also records real provenance: who asked,
 -- which may have been days earlier and on the other person's phone.
+--
+-- ## Why there is no backfill here
+--
+-- Rows written before this have no author, and no rule recovers one: the tray
+-- entry that would have named them did not store it, which is the whole bug.
+-- Anything this migration could do would be a guess dressed as schema.
+--
+-- Repairing them is a one-off data fix against one database, by someone who
+-- knows the answer — not a statement every future clone and CI run replays.
+-- Migrations are shared and permanent; that repair is neither, and writing a
+-- person's uuid into version control to perform it would be the wrong trade
+-- twice over. See docs/MEMORY.md D133 for what was run and when.
 -- =============================================================================
 
 alter table public.suggestion_tray
@@ -28,32 +40,3 @@ alter table public.suggestion_tray
 
 comment on column public.suggestion_tray.created_by is
   'Who asked for this draft. Copied onto the items when the tray entry is accepted, so an MCP-generated plan is attributed to the person who asked for it.';
-
--- -----------------------------------------------------------------------------
--- Backfill: the rows that are already orphaned.
---
--- Accepting is the act of adding, so these belong to whoever pressed Keep. The
--- app knows that from now on; for rows written before it did, the id below is
--- the answer the owner gave when asked directly: they generated the drafts and
--- they accepted them.
---
--- An explicit id rather than a guess. The first draft of this migration took
--- `trips.created_by` as a stand-in, which happens to be the same person here,
--- but "happens to be" is not a reason to write somebody's name against 46 rows
--- of someone else's holiday.
---
--- Narrow and idempotent. Only items with no author at all are touched, and
--- only those that came through a tray accept — a hand-typed item with a null
--- author predates `proposed_by` being written at all, and filling that in
--- would be inventing history rather than recovering it. The `exists` guard
--- keeps this inert on any database where that profile is not present, which
--- is every database except the one it was written for.
--- -----------------------------------------------------------------------------
-update public.itinerary_items i
-   set proposed_by = 'b8ea3e2d-bc16-4337-8879-36a973ceb97c'::uuid
- where i.proposed_by is null
-   and i.source in ('blend', 'ai')
-   and exists (
-     select 1 from public.profiles p
-      where p.id = 'b8ea3e2d-bc16-4337-8879-36a973ceb97c'::uuid
-   );

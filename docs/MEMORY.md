@@ -2743,18 +2743,33 @@ draft accepted with no session user to credit.
 Generating and accepting can be days apart and on different phones, so the
 author has to be stored on the tray row rather than inferred at accept time.
 
-**The backfill names one person, and it was asked rather than inferred.** The
-first draft of 0033 took `trips.created_by` as a stand-in. Checked against the
-real database that turned out to be the same person — but "happens to be" is
-not a reason to write somebody's name against 46 rows of someone else's
-holiday, so the migration carries the id the owner gave when asked directly.
+**There is no backfill in the migration, on purpose.** Rows written before this
+have no author and no rule recovers one — the tray entry that would have named
+them did not store it, which is the whole bug. Anything 0033 could do would be
+a guess dressed as schema.
 
-It is narrow and idempotent either way: only items with no author at all, and
-only those that came through a tray accept. A hand-typed item with a null
-author predates `proposed_by` being written at all, and filling that in would
-be inventing history rather than recovering it. An `exists` guard keeps the
-statement inert on any database where that profile is absent, which is every
-database except the one it was written for.
+An earlier draft took `trips.created_by` as a stand-in, and a later one
+hardcoded the owner's uuid after asking him directly. Both were wrong for the
+same reason: **a migration is shared and permanent, and this repair is neither.**
+Every future clone and CI run would replay a statement about one person's
+holiday, with their id sitting in version control to make it possible. The
+migration is now pure DDL — one `add column if not exists` and a comment,
+idempotent and true of any database.
+
+**What was actually run, once, by hand.** On 14 Sep 2026, against the live
+project only:
+
+```sql
+update public.itinerary_items
+   set proposed_by = '<the owner>'
+ where proposed_by is null
+   and source in ('blend','ai')
+   and deleted_at is null;
+```
+
+46 rows, all on AZ WEEK, all written in a single accept at 07:50:09 — one
+draft, kept once. Reversing it is `set proposed_by = null` over that same
+`trip_id`, `source` and `created_at`.
 
 **It was 46 rows, not the eight on screen.** The card slices to eight, so the
 dashboard showed a sixth of the problem. Worth remembering the next time a
