@@ -27,6 +27,7 @@ import {
   flightEditPatch,
   normaliseFlightNumber,
   routeEndpoint,
+  shiftLocalInput,
   suggestTripForFlight,
 } from '../logic'
 import { useSetManualOverride, useUpdateFlight } from '../hooks'
@@ -102,6 +103,22 @@ export function EditFlightForm({
     !Array.isArray(flight.manual_override) &&
     Object.keys(flight.manual_override).length > 0
 
+  /**
+   * Changing the date moves the departure and the arrival with it.
+   *
+   * Without this the two disagree, which is the bug this form is being fixed
+   * for: `flight_date` said one day and `scheduled_departure` said another,
+   * and every screen picked whichever it happened to read. The arrival keeps
+   * its offset, so an overnight that lands the next morning still does.
+   */
+  const moveToDate = (next: string) => {
+    const previous = date
+    setDate(next)
+    if (!previous || !next || previous === next) return
+    setDeparture((value) => shiftLocalInput(value, previous, next))
+    setArrival((value) => shiftLocalInput(value, previous, next))
+  }
+
   const save = async () => {
     setError(null)
     const number = normaliseFlightNumber(flightNumber)
@@ -168,12 +185,16 @@ export function EditFlightForm({
             onChange={(e) => setFlightNumber(e.target.value)}
           />
         </Field>
-        <Field label="Date of departure" htmlFor="edit-flight-date">
+        <Field
+          label="Date of departure"
+          hint="Moving this moves the times with it"
+          htmlFor="edit-flight-date"
+        >
           <Input
             id="edit-flight-date"
             type="date"
             value={date}
-            onChange={(e) => setDate(e.target.value)}
+            onChange={(e) => moveToDate(e.target.value)}
           />
         </Field>
       </div>
@@ -210,7 +231,13 @@ export function EditFlightForm({
             id="edit-flight-dep"
             type="datetime-local"
             value={departure}
-            onChange={(e) => setDeparture(e.target.value)}
+            onChange={(e) => {
+              setDeparture(e.target.value)
+              // The instant is the authority; the bare date follows it, the
+              // same way the database's own trigger derives it.
+              const [datePart] = e.target.value.split('T')
+              if (datePart) setDate(datePart)
+            }}
           />
         </Field>
         <Field
