@@ -33,12 +33,29 @@
 -- a couple should never have, but a bad row should not make random — break on
 -- `joined_at`, then `user_id`, so the answer is the same on every call.
 --
--- A friend asking gets the couple's earliest owner/partner rather than null.
--- The client reads a null partner as "your partner deleted their account",
--- and a friend is not orphaned; a stable name is the least surprising answer
--- and matches what they saw before, minus the randomness.
+-- A friend asking gets null: a friend is nobody's partner. An earlier draft
+-- answered the couple's owner instead, so the client would not show a friend
+-- as orphaned — and in doing so gave every friend the owner's profile, home
+-- location included, through `profiles read partner`. The worry was unfounded:
+-- nothing in the client reads `isOrphaned`, and every screen that uses
+-- `partnerRef` already guards for null, because solo mode has always produced
+-- one. A friend takes the same paths as somebody unpaired. So the database
+-- gives the true answer.
 --
--- `my_couple_id()` carried the same unordered `limit 1`. Unreachable today —
+-- ## Consent follows the relationship
+--
+-- `has_health_consent` checked that a consent row existed and nothing else. So
+-- a grant that reached a friend through the old coin-flip kept working after
+-- this fix — and the Sharing screen, now keyed on the real partner, would not
+-- even show it to be revoked. The same hole let a *former* partner keep reading
+-- after leaving the couple, if nobody remembered to revoke first.
+--
+-- Health sharing has only ever been offered to the partner, so it now requires
+-- one: the viewer must currently be the owner's partner, as `partner_id()`
+-- sees it. A stray row pointing anywhere else grants nothing, and leaving a
+-- couple ends access without anybody having to think about it.
+--
+-- `my_couple_id()` and `my_role()` carried the same unordered `limit 1`. Unreachable today —
 -- nobody can belong to two spaces while group UI does not exist, and spec
 -- 16.9 says it should not — but it prefers the couple and orders
 -- deterministically now, so it cannot become a coin-flip later.
@@ -55,6 +72,7 @@ set search_path = public as $$
      and other.user_id <> me.user_id
      and other.role in ('owner', 'partner')
    where me.user_id = auth.uid()
+     and me.role in ('owner', 'partner')
    order by other.joined_at, other.user_id
    limit 1;
 $$;
@@ -70,7 +88,40 @@ set search_path = public as $$
    limit 1;
 $$;
 
+create or replace function public.has_health_consent(owner uuid, scope_name text)
+returns boolean language sql security definer stable
+set search_path = public as $$
+  select public.partner_id() = owner
+     and exists (
+       select 1 from public.health_consents c
+        where c.owner_id = owner
+          and c.viewer_id = auth.uid()
+          and c.scope = scope_name
+          -- Checked here rather than by a sweep: revocation has to take effect
+          -- on the next query, with no cache to expire (spec 12.6).
+          and c.revoked_at is null
+     );
+$$;
+
+revoke all on function public.has_health_consent(uuid, text) from public, anon;
+grant execute on function public.has_health_consent(uuid, text) to authenticated;
+
+-- The role that goes with `my_couple_id()`, so the two can never describe
+-- different spaces.
+create or replace function public.my_role()
+returns text language sql security definer stable
+set search_path = public as $$
+  select me.role
+    from public.couple_members me
+    join public.couples c on c.id = me.couple_id
+   where me.user_id = auth.uid()
+   order by (c.kind = 'couple') desc, me.joined_at, me.couple_id
+   limit 1;
+$$;
+
 revoke all on function public.partner_id()   from public, anon;
 revoke all on function public.my_couple_id() from public, anon;
+revoke all on function public.my_role()      from public, anon;
 grant execute on function public.partner_id()   to authenticated;
 grant execute on function public.my_couple_id() to authenticated;
+grant execute on function public.my_role()      to authenticated;

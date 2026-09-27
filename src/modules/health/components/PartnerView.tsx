@@ -17,7 +17,10 @@
 
 import { EyeOff, Lock } from 'lucide-react'
 import { Card } from '@/components/ui/card'
-import { SkeletonList } from '@/components/common/states'
+import { ErrorState, SkeletonList } from '@/components/common/states'
+import { addDaysTo, todayIn } from '@/lib/dates'
+import { useCouple } from '@/providers/CoupleProvider'
+import { HISTORY_DAYS, isEmptyLog } from '../logic'
 import { useCycles, useHealthRecords, useIntimacy } from '../hooks'
 import { CyclePanel } from './CyclePanel'
 import { IntimacyPanel } from './IntimacyPanel'
@@ -26,17 +29,37 @@ import { MedicationsPanel } from './MedicationsPanel'
 export function PartnerView({ partnerId, name }: { partnerId: string; name: string }) {
   // Both queries go through RLS. Empty means "not shared, or nothing logged",
   // and the copy below never pretends to know which.
+  const { tzSelf } = useCouple()
   const cycles = useCycles(partnerId)
   const records = useHealthRecords(partnerId)
-  const intimacy = useIntimacy(partnerId)
+  // The same window the panel below asks for, so the two share one fetch.
+  const intimacy = useIntimacy(partnerId, addDaysTo(todayIn(tzSelf), -HISTORY_DAYS + 1))
 
   if (cycles.isLoading || records.isLoading || intimacy.isLoading) {
     return <SkeletonList rows={3} />
   }
 
+  // A failed read is not "not shared". Saying it was would be a false
+  // statement about the other person's consent — the one thing this screen
+  // must never get wrong — so a failure is shown as a failure, with a retry.
+  const failed = cycles.error ?? records.error ?? intimacy.error
+  if (failed) {
+    return (
+      <ErrorState
+        error={failed}
+        title="That did not load"
+        onRetry={() => {
+          void cycles.refetch()
+          void records.refetch()
+          void intimacy.refetch()
+        }}
+      />
+    )
+  }
+
   const hasCycles = (cycles.data?.length ?? 0) > 0
   const hasRecords = (records.data?.length ?? 0) > 0
-  const hasIntimacy = (intimacy.data?.length ?? 0) > 0
+  const hasIntimacy = (intimacy.data ?? []).some((row) => !isEmptyLog(row))
 
   return (
     <div className="space-y-4">

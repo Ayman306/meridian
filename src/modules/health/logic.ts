@@ -689,6 +689,14 @@ export const TIP_CATEGORY_LABELS: Record<TipCategory, string> = {
   connection: 'Between you',
 }
 
+/**
+ * How far back the intimacy list reaches. Bounded because a daily log grows
+ * without limit, and a thirty-day summary has no business downloading three
+ * years of rows to compute itself — nor does the partner's view, which only
+ * needs to know whether anything is there.
+ */
+export const HISTORY_DAYS = 365
+
 /** 0–5, and named so the log reads back as a sentence rather than a score. */
 export const DESIRE_LABELS: Record<number, string> = {
   0: 'Not at all',
@@ -782,4 +790,42 @@ export function isEmptyLog(
     log.orgasms === 0 &&
     (log.notes ?? '').trim() === ''
   )
+}
+
+/**
+ * What saving the day form should actually do.
+ *
+ * The table holds one row per owner per day, and the first version of this
+ * form wrote with an upsert on that pair and no row id. Two ways to lose data
+ * fell out of it: editing an entry and changing its date left the original
+ * behind and silently replaced whatever was on the new date; and logging a day
+ * that already had an entry, from a form that opened blank, wiped the earlier
+ * one. Nothing warned in either case.
+ *
+ * The rule now is that a save never overwrites a day it was not editing:
+ *
+ * - editing a row updates **that row** by id, so changing its date moves it;
+ * - a new entry on an empty day is created;
+ * - anything that would land on a *different* row's day is a conflict, and the
+ *   screen offers to edit that row instead of deciding for the user.
+ */
+export type DaySavePlan =
+  | { kind: 'create' }
+  | { kind: 'update'; id: string }
+  | { kind: 'conflict'; existing: IntimacyLog }
+
+export function planDaySave(
+  rows: readonly IntimacyLog[],
+  editingId: string | null,
+  date: DateOnly,
+): DaySavePlan {
+  const occupant = rows.find((row) => row.logged_on === date) ?? null
+
+  if (editingId) {
+    if (occupant && occupant.id !== editingId) return { kind: 'conflict', existing: occupant }
+    return { kind: 'update', id: editingId }
+  }
+
+  if (occupant) return { kind: 'conflict', existing: occupant }
+  return { kind: 'create' }
 }

@@ -33,8 +33,15 @@ import { addDaysTo, formatDateOnly, todayIn } from '@/lib/dates'
 import { cn, pluralise } from '@/lib/utils'
 import { userMessage } from '@/lib/errors'
 import { useCouple } from '@/providers/CoupleProvider'
-import { DESIRE_LABELS, isEmptyLog, summariseIntimacy } from '../logic'
-import { useDeleteIntimacy, useIntimacy, useSaveIntimacy } from '../hooks'
+import {
+  DESIRE_LABELS,
+  HISTORY_DAYS,
+  isEmptyLog,
+  planDaySave,
+  summariseIntimacy,
+} from '../logic'
+import { useCreateIntimacy, useDeleteIntimacy, useIntimacy, useUpdateIntimacy } from '../hooks'
+import type { DaySavePlan } from '../logic'
 import type { IntimacyLog } from '../types'
 
 const WINDOW_DAYS = 30
@@ -49,9 +56,11 @@ export function IntimacyPanel({
   const { tzSelf } = useCouple()
   const today = todayIn(tzSelf)
   const from = addDaysTo(today, -WINDOW_DAYS + 1)
+  const since = addDaysTo(today, -HISTORY_DAYS + 1)
 
-  const logs = useIntimacy(ownerId)
-  const save = useSaveIntimacy()
+  const logs = useIntimacy(ownerId, since)
+  const create = useCreateIntimacy()
+  const update = useUpdateIntimacy()
   const remove = useDeleteIntimacy()
 
   const [editing, setEditing] = useState<string | null>(null)
@@ -59,8 +68,16 @@ export function IntimacyPanel({
   if (logs.isLoading) return <SkeletonList rows={3} />
   if (logs.error) return <ErrorState error={logs.error} title="That did not load" />
 
+  // An all-empty row cannot be saved from this form any more, but one could
+  // exist from before. The summary and the list count the same rows, so the
+  // card never claims days the list does not show.
   const rows = (logs.data ?? []).filter((row) => !isEmptyLog(row))
-  const summary = summariseIntimacy(logs.data ?? [], from, today)
+  const summary = summariseIntimacy(rows, from, today)
+
+  // The form opens on the row being edited, or on today's entry if there is
+  // one — a blank form over an existing day is how the morning's log got wiped.
+  const todayRow = rows.find((row) => row.logged_on === today) ?? null
+  const subject = (editing ? rows.find((row) => row.id === editing) : todayRow) ?? null
 
   return (
     <div className="space-y-4">
@@ -93,18 +110,30 @@ export function IntimacyPanel({
 
       {!readOnly && (
         <DayForm
-          key={editing ?? 'today'}
-          existing={rows.find((row) => row.id === editing) ?? null}
+          // Remount whenever the row under the form changes — including when
+          // today's entry is first created — so the form never holds values
+          // for a row it no longer describes.
+          key={subject?.id ?? 'new'}
+          existing={subject}
           defaultDate={today}
           maxDate={today}
-          pending={save.isPending}
-          error={save.error}
+          pending={create.isPending || update.isPending}
+          error={create.error ?? update.error}
           onCancel={() => setEditing(null)}
-          onSave={(input) =>
-            save.mutate(input, { onSuccess: () => setEditing(null) })
+          onEditInstead={(id) => setEditing(id)}
+          plan={(date) => planDaySave(rows, subject?.id ?? null, date)}
+          onCreate={(input) => create.mutate(input, { onSuccess: () => setEditing(null) })}
+          onUpdate={(id, patch) =>
+            update.mutate({ id, patch }, { onSuccess: () => setEditing(null) })
           }
         />
       )}
+
+      {remove.error ? (
+        <p className="text-sm text-destructive" role="alert">
+          That entry was not deleted — {userMessage(remove.error)}
+        </p>
+      ) : null}
 
       {rows.length === 0 ? (
         <EmptyState
@@ -118,50 +147,60 @@ export function IntimacyPanel({
           subtle
         />
       ) : (
-        <ul className="divide-y divide-border rounded-lg border border-border">
-          {rows.map((row) => (
-            <li key={row.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5 text-sm">
-              <span className="tabular w-28 shrink-0 text-muted-foreground">
-                {formatDateOnly(row.logged_on, 'd MMM yyyy')}
-              </span>
+        <>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            The last year
+          </h3>
+          <ul className="divide-y divide-border rounded-lg border border-border">
+            {rows.map((row) => (
+              <li key={row.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5 text-sm">
+                <span className="tabular w-28 shrink-0 text-muted-foreground">
+                  {formatDateOnly(row.logged_on, 'd MMM yyyy')}
+                </span>
 
-              {row.desire !== null && (
-                <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">
-                  {DESIRE_LABELS[row.desire] ?? row.desire}
-                </span>
-              )}
-              {row.solo && <span className="text-xs text-muted-foreground">On your own</span>}
-              {row.partnered && <span className="text-xs text-muted-foreground">Together</span>}
-              {row.orgasms > 0 && (
-                <span className="tabular text-xs text-muted-foreground">
-                  {pluralise(row.orgasms, 'orgasm')}
-                </span>
-              )}
-              {row.notes && (
-                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                  {row.notes}
-                </span>
-              )}
+                {row.desire !== null && (
+                  <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">
+                    {DESIRE_LABELS[row.desire] ?? row.desire}
+                  </span>
+                )}
+                {row.solo && <span className="text-xs text-muted-foreground">On your own</span>}
+                {row.partnered && <span className="text-xs text-muted-foreground">Together</span>}
+                {row.orgasms > 0 && (
+                  <span className="tabular text-xs text-muted-foreground">
+                    {pluralise(row.orgasms, 'orgasm')}
+                  </span>
+                )}
+                {row.notes && (
+                  <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                    {row.notes}
+                  </span>
+                )}
 
-              {!readOnly && (
-                <span className="ml-auto flex items-center gap-1">
-                  <Button variant="ghost" size="sm" onClick={() => setEditing(row.id)}>
-                    Edit
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8"
-                    aria-label={`Delete the entry for ${row.logged_on}`}
-                    onClick={() => remove.mutate(row.id)}
-                  >
-                    <Trash2 className="size-4" aria-hidden="true" />
-                  </Button>
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
+                {!readOnly && (
+                  <span className="ml-auto flex items-center gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => setEditing(row.id)}>
+                      Edit
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8"
+                      // A hard delete of the most private row in the app: no
+                      // double-fire while one is in flight, and a failure is
+                      // said out loud above rather than left to look like it
+                      // worked.
+                      disabled={remove.isPending}
+                      aria-label={`Delete the entry for ${row.logged_on}`}
+                      onClick={() => remove.mutate(row.id)}
+                    >
+                      <Trash2 className="size-4" aria-hidden="true" />
+                    </Button>
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   )
@@ -183,30 +222,42 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
  * The date defaults to today and cannot be in the future: this records what
  * happened, and a log you can fill in ahead of time is a plan, which is a
  * different and much stranger thing to keep.
+ *
+ * What a save does is decided by `planDaySave` rather than by the database: a
+ * conflict with another day's entry is shown as a choice — edit that one — and
+ * never resolved by overwriting it.
  */
+type DayInput = {
+  logged_on: string
+  desire: number | null
+  solo: boolean
+  partnered: boolean
+  orgasms: number
+  notes: string | null
+}
+
 function DayForm({
   existing,
   defaultDate,
   maxDate,
   pending,
   error,
-  onSave,
+  plan,
+  onCreate,
+  onUpdate,
   onCancel,
+  onEditInstead,
 }: {
   existing: IntimacyLog | null
   defaultDate: string
   maxDate: string
   pending: boolean
   error: unknown
-  onSave: (input: {
-    logged_on: string
-    desire: number | null
-    solo: boolean
-    partnered: boolean
-    orgasms: number
-    notes: string | null
-  }) => void
+  plan: (date: string) => DaySavePlan
+  onCreate: (input: DayInput) => void
+  onUpdate: (id: string, patch: DayInput) => void
   onCancel: () => void
+  onEditInstead: (id: string) => void
 }) {
   const [date, setDate] = useState(existing?.logged_on ?? defaultDate)
   const [desire, setDesire] = useState<number | null>(existing?.desire ?? null)
@@ -217,14 +268,38 @@ function DayForm({
 
   const count = Number(orgasms)
   const countOk = Number.isInteger(count) && count >= 0 && count <= 50
+  const input: DayInput = {
+    logged_on: date,
+    desire,
+    solo,
+    partnered,
+    orgasms: countOk ? count : 0,
+    notes: notes.trim() || null,
+  }
+  // Nothing recorded is not an entry. Saving it would add a day the list
+  // hides and the summary would have to argue with.
+  const empty = isEmptyLog(input)
+  const decision = date ? plan(date) : null
+
+  const save = () => {
+    if (!decision || decision.kind === 'conflict') return
+    if (decision.kind === 'update') onUpdate(decision.id, input)
+    else onCreate(input)
+  }
 
   return (
     <Card className="space-y-4 p-5">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-medium">{existing ? 'Edit that day' : 'Log a day'}</h3>
-        {existing && (
+        <h3 className="text-sm font-medium">
+          {existing
+            ? existing.logged_on === defaultDate
+              ? 'Today, so far'
+              : 'Edit that day'
+            : 'Log a day'}
+        </h3>
+        {existing && existing.logged_on !== defaultDate && (
           <Button variant="ghost" size="sm" onClick={onCancel}>
-            New entry instead
+            Back to today
           </Button>
         )}
       </div>
@@ -318,6 +393,29 @@ function DayForm({
           That needs to be a whole number between 0 and 50.
         </p>
       )}
+
+      {decision?.kind === 'conflict' && (
+        <p className="flex flex-wrap items-center gap-2 text-sm" role="alert">
+          <span>
+            {formatDateOnly(decision.existing.logged_on, 'd MMM')} already has an entry, and saving
+            here would replace it.
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onEditInstead(decision.existing.id)}
+          >
+            Edit that day instead
+          </Button>
+        </p>
+      )}
+
+      {existing && empty && (
+        <p className="text-sm text-muted-foreground">
+          Nothing left on this day — delete the entry from the list below instead.
+        </p>
+      )}
+
       {error ? (
         <p className="text-sm text-destructive" role="alert">
           {userMessage(error)}
@@ -325,19 +423,12 @@ function DayForm({
       ) : null}
 
       <Button
-        disabled={pending || !date || !countOk}
-        onClick={() =>
-          onSave({
-            logged_on: date,
-            desire,
-            solo,
-            partnered,
-            orgasms: count,
-            notes: notes.trim() || null,
-          })
+        disabled={
+          pending || !date || !countOk || empty || !decision || decision.kind === 'conflict'
         }
+        onClick={save}
       >
-        {pending ? 'Saving…' : 'Save the day'}
+        {pending ? 'Saving…' : existing ? 'Save changes' : 'Save the day'}
       </Button>
     </Card>
   )

@@ -2920,6 +2920,26 @@ the scale.
 targets, no comparison to last month, no "shared" badge nudging toward
 sharing. A private log that starts grading you is one you stop keeping.
 
+**The first version lost data two ways, and a review pass found both.** It
+saved with an upsert on `(owner_id, logged_on)` and no row id. Editing an entry
+and changing its date left the original behind and silently replaced whatever
+was already on the new date; logging a day that already had an entry, from a
+form that opened blank, wiped the earlier one. Neither warned. `planDaySave` now
+makes the decision explicitly and is unit-tested for each case: an edit updates
+*that row* by id, so changing its date moves it; a new entry is an insert, not
+an upsert, so the one-row-per-day constraint turns a stale form into an error
+rather than an overwrite; and anything landing on a different entry's day is a
+conflict, shown with an "edit that day instead" button rather than resolved for
+the user. The form also opens on today's entry when there is one.
+
+The same pass found smaller things, all fixed: the summary counted empty rows
+the list hid, so an all-empty day can no longer be saved and both count the same
+rows; a failed delete went unreported; the partner view read a failed query as
+"not shared" — a false statement about somebody's consent — and now shows the
+failure with a retry; and the log fetched a person's entire history to compute a
+thirty-day summary, now bounded to a year by making `from` a required argument
+so no caller can forget it.
+
 ### D137 — Wellness guidance is a pointer, and gender is a first sort
 
 The guidance table is `medication_restrictions` in a different subject: every
@@ -2966,13 +2986,33 @@ putting it ahead of the partner in every scan order the old query could take.
 It failed deterministically against the old function and passes against 0037.
 
 **The rule:** a partner is the other *owner or partner* in a space of kind
-`couple`. Friends and guests are members and never partners, whoever asks, and
-ties break on `joined_at` then `user_id`. A friend asking gets the couple's
-earliest owner rather than null, because the client reads a null partner as
-"your partner deleted their account" — a friend is not orphaned, and a stable
-name is what they saw before minus the randomness. `my_couple_id()` had the same
-unordered `limit 1`; unreachable while nobody can belong to two spaces, and
-ordered now so it stays that way.
+`couple`, asked by an owner or partner. Friends and guests are members and never
+partners — ask as one and the answer is null — and ties break on `joined_at`
+then `user_id`. `my_couple_id()` and `my_role()` had the same unordered `limit
+1`; unreachable while nobody can belong to two spaces, and ordered now so they
+stay that way. The live couple has both members as `partner`, so it resolves
+exactly as before.
+
+**The first draft of the fix introduced its own leak, and the review caught
+it.** To stop the client showing a friend as "orphaned", 0037 first answered a
+friend with the couple's owner — which, through `profiles read partner`, handed
+every friend the owner's profile and home location, contradicting the
+migration's own stated reason for existing. The worry behind it was also
+unfounded: nothing reads `isOrphaned`, and every screen that uses `partnerRef`
+already guards for null because solo mode always produced one. So a friend now
+gets null, and `isOrphaned` carries a comment saying it is only meaningful for
+an owner or partner.
+
+**Consent now follows the relationship, not just the row.** `has_health_consent`
+used to check only that a consent row existed. A grant that had reached a friend
+through the old coin-flip would have kept working after the fix — while the
+Sharing screen, now keyed on the real partner, could not even show it to be
+revoked. The same hole let a *former* partner keep reading after leaving, if
+nobody revoked first. Health sharing has only ever been offered to the partner,
+so it now requires one: `partner_id() = owner`, evaluated as the viewer. A stray
+row grants nothing, and leaving a couple ends access without anyone having to
+think about it. Asserted both ways — the friend's grant does nothing, the same
+grant to the partner still works, and a former partner reads nothing.
 
 **What was deliberately not done:** widening `profiles` so a friend can read
 every member. A profile holds home coordinates, gender and timezone, and a

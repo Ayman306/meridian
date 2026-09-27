@@ -16,6 +16,7 @@ import {
   groupTips,
   hasConsent,
   isEmptyLog,
+  planDaySave,
   summariseIntimacy,
   visibleTips,
   matchRestrictions,
@@ -549,5 +550,38 @@ describe('the intimacy log', () => {
     // Sharing a cycle must never imply sharing this.
     expect(SCOPES).toContain('intimacy')
     expect(grantedScopes([], 'them')).not.toContain('intimacy')
+  })
+})
+
+describe('planDaySave', () => {
+  const row = (id: string, logged_on: string) =>
+    ({ id, logged_on, desire: 3, solo: false, partnered: false, orgasms: 0, notes: null }) as IntimacyLog
+  const rows = [row('a', '2026-09-01'), row('b', '2026-09-03')]
+
+  it('creates a new entry on an empty day', () => {
+    expect(planDaySave(rows, null, '2026-09-02')).toEqual({ kind: 'create' })
+  })
+
+  it('refuses a new entry on a day that already has one', () => {
+    // The bug: a blank form saved over the morning's entry.
+    const plan = planDaySave(rows, null, '2026-09-01')
+    expect(plan.kind).toBe('conflict')
+    expect(plan.kind === 'conflict' && plan.existing.id).toBe('a')
+  })
+
+  it('updates the row being edited, by id', () => {
+    expect(planDaySave(rows, 'a', '2026-09-01')).toEqual({ kind: 'update', id: 'a' })
+  })
+
+  it('moves an edited row to an empty day rather than duplicating it', () => {
+    // The bug: the 1 Sep row stayed and a copy appeared on the 2nd.
+    expect(planDaySave(rows, 'a', '2026-09-02')).toEqual({ kind: 'update', id: 'a' })
+  })
+
+  it('refuses to move an edited row onto another entry', () => {
+    // The bug: the 3 Sep entry was silently replaced.
+    const plan = planDaySave(rows, 'a', '2026-09-03')
+    expect(plan.kind).toBe('conflict')
+    expect(plan.kind === 'conflict' && plan.existing.id).toBe('b')
   })
 })

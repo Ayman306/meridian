@@ -125,21 +125,30 @@ export async function listIntimacy(ownerId: string, from?: DateOnly): Promise<In
 }
 
 /**
- * Write the entry for one day.
- *
- * Upsert rather than insert-or-update by hand: the table holds one row per
- * owner per day, and editing yesterday is the same act as recording it.
+ * A new day. Insert, not upsert: the one-row-per-day constraint is what turns
+ * a stale form into an error instead of a silent overwrite. `planDaySave`
+ * decides beforehand whether this is the right call.
  */
-export async function saveIntimacy(
+export async function createIntimacy(
   ownerId: string,
   input: Omit<InsertDto<'intimacy_logs'>, 'owner_id'>,
 ): Promise<IntimacyLog> {
   return unwrap(
     await supabase
       .from('intimacy_logs')
-      .upsert({ ...input, owner_id: ownerId }, { onConflict: 'owner_id,logged_on' })
+      .insert({ ...input, owner_id: ownerId })
       .select('*')
       .single(),
+  )
+}
+
+/** One existing row, by id — so changing its date moves it. */
+export async function updateIntimacy(
+  id: string,
+  patch: UpdateDto<'intimacy_logs'>,
+): Promise<IntimacyLog> {
+  return unwrap(
+    await supabase.from('intimacy_logs').update(patch).eq('id', id).select('*').single(),
   )
 }
 

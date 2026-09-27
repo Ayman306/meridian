@@ -85,6 +85,8 @@ export const qk = {
   healthConsents: ['health-consents'] as const,
   cycles: (ownerId: string) => ['cycles', ownerId] as const,
   healthRecords: (ownerId: string, kind: string) => ['health-records', ownerId, kind] as const,
+  intimacy: (ownerId: string, from: string) => ['intimacy', ownerId, from] as const,
+  wellnessTips: ['wellness-tips'] as const,
   restrictions: (countryCode: string) => ['restrictions', countryCode] as const,
 
   documents: (filter?: string) => ['documents', filter ?? 'all'] as const,

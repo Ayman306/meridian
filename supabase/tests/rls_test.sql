@@ -2211,13 +2211,55 @@ select assert(
   'and the partner''s partner is the owner, never the friend'
 );
 
--- A friend is nobody's partner, but must not look orphaned either: the client
--- reads a null partner as "your partner deleted their account". So a friend
--- gets the couple's earliest member, deterministically.
+-- A friend is nobody's partner. The first draft of 0037 answered the owner here,
+-- so the client would not show a friend as orphaned — and in doing so handed
+-- every friend the owner's profile, home location included, through `profiles
+-- read partner`. The client now knows a friend is not orphaned from their role,
+-- so the database can give the true answer.
 set request.jwt.claim.sub = :'x_friend';
 select assert(
-  public.partner_id() = :'eve_eve'::uuid,
-  'a friend gets a stable answer — the owner — rather than a coin-flip'
+  public.partner_id() is null,
+  'a friend has no partner'
+);
+select assert(
+  (select count(*) from public.profiles where id <> :'x_friend') = 0,
+  'and reads no profile but their own — not the owner''s, not the partner''s'
+);
+
+-- Consent follows the relationship, not just the row. A grant that reached a
+-- friend — which the old coin-flip made possible from the Sharing screen —
+-- must grant nothing, because the Sharing screen now keys on the real partner
+-- and the owner could not even see it to revoke it.
+set request.jwt.claim.sub = :'eve_eve';
+insert into public.cycle_logs (owner_id, started_on) values (:'eve_eve', '2026-08-01')
+returning id as cycle \gset eve_
+insert into public.health_consents (owner_id, viewer_id, scope)
+values (:'eve_eve', :'x_friend', 'cycle');
+
+set request.jwt.claim.sub = :'x_friend';
+select assert(
+  (select count(*) from public.cycle_logs where id = :'eve_cycle') = 0,
+  'a consent row pointing at a friend grants the friend nothing'
+);
+
+set request.jwt.claim.sub = :'eve_eve';
+insert into public.health_consents (owner_id, viewer_id, scope)
+values (:'eve_eve', :'x_mate', 'cycle');
+set request.jwt.claim.sub = :'x_mate';
+select assert(
+  (select count(*) from public.cycle_logs where id = :'eve_cycle') = 1,
+  'while the same grant to the actual partner still works'
+);
+
+-- And it stops working the moment they are no longer partners, whether or not
+-- anybody remembered to revoke it. Leaving a couple is not a sharing decision.
+reset role;
+delete from public.couple_members where couple_id = :'eve_couple' and user_id = :'x_mate';
+set role authenticated;
+set request.jwt.claim.sub = :'x_mate';
+select assert(
+  (select count(*) from public.cycle_logs where id = :'eve_cycle') = 0,
+  'a former partner reads nothing, even with a consent row nobody revoked'
 );
 
 -- The same unordered `limit 1` sat in my_couple_id(). Unreachable while nobody
@@ -2226,6 +2268,10 @@ set request.jwt.claim.sub = :'eve_eve';
 select assert(
   public.my_couple_id() = :'eve_couple'::uuid,
   'my_couple_id() resolves to the couple'
+);
+select assert(
+  public.my_role() = 'owner',
+  'and my_role() describes the same space'
 );
 
 -- ---------------------------------------------------------------------------

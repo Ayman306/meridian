@@ -183,21 +183,35 @@ export function useDeleteAllHealthData() {
  * empty list unless they have granted the `intimacy` scope, because RLS says
  * so and not because this hook checked.
  */
-export function useIntimacy(ownerId: string | null, from?: DateOnly) {
+export function useIntimacy(ownerId: string | null, from: DateOnly) {
   return useQuery({
-    queryKey: ['intimacy', ownerId ?? 'none', from ?? 'all'] as const,
+    queryKey: qk.intimacy(ownerId ?? 'none', from),
     queryFn: () => api.listIntimacy(ownerId!, from),
     enabled: Boolean(ownerId),
   })
 }
 
-export function useSaveIntimacy() {
+/** Every intimacy query, whoever's and whatever window, is stale after a write. */
+function invalidateIntimacy(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === qk.intimacy('', '')[0] })
+}
+
+export function useCreateIntimacy() {
   const qc = useQueryClient()
   const ownerId = useOwnerId()
   return useMutation({
     mutationFn: (input: Omit<InsertDto<'intimacy_logs'>, 'owner_id'>) =>
-      api.saveIntimacy(ownerId!, input),
-    onSuccess: () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'intimacy' }),
+      api.createIntimacy(ownerId!, input),
+    onSuccess: () => invalidateIntimacy(qc),
+  })
+}
+
+export function useUpdateIntimacy() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: UpdateDto<'intimacy_logs'> }) =>
+      api.updateIntimacy(id, patch),
+    onSuccess: () => invalidateIntimacy(qc),
   })
 }
 
@@ -205,7 +219,7 @@ export function useDeleteIntimacy() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: api.deleteIntimacy,
-    onSuccess: () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'intimacy' }),
+    onSuccess: () => invalidateIntimacy(qc),
   })
 }
 
@@ -215,7 +229,7 @@ export function useDeleteIntimacy() {
  */
 export function useWellnessTips() {
   return useQuery({
-    queryKey: ['wellness-tips'] as const,
+    queryKey: qk.wellnessTips,
     queryFn: api.listWellnessTips,
     staleTime: 60 * 60_000,
   })
