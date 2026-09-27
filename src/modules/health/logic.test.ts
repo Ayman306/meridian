@@ -578,6 +578,15 @@ describe('planDaySave', () => {
     expect(planDaySave(rows, 'a', '2026-09-02')).toEqual({ kind: 'update', id: 'a' })
   })
 
+  it('fills in an empty day rather than calling it a conflict', () => {
+    // It holds its date but nothing else, so there is nothing to lose.
+    const empty = {
+      id: 'e', logged_on: '2026-09-05', desire: null, solo: false,
+      partnered: false, orgasms: 0, notes: null,
+    } as IntimacyLog
+    expect(planDaySave([...rows, empty], null, '2026-09-05')).toEqual({ kind: 'update', id: 'e' })
+  })
+
   it('refuses to move an edited row onto another entry', () => {
     // The bug: the 3 Sep entry was silently replaced.
     const plan = planDaySave(rows, 'a', '2026-09-03')

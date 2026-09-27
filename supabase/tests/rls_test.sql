@@ -2274,6 +2274,39 @@ select assert(
   'and my_role() describes the same space'
 );
 
+-- Two memberships is reachable: `join_couple` only refuses a *partner* invite
+-- to someone already an owner or partner, so a friend on Eve's trip can accept
+-- a partner invite elsewhere. Their own couple must win, even though they
+-- joined it later — the unordered read would have handed back Eve's.
+reset role;
+select auth.test_signup('zed@example.com', 'Zed Other') as zed \gset zed_
+insert into public.couples (name, kind, created_by)
+values ('Their own', 'couple', :'x_friend')
+returning id as own \gset x_
+insert into public.couple_members (couple_id, user_id, role, joined_at)
+values (:'x_own', :'x_friend', 'partner', now());
+insert into public.couple_members (couple_id, user_id, role, joined_at)
+values (:'x_own', :'zed_zed', 'partner', now());
+set role authenticated;
+
+set request.jwt.claim.sub = :'x_friend';
+select assert(
+  public.my_couple_id() = :'x_own'::uuid,
+  'with two memberships, my couple is the one I am a partner in, not the one I visit'
+);
+select assert(
+  public.my_role() = 'partner',
+  'and my role is the partner role, not the friend one'
+);
+select assert(
+  public.my_modules() = public.all_modules(),
+  'and my modules are my own couple''s, not the friend whitelist'
+);
+select assert(
+  public.partner_id() = :'zed_zed'::uuid,
+  'and my partner is my actual partner'
+);
+
 -- ---------------------------------------------------------------------------
 \echo ''
 \echo '== leaving =='

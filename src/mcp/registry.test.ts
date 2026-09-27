@@ -66,6 +66,24 @@ describe('the sensitive modules', () => {
     expect(filters.length).toBeGreaterThanOrEqual(queries.length)
   })
 
+  it('has no way to reach the intimacy log at all', () => {
+    // Not a gated tool — no tool. Cycle logs are reachable over MCP because
+    // "when is she due, should I move the flight" is worth answering out loud;
+    // this is not, and the safest guarantee is that the capability does not
+    // exist rather than that a prompt declines it. `mcp/README.md` promises
+    // exactly that, so the promise is enforced here: every file in the MCP
+    // layer and its route is scanned, so a new tool anywhere fails the suite.
+    const roots = [join(process.cwd(), 'src/mcp'), join(process.cwd(), 'src/app/api/mcp')]
+    const files = roots.flatMap((root) =>
+      (readdirSync(root, { recursive: true }) as string[])
+        .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+        .map((f) => join(root, f)),
+    )
+    expect(files.length).toBeGreaterThan(0)
+    const offenders = files.filter((file) => readFileSync(file, 'utf8').includes('intimacy_logs'))
+    expect(offenders).toEqual([])
+  })
+
   it('never exposes a document file, link or number', () => {
     // The column list in the query is the boundary. `storage_path` would invite
     // a fetch; a signed URL outliving its 300 seconds in a model's context

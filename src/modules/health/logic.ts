@@ -826,6 +826,10 @@ export function planDaySave(
     return { kind: 'update', id: editingId }
   }
 
+  // An all-empty row still holds its day, but it holds nothing else — filling
+  // it in loses no data, so it is reused rather than reported as a conflict
+  // that would have nothing on it to go and edit.
+  if (occupant && isEmptyLog(occupant)) return { kind: 'update', id: occupant.id }
   if (occupant) return { kind: 'conflict', existing: occupant }
   return { kind: 'create' }
 }

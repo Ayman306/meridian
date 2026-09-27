@@ -2932,6 +2932,17 @@ rather than an overwrite; and anything landing on a different entry's day is a
 conflict, shown with an "edit that day instead" button rather than resolved for
 the user. The form also opens on today's entry when there is one.
 
+A second pass found the fix had edges of its own, all closed: after a
+back-dated save the form stayed on that day and immediately reported a conflict
+with the row it had just created, so it now remounts fresh onto today after any
+save; deleting the entry being edited left a blank form sitting over today's
+entry; an old error lingered under a later successful save of a different day;
+the date picker allowed days older than the loaded year, which were then planned
+against nothing; and a hard delete of this row now asks once, since a mis-tap on
+a phone is the realistic way it goes wrong and there is no undo. An all-empty
+row — which nothing can create any more — no longer counts as a conflict, since
+filling in its day loses nothing.
+
 The same pass found smaller things, all fixed: the summary counted empty rows
 the list hid, so an all-empty day can no longer be saved and both count the same
 rows; a failed delete went unreported; the partner view read a failed query as
@@ -3013,6 +3024,32 @@ so it now requires one: `partner_id() = owner`, evaluated as the viewer. A stray
 row grants nothing, and leaving a couple ends access without anyone having to
 think about it. Asserted both ways — the friend's grant does nothing, the same
 grant to the partner still works, and a former partner reads nothing.
+
+**A second review pass found the same bug in three more places.** "Which space
+is mine" was answered by an unordered read in `my_couple_id()`, `my_role()`,
+`my_modules()`, the app's `getCouple()` and the MCP's `resolveCoupleId()`. The
+first draft called that unreachable because group spaces are a non-goal. It is
+reachable: `join_couple` only refuses a *partner* invite to somebody already an
+owner or partner, so a friend on another couple's trip can accept a partner
+invite and hold two memberships — after which the screens, and worse the
+assistant, could act on the wrong couple. All five now resolve the same way:
+the membership where you are an owner or partner first, a couple over a group,
+then the earliest. The client and the MCP both ask `my_couple_id()` rather
+than reading `couples` themselves, so they cannot disagree with the policies.
+Asserted with a user who is a friend in one couple and a partner in another.
+
+**The consent check moved into the policies, once per query.** The first draft
+put `partner_id() = owner` inside `has_health_consent`, which RLS evaluates per
+row — a three-table join per row, roughly doubling the cost of reading a year of
+logs. Each viewer policy now carries `owner_id = (select public.partner_id())`,
+which Postgres evaluates once as an initPlan (confirmed in `EXPLAIN`: `InitPlan
+1`, filter `owner_id = $0`) and which prunes every non-partner row before
+`has_health_consent` runs. That function is back to its 0014 body.
+
+**The privacy promise about the assistant is now a test, not a sentence.**
+`registry.test.ts` scans every file in `src/mcp` and the MCP route for
+`intimacy_logs` and fails on any mention — confirmed by planting one and
+watching the suite go red.
 
 **What was deliberately not done:** widening `profiles` so a friend can read
 every member. A profile holds home coordinates, gender and timezone, and a

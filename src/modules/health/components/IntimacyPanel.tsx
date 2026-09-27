@@ -26,6 +26,7 @@
 import { useState } from 'react'
 import { HeartHandshake, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { Card } from '@/components/ui/card'
 import { Field, Input, Textarea } from '@/components/ui/input'
 import { EmptyState, ErrorState, SkeletonList } from '@/components/common/states'
@@ -64,6 +65,28 @@ export function IntimacyPanel({
   const remove = useDeleteIntimacy()
 
   const [editing, setEditing] = useState<string | null>(null)
+  // Bumped after every successful save, so the form remounts fresh — back on
+  // today — instead of lingering on the day it just saved and then reporting
+  // a conflict with its own new row.
+  const [formNonce, setFormNonce] = useState(0)
+  const [confirmDelete, setConfirmDelete] = useState<IntimacyLog | null>(null)
+
+  // Mutation state lives here, above the form, so it outlives the form's own
+  // remounts. A failed create must not keep showing its error under a later
+  // successful update of a different day.
+  const clearErrors = () => {
+    create.reset()
+    update.reset()
+  }
+  const openDay = (id: string | null) => {
+    clearErrors()
+    setEditing(id)
+  }
+  const saved = () => {
+    clearErrors()
+    setEditing(null)
+    setFormNonce((n) => n + 1)
+  }
 
   if (logs.isLoading) return <SkeletonList rows={3} />
   if (logs.error) return <ErrorState error={logs.error} title="That did not load" />
@@ -77,7 +100,9 @@ export function IntimacyPanel({
   // The form opens on the row being edited, or on today's entry if there is
   // one — a blank form over an existing day is how the morning's log got wiped.
   const todayRow = rows.find((row) => row.logged_on === today) ?? null
-  const subject = (editing ? rows.find((row) => row.id === editing) : todayRow) ?? null
+  // If the row being edited has gone — deleted from the list below — fall back
+  // to today's entry rather than to a blank form sitting over it.
+  const subject = (editing ? rows.find((row) => row.id === editing) : undefined) ?? todayRow
 
   return (
     <div className="space-y-4">
@@ -113,19 +138,22 @@ export function IntimacyPanel({
           // Remount whenever the row under the form changes — including when
           // today's entry is first created — so the form never holds values
           // for a row it no longer describes.
-          key={subject?.id ?? 'new'}
+          key={`${subject?.id ?? 'new'}:${formNonce}`}
           existing={subject}
           defaultDate={today}
+          minDate={since}
           maxDate={today}
           pending={create.isPending || update.isPending}
           error={create.error ?? update.error}
-          onCancel={() => setEditing(null)}
-          onEditInstead={(id) => setEditing(id)}
-          plan={(date) => planDaySave(rows, subject?.id ?? null, date)}
-          onCreate={(input) => create.mutate(input, { onSuccess: () => setEditing(null) })}
-          onUpdate={(id, patch) =>
-            update.mutate({ id, patch }, { onSuccess: () => setEditing(null) })
-          }
+          onCancel={() => openDay(null)}
+          onEditInstead={(id) => openDay(id)}
+          // Planned against every loaded row, empty ones included: an old
+          // all-empty row still holds its day in the database, and planning
+          // around it as though it did not would turn a clear conflict into a
+          // bare "already exists" from the constraint.
+          plan={(date) => planDaySave(logs.data ?? [], subject?.id ?? null, date)}
+          onCreate={(input) => create.mutate(input, { onSuccess: saved })}
+          onUpdate={(id, patch) => update.mutate({ id, patch }, { onSuccess: saved })}
         />
       )}
 
@@ -178,7 +206,7 @@ export function IntimacyPanel({
 
                 {!readOnly && (
                   <span className="ml-auto flex items-center gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => setEditing(row.id)}>
+                    <Button variant="ghost" size="sm" onClick={() => openDay(row.id)}>
                       Edit
                     </Button>
                     <Button
@@ -191,7 +219,7 @@ export function IntimacyPanel({
                       // worked.
                       disabled={remove.isPending}
                       aria-label={`Delete the entry for ${row.logged_on}`}
-                      onClick={() => remove.mutate(row.id)}
+                      onClick={() => setConfirmDelete(row)}
                     >
                       <Trash2 className="size-4" aria-hidden="true" />
                     </Button>
@@ -202,6 +230,29 @@ export function IntimacyPanel({
           </ul>
         </>
       )}
+
+      {/* A hard delete with no undo, of the most private row in the app. One
+          question is worth asking; a mis-tap on a phone is the realistic way
+          this goes wrong. */}
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={
+          confirmDelete
+            ? `Delete ${formatDateOnly(confirmDelete.logged_on, 'd MMM yyyy')}?`
+            : 'Delete this entry?'
+        }
+        description="It is removed for good. There is no undo and nothing is kept."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (confirmDelete) {
+            if (confirmDelete.id === editing) openDay(null)
+            remove.mutate(confirmDelete.id)
+          }
+          setConfirmDelete(null)
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   )
 }
@@ -239,6 +290,7 @@ type DayInput = {
 function DayForm({
   existing,
   defaultDate,
+  minDate,
   maxDate,
   pending,
   error,
@@ -250,6 +302,8 @@ function DayForm({
 }: {
   existing: IntimacyLog | null
   defaultDate: string
+  /** The oldest day the list has loaded. Earlier days are not planned against. */
+  minDate: string
   maxDate: string
   pending: boolean
   error: unknown
@@ -310,6 +364,7 @@ function DayForm({
             id="intimacy-date"
             type="date"
             value={date}
+            min={minDate}
             max={maxDate}
             onChange={(e) => setDate(e.target.value)}
           />

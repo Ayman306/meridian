@@ -24,7 +24,8 @@ import { ExternalLink } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { EmptyState, ErrorState, SkeletonList } from '@/components/common/states'
 import { formatDateOnly, todayIn } from '@/lib/dates'
-import { freshness } from '@/lib/advisory'
+import { describeFreshness, freshness } from '@/lib/advisory'
+import { AdvisoryNote } from '@/modules/allowance'
 import { cn } from '@/lib/utils'
 import { useCouple } from '@/providers/CoupleProvider'
 import { TIP_CATEGORY_LABELS, groupTips, visibleTips } from '../logic'
@@ -86,7 +87,9 @@ export function WellnessPanel() {
             <h3 className="text-sm font-semibold">{TIP_CATEGORY_LABELS[group.category]}</h3>
             <div className="space-y-2">
               {group.tips.map((tip) => {
-                const stale = tip.verified_on ? freshness(tip.verified_on, today)?.stale : false
+                // The same wording the visa rules and stay allowances use, from
+                // the one function that owns it — not a third phrasing of "old".
+                const staleness = describeFreshness(freshness(tip.verified_on, today))
                 return (
                   <Card key={tip.id} className="space-y-1.5 p-4">
                     <p className="text-sm font-medium">{tip.title}</p>
@@ -104,10 +107,8 @@ export function WellnessPanel() {
                       {tip.verified_on && (
                         <span>
                           written down {formatDateOnly(tip.verified_on, 'd MMM yyyy')}
-                          {/* Guidance moves. An old note says so rather than
-                              looking exactly like a fresh one. */}
-                          {stale && (
-                            <span className="text-[hsl(var(--warn))]"> — old, open the link</span>
+                          {staleness && (
+                            <span className="text-[hsl(var(--warn))]"> — {staleness}</span>
                           )}
                         </span>
                       )}
@@ -120,11 +121,9 @@ export function WellnessPanel() {
         ))
       )}
 
-      <p className="text-xs text-muted-foreground">
-        General information, not medical advice, and none of it is a target. The linked page is
-        the authority — and anything painful, persistent or worrying is a GP appointment rather
-        than a reading list.
-      </p>
+      {/* The app's one disclaimer component, so this line cannot quietly go
+          missing from one screen after a refactor. */}
+      <AdvisoryNote text="General information, not medical advice, and none of it is a target. The linked page is the authority — and anything painful, persistent or worrying is a GP appointment rather than a reading list." />
     </div>
   )
 }

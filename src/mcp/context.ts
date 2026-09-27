@@ -52,15 +52,19 @@ export function createUserClient(baseUrl: string, anonKey: string, jwt: string) 
 /**
  * Find the couple behind the session.
  *
- * `limit(1)` is safe precisely because RLS has already narrowed `couples` to
- * the caller's own row — the same reason `getCouple` in the auth module can do
- * it. If that policy ever loosened, this would be the second thing to break,
- * and the RLS test suite is what stops it.
+ * This used to be `couples … limit(1)`, on the reasoning that RLS narrows
+ * `couples` to the caller's own row. It does not: somebody who is a friend on
+ * another couple's trip can read that couple too, and an unordered read could
+ * hand it back — after which every tool call, adding itinerary items and
+ * logging expenses included, would act on the wrong couple. `my_couple_id()`
+ * prefers the membership where the caller is an owner or partner (0037), and
+ * the app's own `getCouple` asks the same question, so the assistant and the
+ * screens always agree on whose space this is.
  */
 export async function resolveCoupleId(
   supabase: SupabaseClient<Database>,
 ): Promise<string | null> {
-  const { data, error } = await supabase.from('couples').select('id').limit(1).maybeSingle()
+  const { data, error } = await supabase.rpc('my_couple_id')
   if (error) throw new Error(`Could not read the couple: ${error.message}`)
-  return data?.id ?? null
+  return data ?? null
 }
