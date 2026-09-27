@@ -2943,6 +2943,14 @@ a phone is the realistic way it goes wrong and there is no undo. An all-empty
 row — which nothing can create any more — no longer counts as a conflict, since
 filling in its day loses nothing.
 
+A third pass closed the last edges: a typed date outside the loaded year
+bypassed the picker's `min` and is now refused before planning; resetting a
+mutation while it was in flight detached its `onSuccess`, so navigation is
+disabled while saving; the form remounted before the refetch landed and could
+plan against a stale list, so the mutations now return the invalidation
+promise and the remount waits for it; and deleting the entry being edited no
+longer discards an unsaved edit when the delete fails.
+
 The same pass found smaller things, all fixed: the summary counted empty rows
 the list hid, so an all-empty day can no longer be saved and both count the same
 rows; a failed delete went unreported; the partner view read a failed query as
@@ -3050,6 +3058,45 @@ which Postgres evaluates once as an initPlan (confirmed in `EXPLAIN`: `InitPlan
 `registry.test.ts` scans every file in `src/mcp` and the MCP route for
 `intimacy_logs` and fails on any mention — confirmed by planting one and
 watching the suite go red.
+
+**A third pass found a privilege escalation that the second round's fix made
+certain.** `couple_settings` "partners write" authorised with `is_couple_member
+(couple_id) and my_role() in ('owner','partner')` — but `my_role()` is the
+caller's role in *their* space, not in the couple being written. A friend on
+Eve's trip who is a partner at home passed it for Eve's couple and could
+rewrite her settings. It had been a coin-flip; ordering `my_role()` to prefer
+the partner membership turned it into a certainty. Reproduced first, then
+fixed at the root: a global role is the wrong tool for a per-couple decision,
+so `is_couple_partner(couple_id)` answers the per-couple question and replaces
+`my_role()` wherever a policy authorised with it. **Rule: never authorise a
+per-couple action with `my_role()`, `my_couple_id()` or `my_modules()` — they
+describe the caller's own space, not the row's.** `create_invite` still uses
+them, and is correct only because it also *targets* `my_couple_id()`, so the
+role and the couple come from the same membership.
+
+Two older gaps sat beside it and closed the same way. `invites` "couple write"
+let any member write an invite directly, although `create_invite` refuses a
+friend or guest; the grant trigger still stopped sensitive modules at redeem
+time, so the leak was bounded, but it let a guest invite others to modules the
+guest could not see. And `couple_members` had no update policy and deleted
+only your own row, so Settings' "change what they see" and "remove" both
+affected **zero rows and reported success** — a friend you removed kept their
+access. Partners may now update and remove friends and guests in their own
+couple; never each other, and a friend can never raise their own role. Each is
+asserted in both directions, including that the owner keeps every power they
+should have.
+
+`has_health_consent` got its relationship check back, as an indexed pair
+lookup: it is callable as an RPC, and without it a former partner could ask it
+directly and learn their consent row was never revoked. The policy prefilter
+stays, so the check runs only for the partner's rows. `getCouple()` went to two
+serial round trips and is back to one through `my_couple()`, which returns
+`setof` so that "no couple" is an empty result rather than a row of nulls.
+
+The MCP guard now closes four ways in rather than one — the table by name, the
+health module's data functions by name, the health data layer by import, and
+any database function that touches the table — each confirmed by planting a
+violation and watching the suite fail.
 
 **What was deliberately not done:** widening `profiles` so a friend can read
 every member. A profile holds home coordinates, gender and timezone, and a

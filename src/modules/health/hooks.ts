@@ -191,9 +191,17 @@ export function useIntimacy(ownerId: string | null, from: DateOnly) {
   })
 }
 
-/** Every intimacy query, whoever's and whatever window, is stale after a write. */
+/**
+ * Every intimacy query, whoever's and whatever window, is stale after a write.
+ *
+ * Returned, not fired and forgotten: a mutation's `onSuccess` that returns a
+ * promise keeps the mutation pending until it settles, so the caller's own
+ * `onSuccess` — which remounts the day form — runs only once the list holds
+ * the row just written. Without that, the fresh form planned against the old
+ * list and a quick second save could collide with the first.
+ */
 function invalidateIntimacy(qc: ReturnType<typeof useQueryClient>) {
-  void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === qk.intimacy('', '')[0] })
+  return qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === qk.intimacy('', '')[0] })
 }
 
 export function useCreateIntimacy() {

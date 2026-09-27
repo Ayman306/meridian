@@ -106,9 +106,11 @@ export function WellnessPanel() {
                       </a>
                       {tip.verified_on && (
                         <span>
-                          written down {formatDateOnly(tip.verified_on, 'd MMM yyyy')}
+                          Written down {formatDateOnly(tip.verified_on, 'd MMM yyyy')}.
+                          {/* A whole sentence, meant to follow a full stop — the
+                              same shape AdvisoryNote gives it. */}
                           {staleness && (
-                            <span className="text-[hsl(var(--warn))]"> — {staleness}</span>
+                            <span className="text-[hsl(var(--warn))]"> {staleness}</span>
                           )}
                         </span>
                       )}

@@ -74,11 +74,17 @@ export function IntimacyPanel({
   // Mutation state lives here, above the form, so it outlives the form's own
   // remounts. A failed create must not keep showing its error under a later
   // successful update of a different day.
+  const saving = create.isPending || update.isPending
   const clearErrors = () => {
-    create.reset()
-    update.reset()
+    // Never while a save is in flight: `reset()` detaches the observer, so the
+    // save's own `onSuccess` would never run and its pending state would be
+    // lost — re-enabling Save for a duplicate. Navigation is disabled while
+    // saving for the same reason.
+    if (!create.isPending) create.reset()
+    if (!update.isPending) update.reset()
   }
   const openDay = (id: string | null) => {
+    if (saving) return
     clearErrors()
     setEditing(id)
   }
@@ -102,7 +108,8 @@ export function IntimacyPanel({
   const todayRow = rows.find((row) => row.logged_on === today) ?? null
   // If the row being edited has gone — deleted from the list below — fall back
   // to today's entry rather than to a blank form sitting over it.
-  const subject = (editing ? rows.find((row) => row.id === editing) : undefined) ?? todayRow
+  const subject =
+    (editing ? (logs.data ?? []).find((row) => row.id === editing) : undefined) ?? todayRow
 
   return (
     <div className="space-y-4">
@@ -143,7 +150,7 @@ export function IntimacyPanel({
           defaultDate={today}
           minDate={since}
           maxDate={today}
-          pending={create.isPending || update.isPending}
+          pending={saving}
           error={create.error ?? update.error}
           onCancel={() => openDay(null)}
           onEditInstead={(id) => openDay(id)}
@@ -206,7 +213,12 @@ export function IntimacyPanel({
 
                 {!readOnly && (
                   <span className="ml-auto flex items-center gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => openDay(row.id)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={saving}
+                      onClick={() => openDay(row.id)}
+                    >
                       Edit
                     </Button>
                     <Button
@@ -246,8 +258,10 @@ export function IntimacyPanel({
         destructive
         onConfirm={() => {
           if (confirmDelete) {
-            if (confirmDelete.id === editing) openDay(null)
-            remove.mutate(confirmDelete.id)
+            const id = confirmDelete.id
+            // Only once the row is really gone. A failed delete must not throw
+            // away an unsaved edit of the very row that is still there.
+            remove.mutate(id, { onSuccess: () => id === editing && setEditing(null) })
           }
           setConfirmDelete(null)
         }}
@@ -333,7 +347,12 @@ function DayForm({
   // Nothing recorded is not an entry. Saving it would add a day the list
   // hides and the summary would have to argue with.
   const empty = isEmptyLog(input)
-  const decision = date ? plan(date) : null
+  // `min` and `max` on a date input do not stop a date being *typed*; browsers
+  // only mark the field invalid. A day outside the loaded year is planned
+  // against rows that were never fetched, so it is refused here instead of
+  // turning into a bare "already exists" from the constraint.
+  const inRange = Boolean(date) && date >= minDate && date <= maxDate
+  const decision = inRange ? plan(date) : null
 
   const save = () => {
     if (!decision || decision.kind === 'conflict') return
@@ -449,6 +468,12 @@ function DayForm({
         </p>
       )}
 
+      {date && !inRange && (
+        <p className="text-sm text-destructive" role="alert">
+          Pick a day within the last year, and not one that has not happened yet.
+        </p>
+      )}
+
       {decision?.kind === 'conflict' && (
         <p className="flex flex-wrap items-center gap-2 text-sm" role="alert">
           <span>
@@ -479,7 +504,7 @@ function DayForm({
 
       <Button
         disabled={
-          pending || !date || !countOk || empty || !decision || decision.kind === 'conflict'
+          pending || !inRange || !countOk || empty || !decision || decision.kind === 'conflict'
         }
         onClick={save}
       >

@@ -2261,6 +2261,10 @@ select assert(
   (select count(*) from public.cycle_logs where id = :'eve_cycle') = 0,
   'a former partner reads nothing, even with a consent row nobody revoked'
 );
+select assert(
+  not public.has_health_consent(:'eve_eve'::uuid, 'cycle'),
+  'nor can they ask has_health_consent directly and learn the row was never revoked'
+);
 
 -- The same unordered `limit 1` sat in my_couple_id(). Unreachable while nobody
 -- can belong to two spaces, and deterministic now so it stays that way.
@@ -2280,6 +2284,13 @@ select assert(
 -- joined it later — the unordered read would have handed back Eve's.
 reset role;
 select auth.test_signup('zed@example.com', 'Zed Other') as zed \gset zed_
+set role authenticated;
+set request.jwt.claim.sub = :'zed_zed';
+select assert(
+  (select count(*) from public.my_couple()) = 0,
+  'my_couple() is an empty result for somebody in no couple, not a row of nulls'
+);
+reset role;
 insert into public.couples (name, kind, created_by)
 values ('Their own', 'couple', :'x_friend')
 returning id as own \gset x_
@@ -2305,6 +2316,86 @@ select assert(
 select assert(
   public.partner_id() = :'zed_zed'::uuid,
   'and my partner is my actual partner'
+);
+select assert(
+  (select id from public.my_couple()) = :'x_own'::uuid,
+  'and my_couple() — what the app loads — returns the same couple, in one call'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== partners manage the space; friends do not (0037) =='
+-- "Partners write" on couple_settings was `is_couple_member(couple_id) and
+-- my_role() in ('owner','partner')`. But `my_role()` is the caller's role in
+-- *their* space, not in the couple being written — so a friend on Eve's trip
+-- who is a partner at home passed it for Eve's couple. It had been a coin-flip;
+-- ordering `my_role()` made it certain. Authorisation is now per couple.
+reset role;
+insert into public.couple_settings (couple_id) values (:'eve_couple') on conflict do nothing;
+set role authenticated;
+
+set request.jwt.claim.sub = :'x_friend';
+update public.couple_settings set base_currency = 'XXX' where couple_id = :'eve_couple';
+select assert(
+  (select base_currency from public.couple_settings where couple_id = :'eve_couple') <> 'XXX',
+  'a friend who is a partner at home still cannot change another couple''s settings'
+);
+select assert_raises(
+  format(
+    'insert into public.invites (couple_id, code, invited_email, role, module_grants, expires_at)
+       values (%L, %L, %L, %L, %L, now() + interval ''1 day'')',
+    :'eve_couple', 'FRIENDX1', 'zz@example.com', 'friend', '{trips}'
+  ),
+  'row-level security',
+  'nor mint an invite into it — create_invite refuses a guest, and so must the table'
+);
+
+-- The owner keeps every power they should have.
+set request.jwt.claim.sub = :'eve_eve';
+update public.couple_settings set base_currency = 'EUR' where couple_id = :'eve_couple';
+select assert(
+  (select base_currency from public.couple_settings where couple_id = :'eve_couple') = 'EUR',
+  'while the owner can still change their own couple''s settings'
+);
+insert into public.invites (couple_id, code, invited_email, role, module_grants, expires_at)
+values (:'eve_couple', 'OWNERX01', 'yy@example.com', 'friend', '{trips}', now() + interval '1 day');
+select assert(
+  (select count(*) from public.invites where code = 'OWNERX01') = 1,
+  'and write an invite for it'
+);
+
+-- Managing a friend used to do nothing at all. `couple_members` had no update
+-- policy and deleted only your own row, so "change what they see" and "remove"
+-- both affected zero rows and reported success — the friend kept their access.
+update public.couple_members set module_grants = array['trips', 'wishlist']
+ where couple_id = :'eve_couple' and user_id = :'x_friend';
+select assert(
+  (select module_grants from public.couple_members
+    where couple_id = :'eve_couple' and user_id = :'x_friend') = array['trips', 'wishlist'],
+  'the owner can change what a friend sees — this used to report success and change nothing'
+);
+
+-- The same policies must not open anything they should not.
+set request.jwt.claim.sub = :'x_friend';
+update public.couple_members set role = 'partner', module_grants = null
+ where couple_id = :'eve_couple' and user_id = :'x_friend';
+select assert(
+  (select role from public.couple_members
+    where couple_id = :'eve_couple' and user_id = :'x_friend') = 'friend',
+  'a friend cannot promote themselves'
+);
+delete from public.couple_members where couple_id = :'x_own' and user_id = :'zed_zed';
+select assert(
+  (select count(*) from public.couple_members where couple_id = :'x_own' and user_id = :'zed_zed') = 1,
+  'and a partner cannot remove the other partner — they leave, or nobody removes them'
+);
+
+set request.jwt.claim.sub = :'eve_eve';
+delete from public.couple_members where couple_id = :'eve_couple' and user_id = :'x_friend';
+select assert(
+  (select count(*) from public.couple_members
+    where couple_id = :'eve_couple' and user_id = :'x_friend') = 0,
+  'and the owner can remove a friend — this used to report success and leave them in'
 );
 
 -- ---------------------------------------------------------------------------

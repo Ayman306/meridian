@@ -42,6 +42,31 @@
 -- one. A friend takes the same paths as somebody unpaired. So the database
 -- gives the true answer.
 --
+-- ## Authorisation is per couple
+--
+-- `couple_settings` "partners write" was `is_couple_member(couple_id) and
+-- my_role() in ('owner', 'partner')`. `my_role()` is the caller's role in
+-- *their own* space, not in the couple being written, so a friend on Eve's trip
+-- who is a partner at home passed the check for Eve's couple and could rewrite
+-- her settings. It had been a coin-flip; this migration's first draft, by
+-- ordering `my_role()` to prefer the partner membership, made it certain. A
+-- global role is the wrong tool for a per-couple decision, so there is now a
+-- per-couple one: `is_couple_partner(couple_id)`.
+--
+-- Two older gaps sat beside it and close the same way:
+--
+-- - `invites` "couple write" required only membership. `create_invite` refuses
+--   a friend or guest — "a guest who could invite would route around every
+--   grant on their own membership" — but the table let one write an invite
+--   directly. The grant trigger still stopped sensitive modules at redeem
+--   time, so the leak was bounded, but the rule was not the rule.
+-- - `couple_members` had no update policy and deleted only your own row. So
+--   Settings' "change what they see" and "remove" both affected zero rows and
+--   reported success: a friend you removed kept their access, and nothing on
+--   the screen said so. Partners may now update and remove **friends and
+--   guests** in their own couple — never each other, and a friend can never
+--   raise their own role.
+
 -- ## Consent follows the relationship
 --
 -- `has_health_consent` checked that a consent row existed and nothing else. So
@@ -58,10 +83,10 @@
 -- The subselect is deliberate. Written bare, `partner_id()` — a three-table
 -- join — would run once per row; wrapped, Postgres evaluates it once per query
 -- as an initPlan and the comparison prunes every row that is not the
--- partner's before `has_health_consent` ever runs. The first draft put the
--- check inside `has_health_consent` instead, which ran the join per row and
--- roughly doubled the cost of reading a year of logs. `has_health_consent`
--- keeps its original body: one indexed existence check.
+-- partner's before `has_health_consent` ever runs. An earlier draft called
+-- `partner_id()` inside `has_health_consent` instead, which ran the join per
+-- row of the table. The function keeps a relationship check of its own — see
+-- its comment — but a cheap one, reached only for the partner's rows.
 
 -- ## "Which space is mine" had the same flaw, and it was reachable
 --
@@ -104,8 +129,14 @@ set search_path = public as $$
    limit 1;
 $$;
 
--- Unchanged from 0014 in body; restated so this file is the one place the
--- whole consent path can be read.
+-- The relationship is checked here too, not only in the policies. The function
+-- is callable as an RPC, and without it a former partner holding a stray
+-- consent row would get `true` — learning that the sharing was never revoked —
+-- and any future health table whose policy forgot the prefilter would reopen
+-- the hole this migration closes. Written as an indexed pair lookup rather
+-- than a call to `partner_id()`, and reached only for rows the policy
+-- prefilter has already narrowed to the partner's, so it costs a couple of
+-- index probes per partner row rather than a join per row of the table.
 create or replace function public.has_health_consent(owner uuid, scope_name text)
 returns boolean language sql security definer stable
 set search_path = public as $$
@@ -117,6 +148,14 @@ set search_path = public as $$
        -- Checked here rather than by a sweep: revocation has to take effect on
        -- the next query, with no cache to expire (spec 12.6).
        and c.revoked_at is null
+  )
+  and exists (
+    select 1
+      from public.couple_members viewer
+      join public.couple_members holder on holder.couple_id = viewer.couple_id
+      join public.couples c on c.id = viewer.couple_id and c.kind = 'couple'
+     where viewer.user_id = auth.uid() and viewer.role in ('owner', 'partner')
+       and holder.user_id = owner      and holder.role in ('owner', 'partner')
   );
 $$;
 
@@ -187,3 +226,57 @@ grant execute on function public.partner_id()   to authenticated;
 grant execute on function public.my_couple_id() to authenticated;
 grant execute on function public.my_role()      to authenticated;
 grant execute on function public.my_modules()   to authenticated;
+
+create or replace function public.is_couple_partner(target uuid)
+returns boolean language sql security definer stable
+set search_path = public as $$
+  -- Security definer for the same reason as `is_couple_member`: it is read
+  -- from `couple_members` policies, and reading that table through its own RLS
+  -- would recurse.
+  select exists (
+    select 1 from public.couple_members
+     where couple_id = target
+       and user_id = auth.uid()
+       and role in ('owner', 'partner')
+  );
+$$;
+
+revoke all on function public.is_couple_partner(uuid) from public, anon;
+grant execute on function public.is_couple_partner(uuid) to authenticated;
+
+drop policy if exists "partners write" on public.couple_settings;
+create policy "partners write" on public.couple_settings
+  for all using (public.is_couple_partner(couple_id))
+      with check (public.is_couple_partner(couple_id));
+
+drop policy if exists "couple write" on public.invites;
+create policy "couple write" on public.invites
+  for all using (public.is_couple_partner(couple_id))
+      with check (public.is_couple_partner(couple_id));
+
+-- Only friends and guests are managed, on both sides of the check: the row
+-- being changed must be a friend's or a guest's, and so must the row it
+-- becomes. That is what stops a partner demoting the other partner, and a
+-- friend promoting themselves — they are not a partner of the couple, so
+-- `is_couple_partner` refuses them before the role is even looked at.
+drop policy if exists "partners manage friends" on public.couple_members;
+create policy "partners manage friends" on public.couple_members
+  for update using (public.is_couple_partner(couple_id) and role in ('friend', 'guest'))
+         with check (public.is_couple_partner(couple_id) and role in ('friend', 'guest'));
+
+drop policy if exists "partners remove friends" on public.couple_members;
+create policy "partners remove friends" on public.couple_members
+  for delete using (public.is_couple_partner(couple_id) and role in ('friend', 'guest'));
+
+-- The couple row itself, resolved the same way, so the app can load it in one
+-- round trip instead of asking for the id and then the row. `setof` so that
+-- "no couple" is an empty result rather than a composite NULL whose meaning
+-- depends on the client.
+create or replace function public.my_couple()
+returns setof public.couples language sql security definer stable
+set search_path = public as $$
+  select c.* from public.couples c where c.id = public.my_couple_id();
+$$;
+
+revoke all on function public.my_couple() from public, anon;
+grant execute on function public.my_couple() to authenticated;

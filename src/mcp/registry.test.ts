@@ -80,8 +80,35 @@ describe('the sensitive modules', () => {
         .map((f) => join(root, f)),
     )
     expect(files.length).toBeGreaterThan(0)
-    const offenders = files.filter((file) => readFileSync(file, 'utf8').includes('intimacy_logs'))
+
+    // Three ways in, each closed. The table by name; the health module's own
+    // data functions by name; and the health module's data layer by import —
+    // `health/logic` is pure and allowed (the tools borrow its disclaimers),
+    // `health/api`, `health/hooks` and the barrel that re-exports them are not.
+    const DATA_NAMES = /\b(?:intimacy_logs|listIntimacy|createIntimacy|updateIntimacy|deleteIntimacy|useIntimacy)\b/
+    const DATA_IMPORT = /from ['"]@\/modules\/health(?:\/(?:api|hooks))?['"]/
+    const offenders = files.filter((file) => {
+      const source = readFileSync(file, 'utf8')
+      return DATA_NAMES.test(source) || DATA_IMPORT.test(source)
+    })
     expect(offenders).toEqual([])
+  })
+
+  it('has no database function that could hand the intimacy log to anyone', () => {
+    // The fourth way in: an RPC. A tool calling a function that returns these
+    // rows would contain none of the names above. So every function in the
+    // schema that touches the table is listed here, and a new one fails the
+    // suite until somebody decides, on purpose, that it may exist.
+    const schema = readFileSync(join(process.cwd(), 'supabase/setup.sql'), 'utf8')
+    const functions = [
+      ...schema.matchAll(/create or replace function public\.(\w+)\([^)]*\)[\s\S]*?\$\$([\s\S]*?)\$\$/g),
+    ]
+    expect(functions.length).toBeGreaterThan(20)
+    const touching = [
+      ...new Set(functions.filter(([, , body]) => body!.includes('intimacy_logs')).map(([, name]) => name)),
+    ]
+    // Deletes the caller's own rows and returns nothing.
+    expect(touching).toEqual(['delete_all_health_data'])
   })
 
   it('never exposes a document file, link or number', () => {

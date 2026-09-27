@@ -3251,6 +3251,27 @@ export type Database = {
           trashed_count: number
         }[]
       }
+      my_couple: {
+        Args: never
+        Returns: {
+          anniversary_date: string | null
+          base_currency: string
+          created_at: string
+          created_by: string | null
+          id: string
+          invite_code: string | null
+          invite_expires_at: string | null
+          kind: string
+          name: string | null
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "couples"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       my_couple_id: { Args: never; Returns: string }
       my_email: { Args: never; Returns: string }
       my_modules: { Args: never; Returns: string[] }
