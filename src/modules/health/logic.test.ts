@@ -13,7 +13,11 @@ import {
   describeSharing,
   describeSupply,
   grantedScopes,
+  groupTips,
   hasConsent,
+  isEmptyLog,
+  summariseIntimacy,
+  visibleTips,
   matchRestrictions,
   periodLength,
   predict,
@@ -23,6 +27,8 @@ import type {
   CycleLog,
   HealthConsent,
   HealthRecord,
+  IntimacyLog,
+  WellnessTip,
   MedicationRestriction,
 } from '@/modules/health/types'
 
@@ -408,5 +414,140 @@ describe('fertile window', () => {
 
   it('has nothing to describe when there is no window', () => {
     expect(describeFertility(null)).toBeNull()
+  })
+})
+
+describe('the intimacy log', () => {
+  const log = (over: Partial<IntimacyLog> & { logged_on: string }): IntimacyLog =>
+    ({
+      id: over.logged_on,
+      owner_id: 'me',
+      desire: null,
+      solo: false,
+      partnered: false,
+      orgasms: 0,
+      notes: null,
+      created_at: '',
+      updated_at: '',
+      ...over,
+    }) as IntimacyLog
+
+  describe('summariseIntimacy', () => {
+    const logs = [
+      log({ logged_on: '2026-09-01', desire: 4, solo: true, orgasms: 1 }),
+      log({ logged_on: '2026-09-02', desire: 2 }),
+      log({ logged_on: '2026-09-03', desire: 5, partnered: true, orgasms: 2 }),
+      log({ logged_on: '2026-08-20', desire: 1, solo: true, orgasms: 9 }),
+    ]
+
+    it('counts only what falls inside the window', () => {
+      const s = summariseIntimacy(logs, '2026-09-01', '2026-09-30')
+      expect(s.daysLogged).toBe(3)
+      expect(s.solo).toBe(1)
+      expect(s.partnered).toBe(1)
+      // The August row, with its 9, must not reach this.
+      expect(s.orgasms).toBe(3)
+    })
+
+    it('includes both ends of the window', () => {
+      expect(summariseIntimacy(logs, '2026-09-01', '2026-09-03').daysLogged).toBe(3)
+      expect(summariseIntimacy(logs, '2026-09-02', '2026-09-02').daysLogged).toBe(1)
+    })
+
+    it('reports the window length whether or not days were logged', () => {
+      expect(summariseIntimacy([], '2026-09-01', '2026-09-30').daysInWindow).toBe(30)
+      expect(summariseIntimacy([], '2026-09-01', '2026-09-01').daysInWindow).toBe(1)
+    })
+
+    it('averages only the days that recorded desire', () => {
+      // An unlogged day is missing information, not a zero.
+      const s = summariseIntimacy(logs, '2026-09-01', '2026-09-30')
+      expect(s.averageDesire).toBe(3.7)
+      expect(s.desireDays).toBe(3)
+    })
+
+    it('does not average a day that logged activity but no desire', () => {
+      const partial = [log({ logged_on: '2026-09-01', solo: true, orgasms: 1 })]
+      const s = summariseIntimacy(partial, '2026-09-01', '2026-09-07')
+      expect(s.averageDesire).toBeNull()
+      expect(s.desireDays).toBe(0)
+      expect(s.solo).toBe(1)
+    })
+
+    it('treats a logged zero as a real answer', () => {
+      const zero = [log({ logged_on: '2026-09-01', desire: 0 })]
+      const s = summariseIntimacy(zero, '2026-09-01', '2026-09-07')
+      expect(s.averageDesire).toBe(0)
+      expect(s.desireDays).toBe(1)
+    })
+
+    it('says nothing rather than zero when the window is empty', () => {
+      const s = summariseIntimacy([], '2026-09-01', '2026-09-30')
+      expect(s.averageDesire).toBeNull()
+      expect(s.daysLogged).toBe(0)
+    })
+  })
+
+  describe('visibleTips', () => {
+    const tips = [
+      { id: '1', audience: 'everyone', category: 'lifestyle' },
+      { id: '2', audience: 'female', category: 'body' },
+      { id: '3', audience: 'male', category: 'body' },
+    ] as WellnessTip[]
+
+    it('gives everyone the universal set plus their own', () => {
+      expect(visibleTips(tips, { gender: 'female' }).map((t) => t.id)).toEqual(['1', '2'])
+      expect(visibleTips(tips, { gender: 'male' }).map((t) => t.id)).toEqual(['1', '3'])
+    })
+
+    it('never leaves anyone with an empty screen', () => {
+      // `other`, `prefer_not_to_say`, unset and no profile at all.
+      for (const gender of ['other', 'prefer_not_to_say', null]) {
+        expect(visibleTips(tips, { gender }).map((t) => t.id)).toEqual(['1'])
+      }
+      expect(visibleTips(tips, null).map((t) => t.id)).toEqual(['1'])
+    })
+
+    it('shows everything to anyone who asks, whatever their profile says', () => {
+      // The default is a first sort, not a gate.
+      expect(visibleTips(tips, { gender: 'male' }, true)).toHaveLength(3)
+      expect(visibleTips(tips, null, true)).toHaveLength(3)
+    })
+  })
+
+  describe('groupTips', () => {
+    it('orders the categories and drops the empty ones', () => {
+      const tips = [
+        { id: '1', category: 'body', audience: 'everyone' },
+        { id: '2', category: 'trip_prep', audience: 'everyone' },
+      ] as WellnessTip[]
+      expect(groupTips(tips).map((g) => g.category)).toEqual(['trip_prep', 'body'])
+    })
+
+    it('is empty for no tips rather than a row of empty headings', () => {
+      expect(groupTips([])).toEqual([])
+    })
+  })
+
+  describe('isEmptyLog', () => {
+    it('knows an untouched day from a deliberate zero', () => {
+      expect(isEmptyLog({ desire: null, solo: false, partnered: false, orgasms: 0, notes: null }))
+        .toBe(true)
+      expect(isEmptyLog({ desire: 0, solo: false, partnered: false, orgasms: 0, notes: null }))
+        .toBe(false)
+    })
+
+    it('counts a note on its own as something', () => {
+      expect(isEmptyLog({ desire: null, solo: false, partnered: false, orgasms: 0, notes: 'away' }))
+        .toBe(false)
+      expect(isEmptyLog({ desire: null, solo: false, partnered: false, orgasms: 0, notes: '   ' }))
+        .toBe(true)
+    })
+  })
+
+  it('keeps intimacy as a scope of its own', () => {
+    // Sharing a cycle must never imply sharing this.
+    expect(SCOPES).toContain('intimacy')
+    expect(grantedScopes([], 'them')).not.toContain('intimacy')
   })
 })

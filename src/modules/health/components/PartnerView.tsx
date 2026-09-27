@@ -18,8 +18,9 @@
 import { EyeOff, Lock } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { SkeletonList } from '@/components/common/states'
-import { useCycles, useHealthRecords } from '../hooks'
+import { useCycles, useHealthRecords, useIntimacy } from '../hooks'
 import { CyclePanel } from './CyclePanel'
+import { IntimacyPanel } from './IntimacyPanel'
 import { MedicationsPanel } from './MedicationsPanel'
 
 export function PartnerView({ partnerId, name }: { partnerId: string; name: string }) {
@@ -27,11 +28,15 @@ export function PartnerView({ partnerId, name }: { partnerId: string; name: stri
   // and the copy below never pretends to know which.
   const cycles = useCycles(partnerId)
   const records = useHealthRecords(partnerId)
+  const intimacy = useIntimacy(partnerId)
 
-  if (cycles.isLoading || records.isLoading) return <SkeletonList rows={3} />
+  if (cycles.isLoading || records.isLoading || intimacy.isLoading) {
+    return <SkeletonList rows={3} />
+  }
 
   const hasCycles = (cycles.data?.length ?? 0) > 0
   const hasRecords = (records.data?.length ?? 0) > 0
+  const hasIntimacy = (intimacy.data?.length ?? 0) > 0
 
   return (
     <div className="space-y-4">
@@ -59,6 +64,15 @@ export function PartnerView({ partnerId, name }: { partnerId: string; name: stri
         </section>
       ) : (
         <NotShared label="Medications and records" name={name} />
+      )}
+
+      {hasIntimacy ? (
+        <section className="space-y-2">
+          <h3 className="text-sm font-medium">Intimacy</h3>
+          <IntimacyPanel ownerId={partnerId} readOnly />
+        </section>
+      ) : (
+        <NotShared label="Intimacy log" name={name} />
       )}
     </div>
   )

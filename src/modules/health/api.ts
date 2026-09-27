@@ -10,13 +10,16 @@
 import { supabase } from '@/lib/supabase/client'
 import { toAppError, unwrap, unwrapList } from '@/lib/errors'
 import type { InsertDto, UpdateDto } from '@/types/database'
+import type { DateOnly } from '@/lib/dates'
 import type {
   ConsentScope,
   CycleLog,
   HealthConsent,
   HealthRecord,
+  IntimacyLog,
   MedicationRestriction,
   RecordKind,
+  WellnessTip,
 } from './types'
 
 export async function listConsents(): Promise<HealthConsent[]> {
@@ -100,6 +103,59 @@ export async function deleteCycle(id: string): Promise<void> {
   if (error) throw toAppError(error)
 }
 
+// ---------------------------------------------------------------------------
+// Intimacy
+// ---------------------------------------------------------------------------
+
+/**
+ * One owner's log, newest first.
+ *
+ * Reading somebody else's returns nothing at all unless they have granted the
+ * `intimacy` scope — enforced by RLS, not here. This function does not know
+ * whose id it was handed and does not need to.
+ */
+export async function listIntimacy(ownerId: string, from?: DateOnly): Promise<IntimacyLog[]> {
+  let query = supabase
+    .from('intimacy_logs')
+    .select('*')
+    .eq('owner_id', ownerId)
+    .order('logged_on', { ascending: false })
+  if (from) query = query.gte('logged_on', from)
+  return unwrapList(await query)
+}
+
+/**
+ * Write the entry for one day.
+ *
+ * Upsert rather than insert-or-update by hand: the table holds one row per
+ * owner per day, and editing yesterday is the same act as recording it.
+ */
+export async function saveIntimacy(
+  ownerId: string,
+  input: Omit<InsertDto<'intimacy_logs'>, 'owner_id'>,
+): Promise<IntimacyLog> {
+  return unwrap(
+    await supabase
+      .from('intimacy_logs')
+      .upsert({ ...input, owner_id: ownerId }, { onConflict: 'owner_id,logged_on' })
+      .select('*')
+      .single(),
+  )
+}
+
+/** Hard delete, as everywhere in this module. */
+export async function deleteIntimacy(id: string): Promise<void> {
+  const { error } = await supabase.from('intimacy_logs').delete().eq('id', id)
+  if (error) throw toAppError(error)
+}
+
+/** Reference data, readable by any signed-in user. Changes only by migration. */
+export async function listWellnessTips(): Promise<WellnessTip[]> {
+  return unwrapList(
+    await supabase.from('wellness_tips').select('*').order('category').order('title'),
+  )
+}
+
 export async function listRecords(ownerId: string, kind?: RecordKind): Promise<HealthRecord[]> {
   let query = supabase
     .from('health_records')
@@ -157,9 +213,13 @@ export async function deleteAllHealthData(): Promise<void> {
 
 /** Everything the owner has, as JSON. Spec 12.2. */
 export async function exportHealthData(ownerId: string): Promise<Blob> {
-  const [cycles, records, consents] = await Promise.all([
+  const [cycles, records, intimacy, consents] = await Promise.all([
     listCycles(ownerId),
     listRecords(ownerId),
+    // Included for the same reason it is included in the hard delete: an
+    // export that quietly omitted a table would be a false account of what
+    // this app holds about somebody.
+    listIntimacy(ownerId),
     listConsents(),
   ])
   const bundle = {
@@ -167,6 +227,7 @@ export async function exportHealthData(ownerId: string): Promise<Blob> {
     owner_id: ownerId,
     cycle_logs: cycles,
     health_records: records,
+    intimacy_logs: intimacy,
     health_consents: consents,
   }
   return new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })

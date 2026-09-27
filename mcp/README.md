@@ -96,6 +96,13 @@ Two properties hold regardless, and are asserted in `registry.test.ts`: a grant
 can never reach the *other* person's health data, and documents expose metadata
 only — never a storage path, never a signed URL, never a document number.
 
+**The intimacy log has no tool at all.** Not a disabled one, not a gated one —
+there is no tool that reads or writes `intimacy_logs`, so the assistant cannot
+reach it however the grants are set. Cycle logs are reachable because "when is
+she due, should I move the flight" is a question worth answering out loud. This
+is not, and the safest way to guarantee that is for the capability not to
+exist rather than for a prompt to decline it.
+
 ### A generated plan is not a dictated one
 
 `suggest_itinerary` writes to the **suggestion tray**, not to the plan. It

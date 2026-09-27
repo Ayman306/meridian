@@ -21,6 +21,8 @@ import { cn } from '@/lib/utils'
 import { useAuth } from '@/providers/AuthProvider'
 import { useCouple } from '@/providers/CoupleProvider'
 import { CyclePanel } from '../components/CyclePanel'
+import { IntimacyPanel } from '../components/IntimacyPanel'
+import { WellnessPanel } from '../components/WellnessPanel'
 import { MedicationsPanel } from '../components/MedicationsPanel'
 import { SharingPanel } from '../components/SharingPanel'
 import { PartnerView } from '../components/PartnerView'
@@ -28,10 +30,13 @@ import { HEALTH_DISCLAIMER, showsCycle } from '../logic'
 import { useDeleteAllHealthData } from '../hooks'
 import * as api from '../api'
 
-type Tab = 'cycle' | 'records' | 'sharing' | 'partner'
+type Tab = 'cycle' | 'intimacy' | 'wellness' | 'records' | 'sharing' | 'partner'
 
 const TABS: { value: Tab; label: string }[] = [
   { value: 'cycle', label: 'Cycle' },
+  // Applies to both of them, unlike the cycle tab, so it is never filtered out.
+  { value: 'intimacy', label: 'Intimacy' },
+  { value: 'wellness', label: 'Wellness' },
   { value: 'records', label: 'Records' },
   { value: 'sharing', label: 'Sharing' },
   { value: 'partner', label: 'Theirs' },
@@ -94,6 +99,8 @@ export function HealthPage() {
       </div>
 
       {tab === 'cycle' && cycle && <CyclePanel ownerId={user.id} />}
+      {tab === 'intimacy' && <IntimacyPanel ownerId={user.id} />}
+      {tab === 'wellness' && <WellnessPanel />}
       {tab === 'records' && <MedicationsPanel ownerId={user.id} />}
       {tab === 'sharing' && <SharingPanel />}
       {tab === 'partner' && partnerRef && <PartnerView partnerId={partnerRef.id} name={partnerRef.displayName} />}

@@ -2,9 +2,13 @@
 export { HealthPage } from './pages/HealthPage'
 export { MedicationsPanel } from './components/MedicationsPanel'
 export { CycleCalendar } from './components/CycleCalendar'
+export { IntimacyPanel } from './components/IntimacyPanel'
+export { WellnessPanel } from './components/WellnessPanel'
 export {
   useConsents,
   useCycleWindow,
+  useIntimacy,
+  useWellnessTips,
   useHealthRecords,
   usePrediction,
   useRestrictions,
@@ -28,12 +32,24 @@ export {
   matchRestrictions,
   predict,
   restrictionNotice,
+  DESIRE_LABELS,
+  TIP_CATEGORIES,
+  TIP_CATEGORY_LABELS,
+  groupTips,
+  isEmptyLog,
+  summariseIntimacy,
+  visibleTips,
 } from './logic'
 export type {
   ConsentScope,
   CycleLog,
   DayMark,
   HealthRecord,
+  IntimacyLog,
+  IntimacySummary,
   PredictedCycle,
   Prediction,
+  TipAudience,
+  TipCategory,
+  WellnessTip,
 } from './types'

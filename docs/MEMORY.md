@@ -2867,6 +2867,68 @@ side trip inside a longer stay is a real thing, and the app does not get to
 decide which it is. The clash map is computed once for the list rather than per
 card, which would be quadratic for the same answer.
 
+### D136 — The intimacy log, and why it has no assistant tool
+
+The cycle calendar only applies to one of them. This is the half of the health
+module that applies to both: desire, what you did about it, how many times, and
+a note — one row per day, owner-private, with its own consent scope.
+
+**It inherits 0014 rather than reinventing it.** No policy is keyed on
+`is_couple_member`; being in the couple grants nothing; a partner sees a row
+only while an unrevoked `intimacy` consent exists. Spec 12.1's line is the
+whole design — *a hidden tab is not privacy, the database must refuse the
+read* — and the assertions in `rls_test.sql` prove each guarantee again for
+this table rather than assuming it carried over. They are the most valuable
+tests in the pass: sharing the cycle does **not** share this, revocation lands
+on the next query, and a viewer cannot write.
+
+**Its own scope, not `notes`.** Folding it into an existing scope would mean
+sharing when your period started could imply sharing this. Those are not the
+same decision and the sharing screen must never let one stand in for the other.
+
+**No MCP tool touches it — the capability does not exist.** Cycle logs are
+reachable over MCP because "when is she due, should I move the flight" is worth
+answering out loud. This is not. The guarantee is a property of the tool
+surface rather than of a prompt: there is nothing to decline, because there is
+nothing to call. `mcp/README.md` says so where the health grants are described.
+
+**The hard delete and the export both learned about it.** 0014's
+`delete_all_health_data()` is replaced rather than left to miss a table — the
+failure mode that lets somebody believe they erased something they did not —
+and `exportHealthData` includes it for the same reason in reverse: an export
+that quietly omitted a table would be a false account of what the app holds.
+
+**An unlogged day is not a zero.** It is missing information, and
+`summariseIntimacy` keeps them apart: the average counts only days that
+recorded a desire figure, and carries `desireDays` beside it so a screen cannot
+imply thirty days of data from two. A logged `0` is a real answer and does
+count — which is why clearing is its own button rather than a sixth value on
+the scale.
+
+**Nothing on the screen is a score.** Counts and one average; no streaks, no
+targets, no comparison to last month, no "shared" badge nudging toward
+sharing. A private log that starts grading you is one you stop keeping.
+
+### D137 — Wellness guidance is a pointer, and gender is a first sort
+
+The guidance table is `medication_restrictions` in a different subject: every
+row carries its public-health source (NHS, CDC) and the date it was written
+down, and the app is never the authority — the linked page is. Nothing in it
+tells anybody what they should want or how often, which is the line between
+health information and a performance target.
+
+**`verified_on` is when it was written down, not when a human read the page.**
+Exactly the caveat MEMORY already carries about the seeded visa rules, and it
+applies here word for word: open the source before relying on a row. The
+staleness badge from `lib/advisory` marks an old one.
+
+**Gender picks the default, never the gate.** `audience` selects which set
+opens, the way `profiles.gender` decides whether the cycle calendar appears
+(0017) — and "Show everything" is one click away for anybody. A profile set to
+`other`, to `prefer_not_to_say`, or to nothing at all sees the universal set
+and never an empty screen; the app does not guess which of two lists somebody
+"really" belongs in. `visibleTips` is unit-tested for exactly that case.
+
 ## Deviations from the spec
 
 | Spec | Code | Why |
@@ -2999,7 +3061,13 @@ Ordered by how much they block.
    open question 23.
 9. ~~**Deleted storage objects are not swept.**~~ **Closed.** `meridian-media-sweep`
    runs daily on the same schedule.
-10. **Health module scope.** The spec says design it together, last. Left alone.
+10. **Health module scope.** The spec says design it together, last. The
+    cycle half and the records half are built; D136 adds the intimacy log and
+    D137 the wellness guidance. What is still worth deciding together is
+    whether predicted cycle dates should appear on the trip calendar, and
+    whether the intimacy log should mark anything on it at all — the case
+    against is that a shared trip calendar is the one surface a glance over a
+    shoulder can reach.
 11. **One advisor warning belongs to Supabase, not to us.** The security linter
     flags `public.rls_auto_enable()` as callable by `anon`. It is a
     platform-created event-trigger function that auto-enables RLS on new tables;

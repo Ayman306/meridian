@@ -1681,14 +1681,104 @@ select assert(
   'and revoking one scope leaves the others alone'
 );
 
+-- ---------------------------------------------------------------------------
+-- The intimacy log (0036) — the most personal table in the app, so every
+-- guarantee 0014 makes is proven again here rather than assumed to carry over.
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.intimacy_logs (owner_id, logged_on, desire, solo, orgasms)
+values (:'ada_ada', '2026-07-01', 4, true, 2)
+returning id as intimacy \gset ada_
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.intimacy_logs) = 0,
+  'the partner reads zero intimacy logs without consent'
+);
+
+-- The scope is its own. Sharing the cycle must not drag this along with it.
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.health_consents (owner_id, viewer_id, scope)
+values (:'ada_ada', :'bo_bo', 'cycle')
+on conflict (owner_id, viewer_id, scope) do update set revoked_at = null;
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.intimacy_logs) = 0,
+  'sharing the cycle does not share the intimacy log — separate scope, separate decision'
+);
+
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.health_consents (owner_id, viewer_id, scope)
+values (:'ada_ada', :'bo_bo', 'intimacy')
+returning id as intimacy_consent \gset ada_
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.intimacy_logs where id = :'ada_intimacy') = 1,
+  'and granting intimacy explicitly does'
+);
+
+-- Read-only by construction, exactly as the cycle log is.
+update public.intimacy_logs set orgasms = 9 where id = :'ada_intimacy';
+select assert(
+  (select orgasms from public.intimacy_logs where id = :'ada_intimacy') = 2,
+  'a viewer cannot edit the log they were shown'
+);
+select assert_raises(
+  format(
+    'insert into public.intimacy_logs (owner_id, logged_on) values (%L, %L)',
+    :'ada_ada', '2026-07-02'
+  ),
+  'row-level security',
+  'nor write one on their behalf'
+);
+
+set request.jwt.claim.sub = :'ada_ada';
+update public.health_consents set revoked_at = now() where id = :'ada_intimacy_consent';
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.intimacy_logs) = 0,
+  'revoking intimacy blocks the read on the very next query'
+);
+
+-- The constraints keep an average honest: a typo cannot poison it.
+set request.jwt.claim.sub = :'ada_ada';
+select assert_raises(
+  format(
+    'insert into public.intimacy_logs (owner_id, logged_on, desire) values (%L, %L, 9)',
+    :'ada_ada', '2026-07-03'
+  ),
+  'valid_desire',
+  'desire outside 0-5 is refused'
+);
+select assert_raises(
+  format(
+    'insert into public.intimacy_logs (owner_id, logged_on, orgasms) values (%L, %L, -1)',
+    :'ada_ada', '2026-07-03'
+  ),
+  'valid_orgasms',
+  'and a negative count is refused'
+);
+
+-- One row per day, so editing yesterday is an edit and not a second entry.
+select assert_raises(
+  format(
+    'insert into public.intimacy_logs (owner_id, logged_on) values (%L, %L)',
+    :'ada_ada', '2026-07-01'
+  ),
+  'intimacy_logs_owner_id_logged_on_key',
+  'a second row for the same day is refused — the log is one entry per day'
+);
+
 -- Hard delete, in one transaction. Spec 12.2 allows no soft-delete grace.
 set request.jwt.claim.sub = :'ada_ada';
 select public.delete_all_health_data();
 select assert(
   (select count(*) from public.cycle_logs) = 0
     and (select count(*) from public.health_records) = 0
+    and (select count(*) from public.intimacy_logs) = 0
     and (select count(*) from public.health_consents) = 0,
-  'deleting removes every row, with no soft-delete residue'
+  'deleting removes every row, the intimacy log included, with no soft-delete residue'
 );
 
 set request.jwt.claim.sub = :'bo_bo';
@@ -1711,6 +1801,26 @@ select assert_raises(
      values (''JP'', ''something'', ''https://example.com'')',
   'row-level security',
   'nobody adds a restriction through the API — these change by migration'
+);
+
+-- Wellness guidance (0036) is reference data on the same terms.
+select assert(
+  (select count(*) from public.wellness_tips) >= 10,
+  'the wellness seed is readable by anyone signed in'
+);
+select assert(
+  (select count(*) from public.wellness_tips where source_url is null) = 0,
+  'and every row carries the source it points at'
+);
+select assert(
+  (select count(*) from public.wellness_tips where audience = 'everyone') >= 1,
+  'with guidance that applies to anyone, so no profile sees an empty screen'
+);
+select assert_raises(
+  'insert into public.wellness_tips (category, title, body, source_url)
+     values (''diet'', ''whatever'', ''x'', ''https://example.com'')',
+  'row-level security',
+  'and nobody adds one through the API'
 );
 
 -- ---------------------------------------------------------------------------

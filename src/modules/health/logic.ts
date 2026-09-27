@@ -33,9 +33,13 @@ import type {
   PredictedCycle,
   FertilityWindow,
   HealthRecord,
+  IntimacyLog,
+  IntimacySummary,
   MedicationRestriction,
   Prediction,
   SupplyCheck,
+  TipCategory,
+  WellnessTip,
 } from './types'
 
 /** How many cycles the average is taken over. Spec 12.3. */
@@ -338,6 +342,7 @@ export const SCOPES: ConsentScope[] = [
   'medications',
   'vaccinations',
   'notes',
+  'intimacy',
 ]
 
 export const SCOPE_LABELS: Record<ConsentScope, string> = {
@@ -347,6 +352,7 @@ export const SCOPE_LABELS: Record<ConsentScope, string> = {
   medications: 'Medications',
   vaccinations: 'Vaccinations',
   notes: 'Conditions and allergies',
+  intimacy: 'Intimacy log',
 }
 
 export const SCOPE_DESCRIPTIONS: Record<ConsentScope, string> = {
@@ -356,6 +362,7 @@ export const SCOPE_DESCRIPTIONS: Record<ConsentScope, string> = {
   medications: 'What you take, and how much.',
   vaccinations: 'What you have had, and when it runs out.',
   notes: 'Conditions and allergies.',
+  intimacy: 'Desire, activity and how you felt, day by day.',
 }
 
 /**
@@ -660,4 +667,119 @@ export function describeProjectedCycle(cycle: PredictedCycle): string {
 
   const ordinal = cycle.index === 1 ? 'Next' : `${cycle.index} cycles ahead`
   return `${ordinal}: ${when}. Fertile window ${cycle.fertileFrom} to ${cycle.fertileTo}, ovulation near ${cycle.ovulation}.`
+}
+
+// ---------------------------------------------------------------------------
+// Intimacy
+// ---------------------------------------------------------------------------
+
+export const TIP_CATEGORIES: TipCategory[] = [
+  'trip_prep',
+  'lifestyle',
+  'diet',
+  'body',
+  'connection',
+]
+
+export const TIP_CATEGORY_LABELS: Record<TipCategory, string> = {
+  trip_prep: 'Before you meet',
+  lifestyle: 'Everyday',
+  diet: 'Food and drink',
+  body: 'Bodies',
+  connection: 'Between you',
+}
+
+/** 0–5, and named so the log reads back as a sentence rather than a score. */
+export const DESIRE_LABELS: Record<number, string> = {
+  0: 'Not at all',
+  1: 'Barely',
+  2: 'A little',
+  3: 'Noticeably',
+  4: 'A lot',
+  5: 'All day',
+}
+
+/**
+ * What a window of days adds up to.
+ *
+ * Both ends inclusive, and days with no log simply do not contribute — an
+ * unlogged day is missing information, not a zero. That distinction is the
+ * whole reason `averageDesire` carries `desireDays` beside it: an average of
+ * 4 across two days and across thirty are different claims, and a bare number
+ * would let the screen imply the second when it only has the first.
+ */
+export function summariseIntimacy(
+  logs: readonly IntimacyLog[],
+  from: DateOnly,
+  to: DateOnly,
+): IntimacySummary {
+  const within = logs.filter((log) => log.logged_on >= from && log.logged_on <= to)
+  const withDesire = within.filter((log) => log.desire !== null)
+  const desireTotal = withDesire.reduce((sum, log) => sum + (log.desire ?? 0), 0)
+
+  return {
+    daysLogged: within.length,
+    daysInWindow: daysBetween(from, to) + 1,
+    solo: within.filter((log) => log.solo).length,
+    partnered: within.filter((log) => log.partnered).length,
+    orgasms: within.reduce((sum, log) => sum + log.orgasms, 0),
+    averageDesire:
+      withDesire.length === 0
+        ? null
+        : Math.round((desireTotal / withDesire.length) * 10) / 10,
+    desireDays: withDesire.length,
+  }
+}
+
+/**
+ * Which guidance to show, and to whom.
+ *
+ * `audience` sets a default from `profiles.gender`, exactly as `showsCycle`
+ * does for the calendar — and, as there, it is *only* a default. `showAll`
+ * returns everything, because a body of health information that hides itself
+ * based on a profile field is worse than one that starts somewhere sensible
+ * and gets out of the way. Nothing is ever withheld; the default is just a
+ * first sort.
+ *
+ * A profile with no gender, or one set to `other` or `prefer_not_to_say`, sees
+ * the universal set — never an empty screen, and never a guess at which of the
+ * two lists they "really" belong in.
+ */
+export function visibleTips(
+  tips: readonly WellnessTip[],
+  profile: { gender?: string | null } | null,
+  showAll = false,
+): WellnessTip[] {
+  if (showAll) return [...tips]
+  const gender = profile?.gender
+  const audience = gender === 'female' || gender === 'male' ? gender : null
+  return tips.filter((tip) => tip.audience === 'everyone' || tip.audience === audience)
+}
+
+/** Tips grouped for rendering, in `TIP_CATEGORIES` order, empties dropped. */
+export function groupTips(
+  tips: readonly WellnessTip[],
+): { category: TipCategory; tips: WellnessTip[] }[] {
+  return TIP_CATEGORIES.map((category) => ({
+    category,
+    tips: tips.filter((tip) => tip.category === category),
+  })).filter((group) => group.tips.length > 0)
+}
+
+/**
+ * Is there anything on this day worth showing a mark for?
+ *
+ * Used by the log list so an untouched day renders as untouched rather than as
+ * a row of zeroes.
+ */
+export function isEmptyLog(
+  log: Pick<IntimacyLog, 'desire' | 'solo' | 'partnered' | 'orgasms' | 'notes'>,
+): boolean {
+  return (
+    log.desire === null &&
+    !log.solo &&
+    !log.partnered &&
+    log.orgasms === 0 &&
+    (log.notes ?? '').trim() === ''
+  )
 }

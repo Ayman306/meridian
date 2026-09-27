@@ -173,3 +173,50 @@ export function useDeleteAllHealthData() {
     onSuccess: () => qc.clear(),
   })
 }
+
+// ---------------------------------------------------------------------------
+// Intimacy
+// ---------------------------------------------------------------------------
+
+/**
+ * One person's log. Pass the partner's id to read theirs — which returns an
+ * empty list unless they have granted the `intimacy` scope, because RLS says
+ * so and not because this hook checked.
+ */
+export function useIntimacy(ownerId: string | null, from?: DateOnly) {
+  return useQuery({
+    queryKey: ['intimacy', ownerId ?? 'none', from ?? 'all'] as const,
+    queryFn: () => api.listIntimacy(ownerId!, from),
+    enabled: Boolean(ownerId),
+  })
+}
+
+export function useSaveIntimacy() {
+  const qc = useQueryClient()
+  const ownerId = useOwnerId()
+  return useMutation({
+    mutationFn: (input: Omit<InsertDto<'intimacy_logs'>, 'owner_id'>) =>
+      api.saveIntimacy(ownerId!, input),
+    onSuccess: () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'intimacy' }),
+  })
+}
+
+export function useDeleteIntimacy() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: api.deleteIntimacy,
+    onSuccess: () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'intimacy' }),
+  })
+}
+
+/**
+ * The guidance list. Reference data that changes only by migration, so it is
+ * cached for the session rather than refetched.
+ */
+export function useWellnessTips() {
+  return useQuery({
+    queryKey: ['wellness-tips'] as const,
+    queryFn: api.listWellnessTips,
+    staleTime: 60 * 60_000,
+  })
+}
