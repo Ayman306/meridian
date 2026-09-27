@@ -2346,7 +2346,7 @@ select assert_raises(
        values (%L, %L, %L, %L, %L, now() + interval ''1 day'')',
     :'eve_couple', 'FRIENDX1', 'zz@example.com', 'friend', '{trips}'
   ),
-  'row-level security',
+  'permission denied',
   'nor mint an invite into it — create_invite refuses a guest, and so must the table'
 );
 
@@ -2357,11 +2357,10 @@ select assert(
   (select base_currency from public.couple_settings where couple_id = :'eve_couple') = 'EUR',
   'while the owner can still change their own couple''s settings'
 );
-insert into public.invites (couple_id, code, invited_email, role, module_grants, expires_at)
-values (:'eve_couple', 'OWNERX01', 'yy@example.com', 'friend', '{trips}', now() + interval '1 day');
+select (public.create_invite('yy@example.com', 'friend', array['trips'], 7)).id as owner_invite \gset eve_
 select assert(
-  (select count(*) from public.invites where code = 'OWNERX01') = 1,
-  'and write an invite for it'
+  (select count(*) from public.invites where invited_email = 'yy@example.com' and revoked_at is null) = 1,
+  'and issue an invite for it, through create_invite'
 );
 
 -- Managing a friend used to do nothing at all. `couple_members` had no update
@@ -2377,12 +2376,18 @@ select assert(
 
 -- The same policies must not open anything they should not.
 set request.jwt.claim.sub = :'x_friend';
-update public.couple_members set role = 'partner', module_grants = null
- where couple_id = :'eve_couple' and user_id = :'x_friend';
+-- Refused outright rather than silently matching no rows: `role` is not a
+-- column the client may write at all (see the privileges section below).
+select assert_raises(
+  format('update public.couple_members set role = %L, module_grants = null
+            where couple_id = %L and user_id = %L', 'partner', :'eve_couple', :'x_friend'),
+  'permission denied',
+  'a friend cannot promote themselves'
+);
 select assert(
   (select role from public.couple_members
     where couple_id = :'eve_couple' and user_id = :'x_friend') = 'friend',
-  'a friend cannot promote themselves'
+  'and is still a friend afterwards'
 );
 delete from public.couple_members where couple_id = :'x_own' and user_id = :'zed_zed';
 select assert(
@@ -2396,6 +2401,121 @@ select assert(
   (select count(*) from public.couple_members
     where couple_id = :'eve_couple' and user_id = :'x_friend') = 0,
   'and the owner can remove a friend — this used to report success and leave them in'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== what the client may write to the membership tables, at all (0037) =='
+-- RLS says which rows; privileges say which columns. Each earlier draft of
+-- 0037 fixed one policy and left something beside it open, because every
+-- table was fully writable by `authenticated` and only policies stood in the
+-- way. This is the whole surface, asserted at once, so the next change has to
+-- break a line here rather than slip past one.
+reset role;
+insert into public.couple_members (couple_id, user_id, role, module_grants, joined_at)
+values (:'eve_couple', :'x_friend', 'friend', array['trips'], now());
+set role authenticated;
+set request.jwt.claim.sub = :'eve_eve';
+
+-- couple_members: grants only.
+select assert_raises(
+  format('update public.couple_members set user_id = %L where couple_id = %L and user_id = %L',
+         :'dee_dee', :'eve_couple', :'x_friend'),
+  'permission denied',
+  'the owner cannot re-point a friend''s membership at somebody else — that would enrol them unasked'
+);
+select assert_raises(
+  format('update public.couple_members set role = %L where couple_id = %L and user_id = %L',
+         'partner', :'eve_couple', :'x_friend'),
+  'permission denied',
+  'nor promote a friend to partner from the table'
+);
+select assert_raises(
+  format('update public.couple_members set joined_at = now() - interval ''9 years'' where couple_id = %L and user_id = %L',
+         :'eve_couple', :'x_friend'),
+  'permission denied',
+  'nor back-date a join, which decides which space a two-membership person lands in'
+);
+select assert_raises(
+  format('insert into public.couple_members (couple_id, user_id, role, module_grants) values (%L, %L, %L, %L)',
+         :'eve_couple', :'dee_dee', 'friend', '{trips}'),
+  'row-level security',
+  'nor add a member without an invite'
+);
+
+-- invites: revoke, and nothing else.
+select assert_raises(
+  format('update public.invites set expires_at = now() + interval ''5 years'' where id = %L', :'eve_owner_invite'),
+  'permission denied',
+  'the owner cannot extend an invite past what create_invite allows'
+);
+select assert_raises(
+  format('update public.invites set invited_email = %L where id = %L', 'else@example.com', :'eve_owner_invite'),
+  'permission denied',
+  'nor re-address one'
+);
+select assert_raises(
+  format('delete from public.invites where id = %L', :'eve_owner_invite'),
+  'permission denied',
+  'nor delete one — revocation is the record'
+);
+update public.invites set revoked_at = now() where id = :'eve_owner_invite';
+select assert(
+  (select revoked_at from public.invites where id = :'eve_owner_invite') is not null,
+  'but can revoke it'
+);
+select assert_raises(
+  format('update public.invites set revoked_at = null where id = %L', :'eve_owner_invite'),
+  'row-level security',
+  'and cannot un-revoke it'
+);
+
+-- A friend cannot revoke. Measured before and after rather than assumed, with
+-- a live invite in place so there is something to revoke.
+select (public.create_invite('ww@example.com', 'friend', array['trips'], 7)).id as live_invite \gset eve_
+set request.jwt.claim.sub = :'x_friend';
+update public.invites set revoked_at = now() where id = :'eve_live_invite';
+set request.jwt.claim.sub = :'eve_eve';
+select assert(
+  (select revoked_at from public.invites where id = :'eve_live_invite') is null,
+  'a friend cannot revoke the couple''s invites'
+);
+set request.jwt.claim.sub = :'x_friend';
+
+-- couples: partners only, like their settings.
+update public.couples set name = 'Renamed by a guest' where id = :'eve_couple';
+set request.jwt.claim.sub = :'eve_eve';
+select assert(
+  (select name from public.couples where id = :'eve_couple') <> 'Renamed by a guest',
+  'a friend cannot rename the couple they are visiting'
+);
+update public.couples set name = 'Eve and co' where id = :'eve_couple';
+select assert(
+  (select name from public.couples where id = :'eve_couple') = 'Eve and co',
+  'while the owner can'
+);
+
+-- The index every "which space is mine" lookup starts from.
+select assert(
+  exists (select 1 from pg_indexes
+           where tablename = 'couple_members' and indexdef ilike '%(user_id)%'),
+  'couple_members is indexed on user_id'
+);
+
+-- And the intimacy log's reach, from the catalogue rather than from source
+-- text: whatever the syntax — `create function`, any dollar-quote tag, a view —
+-- this is what the database actually holds.
+select assert(
+  (select coalesce(array_agg(p.proname::text order by p.proname), '{}')
+     from pg_proc p
+    where p.pronamespace = 'public'::regnamespace
+      and p.prosrc ilike '%intimacy_logs%') = array['delete_all_health_data'],
+  'the only function that touches intimacy_logs is the hard delete'
+);
+select assert(
+  not exists (select 1 from pg_views where definition ilike '%intimacy_logs%')
+  and not exists (select 1 from pg_matviews where definition ilike '%intimacy_logs%'),
+  'and no view exposes it'
 );
 
 -- ---------------------------------------------------------------------------

@@ -86,7 +86,10 @@ describe('the sensitive modules', () => {
     // `health/logic` is pure and allowed (the tools borrow its disclaimers),
     // `health/api`, `health/hooks` and the barrel that re-exports them are not.
     const DATA_NAMES = /\b(?:intimacy_logs|listIntimacy|createIntimacy|updateIntimacy|deleteIntimacy|useIntimacy)\b/
-    const DATA_IMPORT = /from ['"]@\/modules\/health(?:\/(?:api|hooks))?['"]/
+    // Any path into the health module except its pure `logic` — alias or
+    // relative, with or without an extension, static, dynamic or `require`.
+    const DATA_IMPORT =
+      /(?:from\s*|import\s*\(\s*|require\s*\(\s*)['"][^'"]*modules\/health(?!\/logic(?:\.ts)?['"])[^'"]*['"]/
     const offenders = files.filter((file) => {
       const source = readFileSync(file, 'utf8')
       return DATA_NAMES.test(source) || DATA_IMPORT.test(source)
@@ -99,14 +102,22 @@ describe('the sensitive modules', () => {
     // rows would contain none of the names above. So every function in the
     // schema that touches the table is listed here, and a new one fails the
     // suite until somebody decides, on purpose, that it may exist.
+    // The authoritative version of this check reads `pg_proc` and `pg_views`
+    // in the RLS tests. This one reads source, so it still guards the promise
+    // on a machine with no Postgres — any `create [or replace] function`, any
+    // dollar-quote tag.
     const schema = readFileSync(join(process.cwd(), 'supabase/setup.sql'), 'utf8')
     const functions = [
-      ...schema.matchAll(/create or replace function public\.(\w+)\([^)]*\)[\s\S]*?\$\$([\s\S]*?)\$\$/g),
-    ]
+      ...schema.matchAll(
+        /create\s+(?:or\s+replace\s+)?function\s+(?:public\.)?(\w+)\s*\([^)]*\)[\s\S]*?(\$\w*\$)([\s\S]*?)\2/gi,
+      ),
+    ].map(([, name, , body]) => [name, body] as const)
     expect(functions.length).toBeGreaterThan(20)
     const touching = [
-      ...new Set(functions.filter(([, , body]) => body!.includes('intimacy_logs')).map(([, name]) => name)),
+      ...new Set(functions.filter(([, body]) => body!.includes('intimacy_logs')).map(([name]) => name)),
     ]
+    const views = [...schema.matchAll(/create\s+(?:or\s+replace\s+)?(?:materialized\s+)?view[^;]*;/gi)]
+    expect(views.filter(([text]) => text.includes('intimacy_logs'))).toEqual([])
     // Deletes the caller's own rows and returns nothing.
     expect(touching).toEqual(['delete_all_health_data'])
   })

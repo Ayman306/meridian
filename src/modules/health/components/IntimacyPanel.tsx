@@ -74,7 +74,9 @@ export function IntimacyPanel({
   // Mutation state lives here, above the form, so it outlives the form's own
   // remounts. A failed create must not keep showing its error under a later
   // successful update of a different day.
-  const saving = create.isPending || update.isPending
+  // Any write in flight — a delete included, since deleting the row under the
+  // form while it saves leaves the save pointing at nothing.
+  const saving = create.isPending || update.isPending || remove.isPending
   const clearErrors = () => {
     // Never while a save is in flight: `reset()` detaches the observer, so the
     // save's own `onSuccess` would never run and its pending state would be
@@ -229,7 +231,7 @@ export function IntimacyPanel({
                       // double-fire while one is in flight, and a failure is
                       // said out loud above rather than left to look like it
                       // worked.
-                      disabled={remove.isPending}
+                      disabled={saving}
                       aria-label={`Delete the entry for ${row.logged_on}`}
                       onClick={() => setConfirmDelete(row)}
                     >
@@ -261,7 +263,12 @@ export function IntimacyPanel({
             const id = confirmDelete.id
             // Only once the row is really gone. A failed delete must not throw
             // away an unsaved edit of the very row that is still there.
-            remove.mutate(id, { onSuccess: () => id === editing && setEditing(null) })
+            remove.mutate(id, {
+              // Against the value at the moment the delete lands, not the one
+              // captured when it was confirmed — the user may have opened a
+              // different day since.
+              onSuccess: () => setEditing((current) => (current === id ? null : current)),
+            })
           }
           setConfirmDelete(null)
         }}
@@ -351,7 +358,11 @@ function DayForm({
   // only mark the field invalid. A day outside the loaded year is planned
   // against rows that were never fetched, so it is refused here instead of
   // turning into a bare "already exists" from the constraint.
-  const inRange = Boolean(date) && date >= minDate && date <= maxDate
+  // Two people who cross time zones can log a day that sits after `today` in
+  // the zone they are in now. It still happened, so its own date is always
+  // allowed; only a *new* date has to fall inside the window.
+  const upper = existing && existing.logged_on > maxDate ? existing.logged_on : maxDate
+  const inRange = Boolean(date) && date >= minDate && date <= upper
   const decision = inRange ? plan(date) : null
 
   const save = () => {
@@ -384,7 +395,7 @@ function DayForm({
             type="date"
             value={date}
             min={minDate}
-            max={maxDate}
+            max={upper}
             onChange={(e) => setDate(e.target.value)}
           />
         </Field>

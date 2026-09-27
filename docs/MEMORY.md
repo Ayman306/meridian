@@ -2951,6 +2951,19 @@ plan against a stale list, so the mutations now return the invalidation
 promise and the remount waits for it; and deleting the entry being edited no
 longer discards an unsaved edit when the delete fails.
 
+A fourth pass found three more, all fixed. A delete in flight did not count as
+saving, so tapping another day mid-delete reset it and detached its handlers;
+`saving` now covers create, update and delete alike. The delete's success
+handler captured `editing` from the render that opened the dialog, so a delete
+that finished after you had moved to another entry closed that one instead; it
+now clears the form only if it is still on the deleted row. A row dated
+"tomorrow" — logged from a timezone ahead of the device's current one — sat
+past the picker's `max` and could not be edited; the upper bound now stretches
+to the row being edited. Separately, the mutations waited for *every* intimacy
+query to refetch before the form remounted, including the partner's view of
+someone else's log; they now wait only for the owner's and refresh the rest in
+the background.
+
 The same pass found smaller things, all fixed: the summary counted empty rows
 the list hid, so an all-empty day can no longer be saved and both count the same
 rows; a failed delete went unreported; the partner view read a failed query as
@@ -3097,6 +3110,43 @@ The MCP guard now closes four ways in rather than one — the table by name, the
 health module's data functions by name, the health data layer by import, and
 any database function that touches the table — each confirmed by planting a
 violation and watching the suite fail.
+
+**A fourth pass found that the new update policy opened a bigger door than the
+one it closed.** "Partners manage friends" was an RLS policy, and RLS decides
+*which rows*, not *which columns*. A partner could therefore rewrite a friend
+row's `user_id` to any account and enrol a stranger in the couple — or set
+`joined_at` to reorder who resolves as whose partner. Column privileges now do
+what RLS cannot: `authenticated` may update only `couple_members.module_grants`
+and only `invites.revoked_at`, and may not insert or delete invites directly at
+all (`create_invite` and `join_couple` are `security definer` and unaffected).
+Revoking is one-way — the policy's check requires `revoked_at is not null`.
+
+The privilege matrix that pins this caught a mistake of mine before it
+shipped: 0013's `invites` "couple write" was `for all`, and dropping only the
+policy I had replaced left it in force. Permissive policies are OR'd, so the
+old one would have kept un-revoking, extending and re-addressing invites open
+for every member. The matrix asserts each of those is refused with `permission
+denied`, and it is — now that 0037 drops it. `couples update` moved to
+`is_couple_partner` in the same pass, so a friend can no longer rename the
+couple, and `couple_members(user_id)` gained the index every one of these
+lookups leans on.
+
+On the client, `setMemberGrants`, `removeMember` and `revokeInvite` now ask for
+the affected row back and raise a permission error when there is none. That is
+the class fix for the original bug: a write RLS silently filtered to zero rows
+had looked exactly like success.
+
+The MCP guard's import check now matches a relative path into the health
+module, an explicit `.ts`, its `components/`, a dynamic `import()` and
+`require` — anything but `logic`. The source scan of `setup.sql` matches `create
+function` with or without `or replace`, any dollar-quote tag, and views. The
+authoritative check reads `pg_proc` and `pg_views` in the RLS tests; the source
+scan exists so the promise still holds on a machine without Postgres.
+
+**Known and left alone:** `couples insert` lets a signed-in user create a
+couple row with no membership. The row grants nothing — every policy keys on a
+membership — and `create_couple` is the only path the app uses. Tightening it
+would mean changing the onboarding RPC for no reachable harm.
 
 **What was deliberately not done:** widening `profiles` so a friend can read
 every member. A profile holds home coordinates, gender and timezone, and a

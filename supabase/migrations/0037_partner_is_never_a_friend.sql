@@ -58,8 +58,9 @@
 -- - `invites` "couple write" required only membership. `create_invite` refuses
 --   a friend or guest — "a guest who could invite would route around every
 --   grant on their own membership" — but the table let one write an invite
---   directly. The grant trigger still stopped sensitive modules at redeem
---   time, so the leak was bounded, but the rule was not the rule.
+--   directly, and even a partner could skip every rule in `create_invite` by
+--   inserting one, or un-revoke an old one with a five-year expiry. The client
+--   may now only revoke; see the column privileges at the end of this file.
 -- - `couple_members` had no update policy and deleted only your own row. So
 --   Settings' "change what they see" and "remove" both affected zero rows and
 --   reported success: a friend you removed kept their access, and nothing on
@@ -249,10 +250,6 @@ create policy "partners write" on public.couple_settings
   for all using (public.is_couple_partner(couple_id))
       with check (public.is_couple_partner(couple_id));
 
-drop policy if exists "couple write" on public.invites;
-create policy "couple write" on public.invites
-  for all using (public.is_couple_partner(couple_id))
-      with check (public.is_couple_partner(couple_id));
 
 -- Only friends and guests are managed, on both sides of the check: the row
 -- being changed must be a friend's or a guest's, and so must the row it
@@ -280,3 +277,56 @@ $$;
 
 revoke all on function public.my_couple() from public, anon;
 grant execute on function public.my_couple() to authenticated;
+
+-- =============================================================================
+-- Column privileges: what the client may write at all.
+--
+-- `authenticated` held full table-level INSERT, UPDATE and DELETE on every
+-- membership table, so RLS policies were the only gate — and a policy says
+-- *which rows*, never *which columns*. Every policy fix in this migration's
+-- earlier drafts therefore left something adjacent open. The worst: the new
+-- "partners manage friends" policy let a partner rewrite a friend's row
+-- wholesale, `user_id` included, which would enrol somebody in a couple they
+-- never agreed to join. So the client's writes are now narrowed to the columns
+-- it actually has a reason to write, and everything else goes through the
+-- `SECURITY DEFINER` RPCs that already enforce the rules — `create_couple`,
+-- `join_couple`, `create_invite` and `leave_couple`, all of which run as the
+-- function owner and are unaffected.
+-- =============================================================================
+
+-- Membership: Settings changes what a friend can see, and nothing else.
+-- Joining is `join_couple`; leaving is `leave_couple`. Identity, role and join
+-- date are not editable from a browser by anybody.
+revoke update on public.couple_members from authenticated;
+grant update (module_grants) on public.couple_members to authenticated;
+
+-- Invites: issued by `create_invite`, redeemed by `join_couple`. The client
+-- only ever revokes one, so that is all it may do — and only one way: a
+-- revoked invite cannot be un-revoked, re-dated or re-addressed.
+revoke insert, update, delete on public.invites from authenticated;
+grant update (revoked_at) on public.invites to authenticated;
+-- 0013's "couple write" was FOR ALL to any member. Policies are OR'd, so
+-- leaving it in place would re-open every write below to friends and guests —
+-- which an earlier draft of this file did, and the privilege matrix in the RLS
+-- tests caught.
+drop policy if exists "couple write" on public.invites;
+drop policy if exists "partners revoke" on public.invites;
+create policy "partners revoke" on public.invites
+  for update using (public.is_couple_partner(couple_id))
+         with check (public.is_couple_partner(couple_id) and revoked_at is not null);
+
+-- The couple itself: the same per-couple rule as its settings. It was any
+-- member, so a guest could rename somebody else's couple or change its base
+-- currency — and the mirror trigger into `couple_settings`, now partner-only,
+-- would then have silently matched no rows and let the two drift apart.
+drop policy if exists "couples update" on public.couples;
+create policy "couples update" on public.couples
+  for update using (public.is_couple_partner(id))
+         with check (public.is_couple_partner(id));
+
+-- 0013 dropped the one-couple-per-user unique index so a person could hold a
+-- friend membership too, and replaced it with nothing. Every "which space is
+-- mine" lookup — `my_couple_id()`, `partner_id()`, `my_role()`, `my_modules()`
+-- and the relationship check in `has_health_consent` — starts from `user_id`,
+-- and the primary key leads with `couple_id`, so each was a scan.
+create index if not exists couple_members_user_idx on public.couple_members (user_id);

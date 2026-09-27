@@ -192,16 +192,24 @@ export function useIntimacy(ownerId: string | null, from: DateOnly) {
 }
 
 /**
- * Every intimacy query, whoever's and whatever window, is stale after a write.
+ * After a write, every intimacy query is stale — but only the writer's own is
+ * worth waiting for.
  *
- * Returned, not fired and forgotten: a mutation's `onSuccess` that returns a
- * promise keeps the mutation pending until it settles, so the caller's own
- * `onSuccess` — which remounts the day form — runs only once the list holds
- * the row just written. Without that, the fresh form planned against the old
- * list and a quick second save could collide with the first.
+ * The own list is returned, so a mutation's `onSuccess` keeps it pending until
+ * that list holds the row just written; the caller's `onSuccess` then remounts
+ * the day form against current data rather than planning over a stale list.
+ * Anything else — the partner's view, other windows — refreshes in the
+ * background. Waiting on those too made every save as slow as the slowest
+ * year-long query mounted anywhere on the page.
  */
-function invalidateIntimacy(qc: ReturnType<typeof useQueryClient>) {
-  return qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === qk.intimacy('', '')[0] })
+function invalidateIntimacy(qc: ReturnType<typeof useQueryClient>, ownerId: string | null) {
+  const root = qk.intimacy('', '')[0]
+  void qc.invalidateQueries({
+    predicate: (q) => q.queryKey[0] === root && q.queryKey[1] !== ownerId,
+  })
+  return qc.invalidateQueries({
+    predicate: (q) => q.queryKey[0] === root && q.queryKey[1] === ownerId,
+  })
 }
 
 export function useCreateIntimacy() {
@@ -210,24 +218,26 @@ export function useCreateIntimacy() {
   return useMutation({
     mutationFn: (input: Omit<InsertDto<'intimacy_logs'>, 'owner_id'>) =>
       api.createIntimacy(ownerId!, input),
-    onSuccess: () => invalidateIntimacy(qc),
+    onSuccess: () => invalidateIntimacy(qc, ownerId),
   })
 }
 
 export function useUpdateIntimacy() {
   const qc = useQueryClient()
+  const ownerId = useOwnerId()
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: UpdateDto<'intimacy_logs'> }) =>
       api.updateIntimacy(id, patch),
-    onSuccess: () => invalidateIntimacy(qc),
+    onSuccess: () => invalidateIntimacy(qc, ownerId),
   })
 }
 
 export function useDeleteIntimacy() {
   const qc = useQueryClient()
+  const ownerId = useOwnerId()
   return useMutation({
     mutationFn: api.deleteIntimacy,
-    onSuccess: () => invalidateIntimacy(qc),
+    onSuccess: () => invalidateIntimacy(qc, ownerId),
   })
 }
 
