@@ -133,17 +133,28 @@ the service worker were all listed as missing and all present in the code. If
 you are reading this list to decide what to build, verify before you trust it;
 that is how it went wrong the first time.
 
-What is actually missing:
+What is actually missing — **re-audited 27 Sep 2026, and the answer is nothing
+that the spec asks for.** The three items this list carried on 14 Sep were all
+wrong, one of them in a way worth remembering:
 
-- **Group spaces.** Expressible in the schema — `couples.kind`, roles, grants,
-  a partner-only size cap — with no way to create one and no switcher. This is
-  the one substantial item here.
-- **`coarseTimezoneFromLongitude`** in `lib/geocode.ts` is still a placeholder
-  for `tz-lookup`. Choosing a destination sets the trip's timezone only when
-  the candidate carries one, and the city search does not return zones.
-- **`airport_routes` is empty**, so every flight duration on the board is a
-  great-circle estimate. They are marked "est", which is the honest state until
-  there is a dataset to seed from.
+- ~~**Group spaces.**~~ **Not a gap — a non-goal.** Spec 16.9, *What stays
+  exactly as it is*: "The two-person couple model. Don't generalise to groups.
+  The constraint is the product." 0013 made groups *expressible* so a later
+  migration would not have to rewrite every policy, and that is where it
+  should stop. Building a switcher would put a third person into every
+  two-person screen — handoff, together-nights, the health Theirs tab — for a
+  use case the spec rules out. What 0013's generality *did* do was break
+  `partner_id()` the moment a friend joined a couple; see D138.
+- ~~**`coarseTimezoneFromLongitude`**~~ **Removed.** It had no caller and no
+  test; its comment described a use in profile setup that was never built.
+  Destination timezones are resolved by `timezoneNear` — the nearest of 169
+  seeded airports within 500 km, each carrying a real IANA zone — in
+  `addCandidate` and again in `chooseDestination`, so every path including the
+  MCP gets one. A city more than 500 km from any seeded airport gets no zone
+  and the trip keeps its own, which is the honest outcome.
+- ~~**`airport_routes` is empty.**~~ **It holds 90 rows** (0025, seeded both
+  ways). Pairs not in it are great-circle estimates and marked "est", as
+  before; the table is simply not empty.
 
 Configured rather than built — these need a key or a dashboard, not code:
 
@@ -151,10 +162,10 @@ Configured rather than built — these need a key or a dashboard, not code:
   it every flight is manual and the live view sits at degradation level 6 — a
   supported state, not a broken one. Spend is capped at 550 of 600 a month and
   reconciled against the provider's own balance. See D79.
-- All three sweeps are scheduled (0015), fire, and reach the app — the 401 is
-  gone. Roughly a third of runs answer 200; the rest time out (open question
-  23). Nothing has been swept in anger because no flight has yet been inside
-  the polling window.
+- All five sweeps are scheduled, fire, and reach the app — the 401 is gone,
+  and on 27 Sep every one of the 36 runs in `pg_net`'s window answered 200.
+  Nothing has been swept in anger because no flight has yet been inside the
+  polling window. See open question 23 for the timeouts that were seen once.
 
 - No `Placeholder` routes remain. Every route in the spec exists.
 
@@ -2929,6 +2940,45 @@ opens, the way `profiles.gender` decides whether the cycle calendar appears
 and never an empty screen; the app does not guess which of two lists somebody
 "really" belongs in. `visibleTips` is unit-tested for exactly that case.
 
+### D138 — A partner is never a friend
+
+`partner_id()` had been "the other member of my couple, `limit 1`", unordered,
+since 0001. That was sound while a couple held exactly two people — D1's
+one-couple-per-user index guaranteed it, and the comment above that index said
+so. 0013 then let a couple invite a friend or a guest, and from that moment the
+answer was a coin-flip between the partner and the friend, decided by uuid
+order and the planner's choice of scan.
+
+**It was reachable, and it was a privacy bug.** `AccessPanel` offers exactly
+that invite today. The client builds `partnerRef` from `partner_id()`, so with a
+friend in the couple the health Sharing screen could offer to grant somebody's
+cycle — or, as of D136, their intimacy log — to the friend. `profiles read
+partner` is keyed on the same function, so the coin-flip also decided whether
+you could read your own partner's profile or the friend's, and a profile carries
+a home location. Nothing had exposed it because the one couple using the app has
+never invited anybody.
+
+**Found by reading the RLS, reproduced before it was fixed.** An unordered
+`limit 1` is a coin-flip, and a coin-flip test is worthless — it passes half the
+time against the broken code. So the assertion rigs the odds: of two fresh
+users, the one with the lower uuid becomes the friend and is inserted first,
+putting it ahead of the partner in every scan order the old query could take.
+It failed deterministically against the old function and passes against 0037.
+
+**The rule:** a partner is the other *owner or partner* in a space of kind
+`couple`. Friends and guests are members and never partners, whoever asks, and
+ties break on `joined_at` then `user_id`. A friend asking gets the couple's
+earliest owner rather than null, because the client reads a null partner as
+"your partner deleted their account" — a friend is not orphaned, and a stable
+name is what they saw before minus the randomness. `my_couple_id()` had the same
+unordered `limit 1`; unreachable while nobody can belong to two spaces, and
+ordered now so it stays that way.
+
+**What was deliberately not done:** widening `profiles` so a friend can read
+every member. A profile holds home coordinates, gender and timezone, and a
+friend on one trip needs none of them. `listMembers` already reads membership
+rows rather than profiles.
+
 ## Deviations from the spec
 
 | Spec | Code | Why |
@@ -3127,15 +3177,21 @@ Ordered by how much they block.
     plausibility cut — beyond some distance there is no drive, and the card
     should either not render or say "you are not meeting this one" — and the
     number should probably never be shown unrounded past a few hours.
-23. **Two of every three sweep runs time out.** Over the week to 14 Sep 2026,
-    `net._http_response` holds 36 responses from the cron sweeps: 10 are 200
-    and 26 are `500 {"ok":false,"error":"Gateway Timeout"}`, spread evenly
-    across every scheduled minute, so both the flight sweep and the webhook
-    sweep are affected. The shape is the app's own error envelope, which means
-    a Supabase call inside the handler is what timed out, not the function
-    being killed by Vercel.
-    It is currently invisible: nothing has been due to sweep, so the successful
-    runs all report zero work. It stops being invisible the moment a flight is
-    actually in the air, which is the one time this code matters. Diagnosing it
-    needs the Vercel function logs — the database side only shows the answer,
-    not which call produced it.
+23. ~~**Two of every three sweep runs time out.**~~ **Cleared, cause unknown —
+    and the original claim overstated it.** On 14 Sep, 26 of 36 responses in
+    `net._http_response` were `500 {"ok":false,"error":"Gateway Timeout"}`.
+    That was written down as "over the week", and it was not: **`pg_net`
+    prunes responses after six hours by default**, so 36 rows is one window of
+    six hours — exactly 24 webhook sweeps and 12 flight sweeps. The pattern was
+    real for those six hours and was never measured beyond them.
+    Rechecked on 27 Sep: 36 of 36 in the window answered 200. Nothing in the
+    code changed between the two readings, so it was transient — most likely
+    on the Supabase side, since the envelope is the app's own and carries a
+    PostgREST error message. Vercel's runtime logs do not settle it either:
+    they record requests that emit log lines, not every request, so their
+    counts are not request counts.
+    **The lesson is about the instrument, not the bug.** A six-hour ring buffer
+    cannot show a weekly pattern and should not be read as one. If this comes
+    back, the useful move is to persist sweep outcomes somewhere that keeps
+    them — the sweep routes already return a JSON summary worth storing —
+    rather than to read `pg_net` again and extrapolate.

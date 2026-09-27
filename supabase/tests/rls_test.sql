@@ -2160,6 +2160,76 @@ set role authenticated;
 
 -- ---------------------------------------------------------------------------
 \echo ''
+\echo '== partner_id() is never a friend (0037) =='
+-- The bug: `partner_id()` was "the other member, limit 1", unordered. Phase 13
+-- lets a couple invite a friend or a guest, and from that moment the answer was
+-- a coin-flip between the partner and the friend. The client builds `partnerRef`
+-- from it, so the health Sharing screen could offer to grant consent to the
+-- friend — and `profiles read partner` would admit the friend's profile while
+-- hiding the actual partner's.
+--
+-- Built on a couple of its own so nothing earlier in this file is disturbed.
+-- The friend is whichever of two fresh users has the lower uuid, and is also
+-- inserted first, so every scan the old unordered `limit 1` could take reaches
+-- the friend before the partner. That turns a coin-flip into a deterministic
+-- failure against the old function.
+reset role;
+select auth.test_signup('eve@example.com', 'Eve Owner') as eve \gset eve_
+select auth.test_signup('pat1@example.com', 'Pat One') as p1 \gset p1_
+select auth.test_signup('pat2@example.com', 'Pat Two') as p2 \gset p2_
+select least(:'p1_p1'::uuid, :'p2_p2'::uuid)    as friend,
+       greatest(:'p1_p1'::uuid, :'p2_p2'::uuid) as mate \gset x_
+
+insert into public.couples (name, kind, created_by)
+values ('Three of us', 'couple', :'eve_eve')
+returning id as couple \gset eve_
+insert into public.couple_members (couple_id, user_id, role, joined_at)
+values (:'eve_couple', :'eve_eve', 'owner', now() - interval '3 days');
+insert into public.couple_members (couple_id, user_id, role, module_grants, joined_at)
+values (:'eve_couple', :'x_friend', 'friend', array['trips'], now() - interval '2 days');
+insert into public.couple_members (couple_id, user_id, role, joined_at)
+values (:'eve_couple', :'x_mate', 'partner', now() - interval '1 day');
+set role authenticated;
+
+set request.jwt.claim.sub = :'eve_eve';
+select assert(
+  public.partner_id() = :'x_mate'::uuid,
+  'with a friend in the couple, the owner''s partner is still the partner'
+);
+select assert(
+  (select count(*) from public.profiles where id = :'x_mate') = 1,
+  'and the owner can read the partner''s profile'
+);
+select assert(
+  (select count(*) from public.profiles where id = :'x_friend') = 0,
+  'but not the friend''s — a profile carries a home location'
+);
+
+set request.jwt.claim.sub = :'x_mate';
+select assert(
+  public.partner_id() = :'eve_eve'::uuid,
+  'and the partner''s partner is the owner, never the friend'
+);
+
+-- A friend is nobody's partner, but must not look orphaned either: the client
+-- reads a null partner as "your partner deleted their account". So a friend
+-- gets the couple's earliest member, deterministically.
+set request.jwt.claim.sub = :'x_friend';
+select assert(
+  public.partner_id() = :'eve_eve'::uuid,
+  'a friend gets a stable answer — the owner — rather than a coin-flip'
+);
+
+-- The same unordered `limit 1` sat in my_couple_id(). Unreachable while nobody
+-- can belong to two spaces, and deterministic now so it stays that way.
+set request.jwt.claim.sub = :'eve_eve';
+select assert(
+  public.my_couple_id() = :'eve_couple'::uuid,
+  'my_couple_id() resolves to the couple'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
 \echo '== leaving =='
 set request.jwt.claim.sub = :'bo_bo';
 select public.leave_couple();
