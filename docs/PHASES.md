@@ -75,11 +75,11 @@ Spec: Part 0, Part 15 Stage 0.
       0001–0004 applied, RLS confirmed on all ten tables
 - [x] Function grants hardened after the Supabase linter flagged them (0004)
 - [x] `src/types/database.ts` regenerated from the live schema
-- [ ] **Needs a human, and cannot be closed from here:** sign in once with two
-      Google accounts on the live project. The policies are proven by 200+
-      assertions against a real Postgres in CI; what is unproven is that the
-      deployed app is wired to those same policies. Nobody but the owner can
-      do this.
+- [x] **Needs a human:** sign in once with two Google accounts on the live
+      project. Done — both partners are paired and the app is in real use
+      (MEMORY open question 1). The policies are proven by 300+ assertions
+      against a real Postgres; the live resolution was re-checked from the
+      catalogue on 28 Sep 2026 (D139).
 
 **Verify before Phase 2 can be called complete:** two accounts pair, and account A
 cannot read account B's rows via a direct query with A's JWT.
@@ -569,10 +569,9 @@ Everything below came from actually running the app rather than from the spec.
       takes a `countryOf` lookup fed from `airports.country_code`; a connection
       is international if either leg crosses a border, and an unlisted airport
       is treated as international. See D105.
-- [ ] **Needs a human:** nobody has paired on the live project, so the
-      two-account isolation the spec gates on is proven in the harness and not
-      in production. Same item as Phase 0's, and the only one on this page that
-      code cannot close.
+- [x] **Needs a human:** pairing on the live project. Done, as in Phase 0.
+      Isolation *between* couples is still proven only in the harness — there
+      is one couple in production, so there is nobody to be isolated from.
 - [x] **An MCP server** (`mcp/`), so an assistant can read the plan and propose
       changes to it from outside the app. Personal access tokens in Settings,
       exchanged for ten-minute user JWTs so RLS still decides. Itinerary writes

@@ -9,8 +9,8 @@ import { useCouple } from '@/providers/CoupleProvider'
 import type { UpdateDto } from '@/types/database'
 import { useCoupleRealtime } from '@/lib/realtime'
 import * as api from './api'
-import { checkPlannedStay, ruleFor, staysForRule, suggestFromTrip } from './logic'
-import type { AllowanceCheck, LogSuggestion } from './types'
+import { checkTripAgainstPlans, checkTripsAhead, ruleFor, staysForRule, suggestFromTrip } from './logic'
+import type { AllowanceCheck, LogSuggestion, TripAhead } from './types'
 
 export function useAllowanceRules() {
   const { coupleId } = useCouple()
@@ -105,20 +105,48 @@ export function useDeleteRule() {
 }
 
 /**
+ * Every dated trip with its chosen country and each traveller's dates.
+ *
+ * Shared by the log suggestions and by every check that counts other plans.
+ * Always refetched on mount rather than cached for a minute: a trip's dates
+ * and its chosen destination are edited on screens that invalidate only that
+ * trip, so a cached copy here could keep counting a plan that has since
+ * moved. The trip being checked never comes from this list — it is excluded
+ * and passed in fresh — so only the others could be stale, and they are
+ * edited somewhere else, which means a remount.
+ */
+export function usePlannedTrips() {
+  const { coupleId } = useCouple()
+  return useQuery({
+    queryKey: qk.plannedTrips(coupleId ?? 'none'),
+    queryFn: () => api.listPlannedTrips(coupleId!),
+    enabled: Boolean(coupleId),
+    staleTime: 0,
+  })
+}
+
+/**
  * Would this trip breach either partner's allowance?
  *
  * Computed in the browser from data already fetched, because the answer has to
  * appear at planning time — inline on the trip and on the destination board —
  * and a round trip per candidate city would make the board crawl.
+ *
+ * Counts the person's other planned trips as well as their log (D140), so two
+ * visits that each fit but do not fit together are caught on both. `tripId`
+ * is the trip being checked, left out of those plans so it is not counted as
+ * its own neighbour.
  */
 export function useTripAllowanceCheck(
   countryCode: string | null,
   from: string | null,
   to: string | null,
+  tripId: string | null = null,
 ): Record<string, AllowanceCheck> {
   const { self, partner, tzSelf } = useCouple()
   const rules = useAllowanceRules()
   const log = useEntryLog()
+  const planned = usePlannedTrips()
 
   return useMemo(() => {
     if (!countryCode || !from || !to) return {}
@@ -133,11 +161,39 @@ export function useTripAllowanceCheck(
       ])
       const theirLog = (log.data ?? []).filter((row) => row.user_id === person.id)
       const stays = rule ? staysForRule(theirLog, rule) : []
-      out[person.id] = checkPlannedStay(stays, from, to, rule, today)
+      out[person.id] = checkTripAgainstPlans(
+        stays,
+        planned.data ?? [],
+        person.id,
+        tripId,
+        from,
+        to,
+        rule,
+        today,
+      )
     }
 
     return out
-  }, [countryCode, from, to, rules.data, log.data, self, partner, tzSelf])
+  }, [countryCode, from, to, tripId, rules.data, log.data, planned.data, self, partner, tzSelf])
+}
+
+/**
+ * Every upcoming trip checked for both partners. What the dashboard warns
+ * from; see `checkTripsAhead`.
+ */
+export function useTripsAhead(): TripAhead[] {
+  const { self, partner, tzSelf } = useCouple()
+  const rules = useAllowanceRules()
+  const log = useEntryLog()
+  const planned = usePlannedTrips()
+
+  return useMemo(() => {
+    if (!planned.data || !rules.data || !log.data) return []
+    const people = [self, partner]
+      .filter((p): p is NonNullable<typeof p> => p !== null)
+      .map((p) => ({ id: p.id, passports: [p.nationality, p.second_nationality] }))
+    return checkTripsAhead(planned.data, people, rules.data, log.data, todayIn(tzSelf))
+  }, [planned.data, rules.data, log.data, self, partner, tzSelf])
 }
 
 /**
@@ -148,15 +204,8 @@ export function useTripAllowanceCheck(
  * about someone's immigration history.
  */
 export function useLogSuggestions(): LogSuggestion[] {
-  const { coupleId } = useCouple()
   const log = useEntryLog()
-
-  const trips = useQuery({
-    queryKey: ['allowance-trip-suggestions', coupleId ?? 'none'] as const,
-    queryFn: () => api.listTripsForSuggestions(coupleId!),
-    enabled: Boolean(coupleId),
-    staleTime: 60_000,
-  })
+  const trips = usePlannedTrips()
 
   return useMemo(() => {
     if (!trips.data || !log.data) return []
@@ -169,7 +218,7 @@ export function useLogSuggestions(): LogSuggestion[] {
 function invalidate(qc: ReturnType<typeof useQueryClient>) {
   void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'entry-log' })
   void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'allowance-rules' })
-  void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'allowance-trip-suggestions' })
+  void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'planned-trips' })
   // The dashboard reserves an alert slot for allowance warnings.
   void qc.invalidateQueries({ queryKey: qk.dashboard })
 }

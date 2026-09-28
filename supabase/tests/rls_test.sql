@@ -2539,6 +2539,17 @@ select assert(
   'and the flight-date trigger cannot be called directly'
 );
 
+-- The keep-alive carries the schema version, and anyone may ask it (D140).
+select assert(
+  (public.health() ->> 'schema')::int = public.schema_version()
+  and public.schema_version() >= 39,
+  'health() reports the schema version the drift check compares'
+);
+select assert(
+  has_function_privilege('anon', 'public.schema_version()', 'execute'),
+  'and the version is readable without signing in, like health() itself'
+);
+
 -- ---------------------------------------------------------------------------
 \echo ''
 \echo '== leaving =='

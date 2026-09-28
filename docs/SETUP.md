@@ -150,6 +150,29 @@ private repositories and stops silently when they run out — a poor foundation
 for the one job that keeps the app alive. `docs/CI.md` covers that move and
 what replaced the rest of CI.
 
+### Live flight status and push notifications (optional)
+
+Both are off until their keys are in **Project → Settings → Environment
+Variables** on Vercel. The app works without them, which is exactly why a
+missing key is easy to miss: flights are entered and edited by hand and the
+live view shows scheduled times, and nothing is ever pushed to a phone.
+
+| Variable | Where it comes from | Without it |
+| --- | --- | --- |
+| `AERODATABOX_API_KEY` | RapidAPI → AeroDataBox, free plan (600 calls a month; the app stops itself at 550) | No automatic delays, gates or times |
+| `OPENSKY_CLIENT_ID`, `OPENSKY_CLIENT_SECRET` | opensky-network.org → Account → API client | No live position on the map |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Generate once: `node -e "console.log(require('web-push').generateVAPIDKeys())"`; the subject is a `mailto:` you read | No notifications at all, including the flight-landed one |
+
+Set all of them for **Production**, then redeploy: Next reads them at build
+and start, not live. Only `NEXT_PUBLIC_VAPID_PUBLIC_KEY` may carry that
+prefix. Generate the VAPID pair once and keep it: a new pair invalidates every
+subscription already made. No screen shows whether they are set, so check
+the Vercel list by name — the values are write-only there anyway.
+
+Check it before the first real flight, not during it. The sweep polls only
+from six hours before departure, so a missing key shows up for the first time
+at the airport.
+
 ---
 
 ## Regenerating types

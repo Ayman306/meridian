@@ -5,8 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { qk } from '@/lib/queryClient'
 import { msUntilMidnightIn, todayIn } from '@/lib/dates'
 import { useCouple } from '@/providers/CoupleProvider'
-import { useChosenCountry } from '@/modules/destinations'
-import { useTripAllowanceCheck } from '@/modules/allowance'
+import { useTripsAhead } from '@/modules/allowance'
 import { allowanceAlert } from './logic'
 import type { Alert } from './types'
 import * as api from './api'
@@ -60,37 +59,34 @@ export function useToday(timezone: string): string {
 }
 
 /**
- * The stay-allowance alerts for the next trip, if it has a chosen destination.
+ * The stay-allowance alerts for every upcoming trip, for both partners.
  *
- * Separate from `useDashboard` on purpose: it needs the allowance rules and
- * the entry log, and putting those in the payload the home screen fetches on
- * every load would slow the screen down for a warning that is usually absent.
- * They resolve a moment after the rest and slot in at priority 3.
+ * Separate from `useDashboard` on purpose: it needs the allowance rules, the
+ * entry log and the planned trips, and putting those in the payload the home
+ * screen fetches on every load would slow the screen down for a warning that
+ * is usually absent. They resolve a moment after the rest and slot in at
+ * priority 3.
  *
- * Returns nothing at all when the trip has no chosen destination — a shortlist
- * of candidate cities has no one country, and warning about the first would be
- * a guess presented as a fact.
+ * Every upcoming trip, not only the next: a visa limit is usually broken by
+ * the *second* visit inside a window, and warning about it only once it is
+ * next is warning after it has been booked. Each check counts the person's
+ * other plans as well as their log (D140). A trip with only a shortlist of
+ * candidate cities is skipped — it has no one country, and warning about the
+ * first would be a guess presented as a fact.
  */
 export function useAllowanceAlerts(): Alert[] {
   const { selfRef, partnerRef } = useCouple()
-  const dashboard = useDashboard()
-
-  const trip = dashboard.data?.next_trip ?? null
-  const country = useChosenCountry(trip?.id)
-  const checks = useTripAllowanceCheck(
-    country.data ?? null,
-    trip?.start_date ?? null,
-    trip?.end_date ?? null,
-  )
+  const ahead = useTripsAhead()
 
   return useMemo(() => {
-    if (!trip) return []
-    return [selfRef, partnerRef]
-      .filter((person): person is NonNullable<typeof person> => person !== null)
-      .map((person) => {
-        const check = checks[person.id]
-        return check ? allowanceAlert(check, person, trip.title) : null
+    const people = [selfRef, partnerRef].filter(
+      (person): person is NonNullable<typeof person> => person !== null,
+    )
+    return ahead
+      .map(({ trip, userId, check }) => {
+        const person = people.find((p) => p.id === userId)
+        return person ? allowanceAlert(check, person, trip) : null
       })
       .filter((alert): alert is Alert => alert !== null)
-  }, [checks, selfRef, partnerRef, trip])
+  }, [ahead, selfRef, partnerRef])
 }

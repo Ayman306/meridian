@@ -64,6 +64,7 @@ export const qk = {
 
   allowanceRules: (userId: string) => ['allowance-rules', userId] as const,
   entryLog: (coupleId: string) => ['entry-log', coupleId] as const,
+  plannedTrips: (coupleId: string) => ['planned-trips', coupleId] as const,
 
   mapPins: (scope: string) => ['map-pins', scope] as const,
   geocode: (query: string) => ['geocode', query] as const,

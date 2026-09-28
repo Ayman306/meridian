@@ -13,16 +13,18 @@ import { useTripAllowanceCheck } from '../hooks'
 import { AllowanceWarning } from './AllowanceWarning'
 
 export function TripAllowanceStrip({
+  tripId,
   countryCode,
   from,
   to,
 }: {
+  tripId: string
   countryCode: string | null
   from: string | null
   to: string | null
 }) {
   const { selfRef, partnerRef } = useCouple()
-  const checks = useTripAllowanceCheck(countryCode, from, to)
+  const checks = useTripAllowanceCheck(countryCode, from, to, tripId)
 
   const worth = Object.entries(checks).filter(
     ([, check]) => check.verdict === 'breach' || check.verdict === 'tight',

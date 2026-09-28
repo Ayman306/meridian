@@ -38,6 +38,33 @@ export interface AllowanceCheck {
   peakDate: DateOnly | null
   headroom: number
   limit: number
+  /**
+   * Other planned trips counted alongside the log, by title. Present only when
+   * the check was asked to count plans (`checkTripAgainstPlans`), so a warning
+   * the entry log alone would not produce can say where the days came from.
+   */
+  alongside?: readonly string[]
+}
+
+/**
+ * A trip as the allowance checks see it: its dates, the country of its chosen
+ * destination, and each traveller's own arrival and departure when they differ.
+ */
+export interface PlannedTrip {
+  id: string
+  title: string
+  start_date: DateOnly | null
+  end_date: DateOnly | null
+  date_precision: string
+  country_code: string | null
+  travellers: readonly { user_id: string; arrival_date: DateOnly | null; departure_date: DateOnly | null }[]
+}
+
+/** One person's verdict on one upcoming trip. */
+export interface TripAhead {
+  trip: PlannedTrip
+  userId: string
+  check: AllowanceCheck
 }
 
 /** Two log rows describing the same days — almost always a typo (spec 10.6). */

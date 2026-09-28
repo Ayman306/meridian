@@ -1,18 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import {
   checkPlannedStay,
+  checkTripAgainstPlans,
+  checkTripsAhead,
   daysUsedOn,
   describeRule,
   findOverlaps,
   mergeStays,
   mustLeaveBy,
+  plannedSpanFor,
+  plannedStaysFor,
   ruleFor,
   staysForRule,
   statusFor,
   suggestFromTrip,
   usedOnFor,
 } from '@/modules/allowance/logic'
-import type { AllowanceRule, EntryExitLog, Stay } from '@/modules/allowance/types'
+import type { AllowanceRule, EntryExitLog, PlannedTrip, Stay } from '@/modules/allowance/types'
 
 const SCHENGEN = [
   'AT', 'BE', 'BG', 'HR', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE',
@@ -385,5 +389,97 @@ describe('describeRule', () => {
     expect(describeRule(rule({ rule_type: 'per_entry' }))).toBe('90 days per entry')
     expect(describeRule(rule({ rule_type: 'per_year' }))).toBe('90 days per calendar year')
     expect(describeRule(rule({ rule_type: 'none' }))).toBe('No limit')
+  })
+})
+
+describe('planning against other plans', () => {
+  const trip = (over: Partial<PlannedTrip> = {}): PlannedTrip => ({
+    id: 't1',
+    title: 'Lisbon',
+    start_date: '2026-03-01',
+    end_date: '2026-04-29', // 60 days
+    date_precision: 'exact',
+    country_code: 'PT',
+    travellers: [],
+    ...over,
+  })
+  // Two sixty-day Schengen visits, a month apart: each fits, both do not.
+  const first = trip()
+  const second = trip({ id: 't2', title: 'Berlin', start_date: '2026-06-01', end_date: '2026-07-30', country_code: 'DE' })
+
+  it('the log-only check cannot see the breach — the bug this closes', () => {
+    expect(checkPlannedStay([], '2026-06-01', '2026-07-30', rule(), '2026-01-01').verdict).toBe('ok')
+  })
+
+  it('counts the earlier plan and finds the breach, naming it', () => {
+    const check = checkTripAgainstPlans([], [first, second], 'me', 't2', '2026-06-01', '2026-07-30', rule(), '2026-01-01')
+    expect(check.verdict).toBe('breach')
+    // 60 days in Mar–Apr plus the 31st day of the second visit.
+    expect(check.breachDate).toBe('2026-07-01')
+    expect(check.alongside).toEqual(['Lisbon'])
+  })
+
+  it('never counts the trip being evaluated as its own neighbour', () => {
+    const check = checkTripAgainstPlans([], [second], 'me', 't2', '2026-06-01', '2026-07-30', rule(), '2026-01-01')
+    expect(check.peak).toBe(60)
+    expect(check.alongside).toEqual([])
+  })
+
+  it('ignores plans the rule does not cover, and plans outside its look-back', () => {
+    const london = trip({ id: 't3', title: 'London', country_code: 'GB' })
+    const lastYear = trip({ id: 't4', title: 'Rome', start_date: '2025-06-01', end_date: '2025-07-30', country_code: 'IT' })
+    const check = checkTripAgainstPlans([], [london, lastYear, second], 'me', 't2', '2026-06-01', '2026-07-30', rule(), '2026-01-01')
+    expect(check.peak).toBe(60)
+    expect(check.alongside).toEqual([])
+  })
+
+  it('does not count a plan twice when it is already in the log', () => {
+    const logged = [stay('2026-03-01', '2026-04-29')]
+    const check = checkTripAgainstPlans(logged, [first, second], 'me', 't2', '2026-06-01', '2026-07-30', rule(), '2026-05-01')
+    expect(check.breachDate).toBe('2026-07-01')
+  })
+
+  it("uses each traveller's own dates, and the trip's when they set none", () => {
+    const withDates = trip({ travellers: [{ user_id: 'me', arrival_date: '2026-03-10', departure_date: null }] })
+    expect(plannedSpanFor(withDates, 'me')).toEqual({ from: '2026-03-10', to: '2026-04-29' })
+    expect(plannedSpanFor(withDates, 'them')).toEqual({ from: '2026-03-01', to: '2026-04-29' })
+    expect(plannedSpanFor(trip({ end_date: null }), 'me')).toBeNull()
+  })
+
+  it('reports untracked, not ok, when no rule applies', () => {
+    const check = checkTripAgainstPlans([], [first], 'me', 't2', '2026-06-01', '2026-07-30', null, '2026-01-01')
+    expect(check.verdict).toBe('untracked')
+  })
+
+  it('plannedStaysFor returns only covered trips', () => {
+    const london = trip({ id: 't3', title: 'London', country_code: 'GB' })
+    expect(plannedStaysFor([first, london], 'me', rule(), null).map((p) => p.title)).toEqual(['Lisbon'])
+  })
+
+  describe('checkTripsAhead', () => {
+    const people = [{ id: 'me', passports: ['US'] }]
+
+    it('checks every upcoming trip, not only the next', () => {
+      const results = checkTripsAhead([second, first], people, [rule()], [], '2026-02-01')
+      const byTrip = Object.fromEntries(results.map((r) => [r.trip.title, r.check.verdict]))
+      // The earlier trip is untouched by the later one; the later one breaches.
+      expect(byTrip).toEqual({ Lisbon: 'ok', Berlin: 'breach' })
+    })
+
+    it('keeps a trip under way, drops one that has ended', () => {
+      const today = '2026-04-15'
+      expect(checkTripsAhead([first], people, [rule()], [], today)).toHaveLength(1)
+      expect(checkTripsAhead([first], people, [rule()], [], '2026-04-30')).toHaveLength(0)
+    })
+
+    it('skips a trip with no chosen country or no end', () => {
+      expect(checkTripsAhead([trip({ country_code: null }), trip({ end_date: null })], people, [rule()], [], '2026-01-01')).toEqual([])
+    })
+
+    it('only counts the log rows of the person being checked', () => {
+      const theirs = entry({ user_id: 'them', entered_on: '2026-01-01', exited_on: '2026-02-28' })
+      const [result] = checkTripsAhead([first], people, [rule()], [theirs], '2026-01-01')
+      expect(result!.check.peak).toBe(60)
+    })
   })
 })

@@ -3288,6 +3288,7 @@ export type Database = {
       }
       regenerate_invite_code: { Args: never; Returns: string }
       schedule_sweeps: { Args: never; Returns: undefined }
+      schema_version: { Args: never; Returns: number }
       search_everything: {
         Args: { q: string; max_results?: number }
         Returns: {

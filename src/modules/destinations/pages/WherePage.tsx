@@ -23,11 +23,12 @@ import { useTrip } from '@/modules/trips'
 import { StaysPanel } from '@/modules/stays'
 import {
   ALLOWANCE_DISCLAIMER,
-  checkPlannedStay,
+  checkTripAgainstPlans,
   ruleFor,
   staysForRule,
   useAllowanceRules,
   useEntryLog,
+  usePlannedTrips,
   type AllowanceCheck,
 } from '@/modules/allowance'
 import { AdvisoryNote } from '@/modules/allowance'
@@ -71,6 +72,7 @@ export function WherePage({ tripId }: { tripId: string }) {
   const updateDestination = useUpdateDestination(tripId)
   const allowanceRules = useAllowanceRules()
   const entryLog = useEntryLog()
+  const plannedTrips = usePlannedTrips()
 
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState<TripDestination | null>(null)
@@ -147,7 +149,18 @@ export function WherePage({ tripId }: { tripId: string }) {
     ])
     const theirLog = (entryLog.data ?? []).filter((row) => row.user_id === person.id)
     const stays = rule ? staysForRule(theirLog, rule) : []
-    return checkPlannedStay(stays, from, to, rule, todayIn(tzSelf))
+    // Counts the person's other planned trips too. This trip is left out: each
+    // candidate is an alternative to the one chosen, not an addition to it.
+    return checkTripAgainstPlans(
+      stays,
+      plannedTrips.data ?? [],
+      person.id,
+      tripId,
+      from,
+      to,
+      rule,
+      todayIn(tzSelf),
+    )
   }
 
   if (destinations.isLoading) return <SkeletonList rows={3} />

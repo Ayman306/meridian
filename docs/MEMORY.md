@@ -13,11 +13,11 @@ work up next — including a future session with no memory of this one.
 | | |
 | --- | --- |
 | Phase | **All 14 done, and every deferred item that code can close.** |
-| Next | Two operator steps below, then use it. `PHASES.md` now has exactly two open boxes and both need a human, not a commit. |
+| Next | Use it. `PHASES.md` has no open boxes. Before the first real flight, set the provider and push keys on Vercel (open question 24, `SETUP.md` §6). |
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0038, live — checked against `supabase_migrations.schema_migrations` on 28 Sep 2026 (D139) |
+| Migrations applied | 0001–0039, live — checked against `supabase_migrations.schema_migrations` on 28 Sep 2026 (D139). From 0039 on, `/api/health` reports `drift` when the live schema and the deployed app disagree (D140). |
 | Deployed | Vercel, `meridian-ay-za.vercel.app` |
 
 ### What runs today
@@ -3202,7 +3202,78 @@ live `schema_migrations` with `supabase/migrations/` and update the row at the
 top of this file. The live names differ from the file names (`intimacy`, not
 `0036_intimacy`), so match by content, not by number.
 
-## Deviations from the spec
+### D140 — Allowance checks count every plan; the schema reports drift
+
+**The check could not see the breach most likely to happen.** `checkPlannedStay`
+counted the entry log plus the one trip being checked. The log holds
+crossings somebody confirmed, so two planned Schengen visits — sixty days in
+March, sixty in June — each came back "fits", with thirty days to spare. They
+break the 90-in-180 rule together on 1 July, and for a long-distance couple
+that is the realistic way to break it. The test that reproduces it shows the
+old answer as `ok`, not merely "tight".
+
+`checkTripAgainstPlans` now counts the person's other planned trips under
+the same rule, alongside the log. There are three choices in it:
+
+- **Counting plans is the conservative reading.** A trip that is later
+  cancelled over-warns; leaving plans out under-warns. A plan already in the
+  log does not count twice, because the counting merges overlapping stays
+  first. Every date precision counts: a trip pinned to "June" counts as all
+  of June, which can only over-warn.
+- **The trip being evaluated is always left out.** On the destination board
+  each candidate city is an *alternative* to the chosen one, not an addition
+  to it.
+- **`alongside` names the plans that were counted.** The Allowance page reads
+  only the log, so without the names the dashboard's "over the limit" would
+  seem to contradict it.
+
+All three surfaces now agree, because each asks the same function: the
+dashboard, the trip page's strip and the destination board.
+
+**The dashboard checks every upcoming trip, not only the next.** A visa limit
+is usually broken by the second visit, and warning about it only once that
+visit is next means warning after it has been booked. The alert now links to
+the trip rather than the Allowance page. The trip's strip carries the date,
+the rule, the source and the disclaimer, and it is where the dates get
+changed. Two existing bugs came to light on the way, both fixed:
+
+- **Duplicate React keys.** The alert strip keyed rows by `kind + href`, and
+  both partners' allowance alerts shared a link, so the keys collided.
+- **Wrong sort.** The page merged alerts with a bare priority sort, so a
+  "close" warning on one trip could sit above an "over" on another. It now
+  uses `sortAlerts`.
+
+`useChosenCountry` and `getChosenCountry` had only the dashboard as a caller,
+and are removed.
+
+The planned-trips list is fetched with `staleTime: 0`. A trip's dates and its
+chosen destination are edited on screens that invalidate only that trip. The
+trip being checked is always passed in fresh, so only the *other* trips could
+be stale — and those are edited on other screens, which means a remount and a
+refetch.
+
+**The schema reports drift (0039).** D139 found two merged migrations that
+never reached production, and nothing had noticed. Now:
+
+- The database says which migration it is on: `public.schema_version()`,
+  which `health()` includes.
+- The app says which one it was built for: `SCHEMA_VERSION`.
+- `/api/health` compares the two on every call, the daily keep-alive
+  included, and logs and returns `drift: true` when they differ. Drift is
+  reported, not a 503, because the database is up and the keep-alive has done
+  its job.
+
+**The rule, enforced by `schemaVersion.test.ts`:** every new migration ends by
+redefining `schema_version()` to its own number, and `SCHEMA_VERSION` is bumped
+in the same change. A migration that forgets turns the test red. The test was
+proven by planting a migration without the line.
+
+**Found while closing the list:** the flight-provider and push keys are not
+set on Vercel (open question 24), and none of the ten saved flights has ever
+been polled — correctly, as none is inside the six-hour window yet. `SETUP.md`
+§6 now documents every key. Open questions 15 and 21 had already been done and
+their entries had gone stale; both are closed, with what was actually there.
+
 
 | Spec | Code | Why |
 | --- | --- | --- |
@@ -3334,13 +3405,14 @@ Ordered by how much they block.
    open question 23.
 9. ~~**Deleted storage objects are not swept.**~~ **Closed.** `meridian-media-sweep`
    runs daily on the same schedule.
-10. **Health module scope.** The spec says design it together, last. The
-    cycle half and the records half are built; D136 adds the intimacy log and
-    D137 the wellness guidance. What is still worth deciding together is
-    whether predicted cycle dates should appear on the trip calendar, and
-    whether the intimacy log should mark anything on it at all — the case
-    against is that a shared trip calendar is the one surface a glance over a
-    shoulder can reach.
+10. ~~**Health module scope.**~~ **Settled, 28 Sep 2026.** The cycle half, the
+    records half, the intimacy log (D136) and the wellness guidance (D137) are
+    built. The owner accepted the recommendation on the two questions left:
+    the intimacy log marks nothing on any calendar, and cycle marks stay in
+    each person's own view of a trip, which is how the trip page already
+    works. A shared trip calendar is the one surface a glance over a shoulder
+    can reach, so neither goes there. No code changed — this records that the
+    current behaviour is the intended one. Revisit only if the owner asks.
 11. **One advisor warning belongs to Supabase, not to us.** The security linter
     flags `public.rls_auto_enable()` as callable by `anon`. It is a
     platform-created event-trigger function that auto-enables RLS on new tables;
@@ -3362,10 +3434,11 @@ Ordered by how much they block.
     advisory line. That is the right structure — but structure is not accuracy.
     Before either of you relies on a row, open its source. Rules change with no
     notice, and the app has no way to learn that they have.
-15. **Nothing re-checks `verified_on`.** A rule checked two years ago looks
-    exactly like one checked yesterday apart from the date. A staleness badge
-    past, say, six months would be a few lines and is worth adding once these
-    have been in use long enough to go stale.
+15. ~~**Nothing re-checks `verified_on`.**~~ **Closed — it was already
+    built.** `lib/advisory.ts` flags a row as stale after six months
+    (`STALE_AFTER_MONTHS`) and very stale after eighteen, and `AdvisoryNote`
+    and the wellness panel print the warning beside the checked-on date. This
+    entry outlived the work.
 16. ~~**The blend still guesses a city from the trip title.**~~ **Closed.**
     `wishlist/logic.ts` reads the chosen destination when there is one and
     falls back to the title match only when there is not.
@@ -3377,17 +3450,22 @@ Ordered by how much they block.
     AeroDataBox or OpenSky response. The field mapping in
     `lib/flights/providers.ts` is written from their documented shapes and
     should be treated as unverified until a real flight goes through it.
-19. **No photo has been uploaded.** The pipeline is exercised by unit tests
-    over the pure parts — dedupe, grouping, bucketing, the queue — but Canvas,
-    EXIF and HEIC conversion have never run against a real file in a real
-    browser. Expect the first fifty-photo batch to surface something.
+    *28 Sep 2026:* ten flights are saved, all in the future, the first about
+    five weeks out; none has been polled because the sweep only starts six
+    hours before departure. That first flight is the real test — and it
+    cannot happen until open question 24 is done.
+19. **One photo, no batch.** One real photo has been uploaded, so the upload
+    path works end to end in a real browser. The pure parts are unit-tested —
+    dedupe, grouping, bucketing, the queue — but HEIC conversion and a large
+    batch have still never run against real files. Expect the first
+    fifty-photo batch to surface something.
 20. **The share route has never been hit by a browser other than this app.**
     The checks are unit-reasoned and the RLS around them is proven, but the
     end-to-end "open the link on a phone with no session" path is untested.
-21. **Allowance alerts are not on the dashboard yet.** Priority 3 in the alert
-    strip has been reserved for them since Phase 5, and `checkPlannedStay` can
-    now fill it. It needs the dashboard RPC to return upcoming trips with their
-    destination country, which it does not.
+21. ~~**Allowance alerts are not on the dashboard yet.**~~ **Closed.** They
+    were already there for the next trip (`useAllowanceAlerts`); this entry
+    had gone stale. D140 took them further: every upcoming trip, counting the
+    person's other planned trips as well as their log.
 22. ~~**The arrival handoff assumes the watcher can drive to the airport.**~~
     **Fixed in D131.** Kept here for the shape of the bug:
     `estimateDriveMinutes` runs the straight-line distance from the watcher's
@@ -3418,3 +3496,22 @@ Ordered by how much they block.
     back, the useful move is to persist sweep outcomes somewhere that keeps
     them — the sweep routes already return a JSON summary worth storing —
     rather than to read `pg_net` again and extrapolate.
+24. **The flight-provider and push keys are not set in production.**
+    Checked on 28 Sep 2026 by listing Vercel's environment variable *names*
+    (no value was read): `AERODATABOX_API_KEY`, `OPENSKY_CLIENT_ID`,
+    `OPENSKY_CLIENT_SECRET`, `NEXT_PUBLIC_VAPID_PUBLIC_KEY`,
+    `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` are all absent. Nothing is
+    broken — both paths are built to degrade, so flights fall back to manual
+    entry and scheduled times, and push is skipped — which is exactly why it
+    went unnoticed. It means no delay alerts, no live position and no
+    "they've landed" notification. Only `.env.example` mentioned these keys,
+    so `SETUP.md` §6 now lists each one with where it comes from and what is
+    missing without it. It needs the owner: an account at each provider, and
+    the values set on Vercel. Do it before the first flight, about five weeks
+    out — the sweep first polls six hours before departure, so the first sign
+    of a missing key would otherwise come at the airport.
+25. **The wellness sources have not been opened.** The seventeen tips from
+    0036 are live. Their links could not be checked from the build sandbox,
+    because its network policy blocks `www.nhs.uk` and `www.cdc.gov`.
+    `verified_on` still means "written down", as D137 says. Open each link
+    once, from a phone is fine, before relying on a row.
