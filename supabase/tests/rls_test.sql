@@ -2518,6 +2518,27 @@ select assert(
   'and no view exposes it'
 );
 
+-- Every function of ours pins its search_path (0004, 0038). Supabase's advisor
+-- checks this on the live project; this checks it before anything gets there.
+-- The test harness's own helpers and extension functions are not ours.
+select assert(
+  not exists (
+    select 1 from pg_proc p
+     where p.pronamespace = 'public'::regnamespace
+       and p.prokind = 'f'
+       and p.proname not in ('assert', 'assert_raises')
+       and not exists (select 1 from pg_depend d
+                        where d.objid = p.oid and d.deptype = 'e')
+       and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c
+                        where c like 'search_path=%')
+  ),
+  'every function pins its search_path'
+);
+select assert(
+  not has_function_privilege('authenticated', 'public.sync_flight_date()', 'execute'),
+  'and the flight-date trigger cannot be called directly'
+);
+
 -- ---------------------------------------------------------------------------
 \echo ''
 \echo '== leaving =='

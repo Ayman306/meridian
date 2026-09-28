@@ -43,6 +43,7 @@
 --   supabase/migrations/0035_open_ended_trips_roll_forward.sql
 --   supabase/migrations/0036_intimacy.sql
 --   supabase/migrations/0037_partner_is_never_a_friend.sql
+--   supabase/migrations/0038_pin_sync_flight_date.sql
 --
 -- Safe to re-run: every statement is idempotent or uses "or replace".
 -- =============================================================================
@@ -7073,4 +7074,30 @@ create policy "couples update" on public.couples
 -- and the relationship check in `has_health_consent` — starts from `user_id`,
 -- and the primary key leads with `couple_id`, so each was a scan.
 create index if not exists couple_members_user_idx on public.couple_members (user_id);
+
+
+-- ===========================================================================
+-- 0038_pin_sync_flight_date.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0038_pin_sync_flight_date — the one function 0034 left with a mutable path.
+--
+-- Supabase's security advisor flagged `sync_flight_date` as the only function
+-- in the schema without a pinned `search_path`. The risk is small, exactly as
+-- it was for `set_updated_at` in 0004: it runs as invoker and touches only
+-- `new`. But a trigger that resolves names against whatever path the writer
+-- happens to have is the pattern 0004 already closed once, so it is closed the
+-- same way here — pinned empty, which is safe because everything it uses
+-- (`at time zone`, the `date` cast) lives in `pg_catalog`, which is always
+-- searched first.
+--
+-- `alter function` rather than a restatement of the body, so this cannot drift
+-- from 0034's logic. And like every trigger function since 0004, nobody calls
+-- it directly: a trigger fires as its owner regardless of EXECUTE.
+-- =============================================================================
+
+alter function public.sync_flight_date() set search_path = '';
+
+revoke all on function public.sync_flight_date() from public, anon, authenticated;
 

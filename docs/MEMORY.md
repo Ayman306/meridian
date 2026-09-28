@@ -17,7 +17,7 @@ work up next — including a future session with no memory of this one.
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0029, live |
+| Migrations applied | 0001–0038, live — checked against `supabase_migrations.schema_migrations` on 28 Sep 2026 (D139) |
 | Deployed | Vercel, `meridian-ay-za.vercel.app` |
 
 ### What runs today
@@ -3152,6 +3152,55 @@ would mean changing the onboarding RPC for no reachable harm.
 every member. A profile holds home coordinates, gender and timezone, and a
 friend on one trip needs none of them. `listMembers` already reads membership
 rows rather than profiles.
+
+### D139 — The live schema had drifted, and a green `main` did not show it
+
+Applying 0036 and 0037 turned up that **0033 and 0035 had never reached the
+live project either**, though both were merged. The applied history ran
+straight from 0032 to 0034. Nothing in CI could notice: every check runs
+against a scratch Postgres built from the repo, which is always in sync with
+itself. And this table said "0001–0029", so it did not show the drift either.
+
+The drift had a cost. The assistant's `suggest_itinerary` has written
+`suggestion_tray.created_by` since D133, and that column did not exist on the
+live project, so the tool failed there. The only other effect was that
+open-ended trips kept the fixed thirty-day horizon 0035 replaced.
+
+Applied on 28 Sep 2026, in order: 0033, 0035, 0036, 0037, 0038. Before each
+one I checked what it depends on, from the catalogue:
+
+- `sync_trip_days` still carried 0003's unscheduling, so 0035 replaced the
+  right body.
+- The nineteen policies 0037 drops by name matched a local build through 0036
+  exactly, so no old permissive policy survives under a different name.
+- Every function 0037 replaces had the same signature, so no
+  `create or replace` could fail partway.
+- The code on `main` never writes a column 0037 revokes, so it runs unchanged
+  against the new schema before this branch merges.
+
+Afterwards, the checks all read only true/false, so no identifier appeared in
+any output:
+
+- Both live members still resolve to each other as partner, to the same
+  couple, and with the role `partner`.
+- `authenticated` can update `module_grants` and `revoked_at` and nothing else
+  on those two tables.
+- The stale `couple write` policy is gone.
+- The only function that reads `intimacy_logs` is the hard delete.
+- No table is without RLS.
+
+**0038 pins `sync_flight_date`'s search path.** Once the migrations were
+applied, the advisor reported one new-looking warning, which was in fact
+0034's: the flight-date trigger was the only function in the schema without a
+pinned `search_path`. It is closed the way 0004 closed `set_updated_at`: pinned
+empty, and execute revoked because it is a trigger. An RLS assertion now fails
+if any function of ours ships without a pinned path. It failed without 0038
+and passes with it.
+
+**The process lesson:** after a merge that carries a migration, compare the
+live `schema_migrations` with `supabase/migrations/` and update the row at the
+top of this file. The live names differ from the file names (`intimacy`, not
+`0036_intimacy`), so match by content, not by number.
 
 ## Deviations from the spec
 
