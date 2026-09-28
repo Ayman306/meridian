@@ -9,4 +9,4 @@
  * `schema_version()` to the same number. `schemaVersion.test.ts` holds both
  * to the newest file in `supabase/migrations`.
  */
-export const SCHEMA_VERSION = 39
+export const SCHEMA_VERSION = 40

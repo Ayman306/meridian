@@ -8,7 +8,7 @@
 'use client'
 
 import { supabase } from '@/lib/supabase/client'
-import { toAppError, unwrap, unwrapList } from '@/lib/errors'
+import { AppError, toAppError, unwrap, unwrapList } from '@/lib/errors'
 import type { InsertDto, UpdateDto } from '@/types/database'
 import type { DateOnly } from '@/lib/dates'
 import type {
@@ -158,11 +158,95 @@ export async function deleteIntimacy(id: string): Promise<void> {
   if (error) throw toAppError(error)
 }
 
-/** Reference data, readable by any signed-in user. Changes only by migration. */
+/**
+ * The shared seeded set, plus the couple's own tips and any drafts waiting for
+ * them (0040). RLS decides which couple rows come back — partners only, never
+ * a friend — so no filter by couple is needed here, and none would widen it.
+ */
 export async function listWellnessTips(): Promise<WellnessTip[]> {
   return unwrapList(
-    await supabase.from('wellness_tips').select('*').order('category').order('title'),
+    await supabase
+      .from('wellness_tips')
+      .select('*')
+      .is('deleted_at', null)
+      .order('category')
+      .order('title'),
   )
+}
+
+export interface WellnessTipInput {
+  title: string
+  body: string
+  category: string
+  audience: string
+  source_url: string
+}
+
+/**
+ * A tip a partner types in. The database publishes it and records who wrote
+ * it; `verified_on` is the day it was written down, the same meaning it has
+ * on the seeded rows.
+ */
+export async function createWellnessTip(
+  coupleId: string,
+  input: WellnessTipInput,
+  writtenOn: DateOnly,
+): Promise<WellnessTip> {
+  return unwrap(
+    await supabase
+      .from('wellness_tips')
+      .insert({ couple_id: coupleId, ...input, verified_on: writtenOn })
+      .select('*')
+      .single(),
+  )
+}
+
+export async function updateWellnessTip(
+  id: string,
+  patch: Partial<WellnessTipInput> & { verified_on?: DateOnly },
+): Promise<WellnessTip> {
+  return changed(
+    await supabase.from('wellness_tips').update(patch).eq('id', id).select('*').maybeSingle(),
+  )
+}
+
+/** Keep an assistant's draft. The database records who kept it and when. */
+export async function keepWellnessTip(id: string): Promise<WellnessTip> {
+  return changed(
+    await supabase
+      .from('wellness_tips')
+      .update({ status: 'published' })
+      .eq('id', id)
+      .eq('status', 'draft')
+      .select('*')
+      .maybeSingle(),
+  )
+}
+
+/** Soft delete, for a kept tip and a discarded draft alike. */
+export async function removeWellnessTip(id: string): Promise<void> {
+  changed(
+    await supabase
+      .from('wellness_tips')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('id')
+      .maybeSingle(),
+  )
+}
+
+/**
+ * An update RLS filtered to nothing reports success with no row. Say so, the
+ * way Settings does since D138, rather than let a no-op look like it worked.
+ */
+function changed<T>(result: { data: T | null; error: unknown }): T {
+  if (result.error) throw toAppError(result.error)
+  if (result.data === null) {
+    throw new AppError('That tip could not be changed — it may already have been removed.', {
+      kind: 'permission',
+    })
+  }
+  return result.data
 }
 
 export async function listRecords(ownerId: string, kind?: RecordKind): Promise<HealthRecord[]> {

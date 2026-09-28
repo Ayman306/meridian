@@ -63,7 +63,7 @@ answer.
 
 ## What it can do
 
-Forty-seven tools across nine modules — every module the app has.
+Fifty tools across nine modules — every module the app has.
 
 | Module | Tools | Writes |
 | --- | --- | --- |
@@ -74,7 +74,7 @@ Forty-seven tools across nine modules — every module the app has.
 | **destinations** | `list_destinations`, `add_destination`, `choose_destination` | 2 of 3 |
 | **photos** | `list_photos`, `list_albums` | read-only |
 | **allowance** | `list_allowance_rules`, `list_entries` | read-only |
-| **health** *(opt-in)* | `list_cycles`, `log_cycle`, `list_health_records`, `add_health_record` | 2 of 4 |
+| **health** *(opt-in)* | `list_cycles`, `log_cycle`, `list_health_records`, `add_health_record`, `list_wellness_tips`, `propose_wellness_tip`, `withdraw_wellness_tip` | 4 of 7 |
 | **documents** *(opt-in)* | `list_documents` | read-only |
 
 Start with `get_overview` for open questions — it answers in one call what
@@ -102,6 +102,17 @@ reach it however the grants are set. Cycle logs are reachable because "when is
 she due, should I move the flight" is a question worth answering out loud. This
 is not, and the safest way to guarantee that is for the capability not to
 exist rather than for a prompt to decline it.
+
+### A proposed wellness tip is a draft, and the database says so
+
+`propose_wellness_tip` writes a **draft** to the Health tab's guidance. It sits
+under "Waiting for you" and is not part of the guidance until one of the
+partners keeps it in the app. This one does not rest on the tool surface
+alone: every call here carries a Supabase OAuth token with a `client_id`
+claim, and the `wellness_tips_guard` trigger (0040) uses it to force an
+assistant's insert to a draft and to refuse publishing, editing or removing a
+tip a person kept. `withdraw_wellness_tip` can take back an unkept draft and
+nothing else. Asserted in `rls_test.sql` and `registry.test.ts`.
 
 ### A generated plan is not a dictated one
 

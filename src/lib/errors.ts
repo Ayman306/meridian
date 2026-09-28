@@ -94,6 +94,20 @@ const RPC_MESSAGES: Record<string, { kind: ErrorKind; message: string }> = {
     kind: 'validation',
     message: 'Invites now go to an email address. Send a new one from Settings.',
   },
+  // Wellness tips (0040). The two ASSISTANT_ codes reach the assistant rather
+  // than a person, so they say what to do instead.
+  ALREADY_PUBLISHED: {
+    kind: 'conflict',
+    message: 'That tip has already been kept.',
+  },
+  ASSISTANT_CANNOT_PUBLISH: {
+    kind: 'permission',
+    message: 'Keeping a suggested tip is done by one of you in the app.',
+  },
+  ASSISTANT_DRAFTS_ONLY: {
+    kind: 'permission',
+    message: 'A tip one of you has kept can only be changed in the app.',
+  },
 }
 
 const PG_CODES: Record<string, { kind: ErrorKind; message: string }> = {

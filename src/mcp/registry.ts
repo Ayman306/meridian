@@ -41,6 +41,7 @@ import { flightTools } from './tools/flights'
 import { destinationTools } from './tools/destinations'
 import { allowanceTools } from './tools/allowance'
 import { healthTools } from './tools/health'
+import { wellnessTools } from './tools/wellness'
 import { documentTools } from './tools/documents'
 import { galleryTools } from './tools/gallery'
 import { trayTools } from './tools/tray'
@@ -81,6 +82,7 @@ export const ALL_TOOLS: AnyTool[] = [
   // Sensitive. Present in the registry, but never in a default scope — see
   // SENSITIVE_TOKEN_MODULES above.
   ...healthTools,
+  ...wellnessTools,
   ...documentTools,
 ]
 

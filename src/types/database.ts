@@ -1619,33 +1619,65 @@ export type Database = {
           audience: string
           body: string
           category: string
+          couple_id: string | null
           created_at: string
+          created_by: string | null
+          deleted_at: string | null
           id: string
+          origin: string
+          reviewed_at: string | null
+          reviewed_by: string | null
           source_url: string
+          status: string
           title: string
+          updated_at: string
           verified_on: string | null
         }
         Insert: {
           audience?: string
           body: string
           category: string
+          couple_id?: string | null
           created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
           id?: string
+          origin?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           source_url: string
+          status?: string
           title: string
+          updated_at?: string
           verified_on?: string | null
         }
         Update: {
           audience?: string
           body?: string
           category?: string
+          couple_id?: string | null
           created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
           id?: string
+          origin?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           source_url?: string
+          status?: string
           title?: string
+          updated_at?: string
           verified_on?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "wellness_tips_couple_id_fkey"
+            columns: ["couple_id"]
+            isOneToOne: false
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       health_records: {
         Row: {

@@ -242,6 +242,33 @@ describe('nothing auto-inserts', () => {
   })
 })
 
+describe('wellness tips', () => {
+  it('lets an assistant propose a tip, never publish one', () => {
+    // The database is the real fence — `wellness_tips_guard` forces an
+    // assistant's insert to a draft and refuses a publish (0040, asserted in
+    // rls_test.sql). This keeps the tool surface honest about it: no tool sets
+    // a status, and the one that writes tells the model it wrote a draft.
+    const source = readFileSync(join(TOOLS_DIR, 'wellness.ts'), 'utf8')
+    expect(source).not.toMatch(/status\s*:\s*['"]published['"]/)
+    expect(source).not.toMatch(/\.update\(\s*\{[^}]*\bstatus\b/)
+
+    const propose = ALL_TOOLS.find((t) => t.name === 'propose_wellness_tip')
+    expect(propose?.module).toBe('health')
+    expect(propose?.description).toMatch(/DRAFT/)
+    expect(propose?.description).toMatch(/does NOT appear/)
+  })
+
+  it('offers no way to keep a tip, only to take back a draft', () => {
+    const names = ALL_TOOLS.filter((t) => /wellness/.test(t.name)).map((t) => t.name).sort()
+    expect(names).toEqual(['list_wellness_tips', 'propose_wellness_tip', 'withdraw_wellness_tip'])
+  })
+
+  it('is part of the opt-in health grant, never a default one', () => {
+    expect(toolsFor(DEFAULT_TOKEN_MODULES).some((t) => /wellness/.test(t.name))).toBe(false)
+    expect(toolsFor(['health']).some((t) => t.name === 'propose_wellness_tip')).toBe(true)
+  })
+})
+
 describe('the registry itself', () => {
   it('has unique tool names', () => {
     const names = ALL_TOOLS.map((t) => t.name)
@@ -283,6 +310,7 @@ describe('the registry itself', () => {
       'dismiss_suggestion',
       'log_cycle',
       'log_expense',
+      'propose_wellness_tip',
       'record_settlement',
       'remove_flight',
       'remove_itinerary_item',
@@ -296,6 +324,7 @@ describe('the registry itself', () => {
       'update_stay',
       'update_trip',
       'vote_on_wishlist_item',
+      'withdraw_wellness_tip',
     ])
     expect(reads).toContain('list_trips')
   })
