@@ -2552,6 +2552,169 @@ select assert(
 
 -- ---------------------------------------------------------------------------
 \echo ''
+\echo '== wellness tips of your own (0040) =='
+-- Dee left Ada's couple earlier on; bring her back as a friend so the one
+-- relationship this table must refuse is present, and Cyd stays a stranger.
+reset role;
+insert into public.couple_members (couple_id, user_id, role, module_grants)
+values (:'ada_couple', :'dee_dee', 'friend', array['trips'])
+on conflict do nothing;
+-- Checked as the table owner: under RLS the current test user may not see it.
+select assert(
+  exists (select 1 from public.couple_members
+           where couple_id = :'ada_couple' and user_id = :'dee_dee' and role = 'friend')
+  and not exists (select 1 from public.couple_members
+                   where couple_id = :'ada_couple' and user_id = :'cyd_cyd'),
+  'setup: Dee is a friend of Ada and Bo, Cyd is nobody to them'
+);
+set role authenticated;
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.wellness_tips where couple_id is null) = 17,
+  'the seeded set is still readable by anyone signed in'
+);
+
+-- A person typing a tip in publishes it, and the row says who.
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.wellness_tips (couple_id, category, audience, title, body, source_url)
+values (:'ada_couple', 'trip_prep', 'everyone', 'Book the quiet room',
+        'Ask for a room away from the lift.', 'https://example.org/quiet')
+returning id as tip, status as tip_status, origin as tip_origin \gset ada_
+select assert(
+  :'ada_tip_status' = 'published' and :'ada_tip_origin' = 'manual'
+  and (select created_by = :'ada_ada' and reviewed_by = :'ada_ada' and reviewed_at is not null
+         from public.wellness_tips where id = :'ada_tip'),
+  'a tip a partner types in is published, and records who wrote and kept it'
+);
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.wellness_tips where couple_id = :'ada_couple') = 1,
+  'the other partner reads it'
+);
+
+set request.jwt.claim.sub = :'dee_dee';
+select assert(
+  (select count(*) from public.wellness_tips where couple_id is not null) = 0,
+  'a friend on one trip reads none of the couple''s tips'
+);
+select assert_raises(
+  format($q$insert into public.wellness_tips (couple_id, category, title, body, source_url)
+            values (%L, 'body', 'x', 'y', 'https://example.org')$q$, :'ada_couple'),
+  'row-level security',
+  'and cannot add one'
+);
+
+set request.jwt.claim.sub = :'cyd_cyd';
+select assert(
+  (select count(*) from public.wellness_tips where couple_id is not null) = 0,
+  'a stranger reads none either'
+);
+select assert_raises(
+  format($q$insert into public.wellness_tips (couple_id, category, title, body, source_url)
+            values (%L, 'body', 'x', 'y', 'https://example.org')$q$, :'ada_couple'),
+  'row-level security',
+  'or adds one'
+);
+
+-- The columns that say who wrote a row and how it arrived are not the
+-- client's to write.
+set request.jwt.claim.sub = :'ada_ada';
+select assert_raises(
+  format($q$insert into public.wellness_tips (couple_id, category, title, body, source_url, origin)
+            values (%L, 'body', 'x', 'y', 'https://example.org', 'seed')$q$, :'ada_couple'),
+  'permission denied',
+  'a client cannot claim a row is part of the seeded set'
+);
+select assert_raises(
+  format('update public.wellness_tips set created_by = %L where id = %L', :'bo_bo', :'ada_tip'),
+  'permission denied',
+  'nor rewrite who wrote it'
+);
+select assert_raises(
+  format($q$insert into public.wellness_tips (couple_id, category, title, body, source_url)
+            values (%L, 'body', 'No link', 'y', 'see a doctor')$q$, :'ada_couple'),
+  'source_is_a_link',
+  'a tip without a real link is refused — advisory data always points somewhere'
+);
+select assert_raises(
+  format($q$insert into public.wellness_tips (couple_id, category, title, body, source_url)
+            values (%L, 'body', 'book the QUIET room', 'y', 'https://example.org')$q$, :'ada_couple'),
+  'duplicate key',
+  'a couple cannot hold two live tips with one title'
+);
+insert into public.wellness_tips (couple_id, category, title, body, source_url)
+values (:'ada_couple', 'lifestyle', 'Sleep first', 'Our own take.', 'https://example.org/sleep');
+select assert(true, 'but may reuse a seeded tip''s title');
+with u as (update public.wellness_tips set title = 'Mine now'
+            where couple_id is null returning 1)
+select assert((select count(*) from u) = 0, 'the seeded set cannot be edited by anyone');
+select assert_raises(
+  format('delete from public.wellness_tips where id = %L', :'ada_tip'),
+  'permission denied',
+  'and nothing is hard-deleted from the client — removing a tip sets deleted_at'
+);
+
+-- An assistant — a token carrying a client_id, as every MCP call does.
+set request.jwt.claims = '{"client_id": "test-assistant"}';
+insert into public.wellness_tips (couple_id, category, title, body, source_url)
+values (:'ada_couple', 'body', 'Stretch after the flight',
+        'Ten minutes of walking and stretching.', 'https://example.org/stretch')
+returning id as draft, status as draft_status, origin as draft_origin \gset ada_
+select assert(
+  :'ada_draft_status' = 'draft' and :'ada_draft_origin' = 'assistant',
+  'an assistant''s tip lands as a draft, whatever it sent'
+);
+select assert_raises(
+  format($q$update public.wellness_tips set status = 'published' where id = %L$q$, :'ada_draft'),
+  'ASSISTANT_CANNOT_PUBLISH',
+  'an assistant cannot keep its own suggestion'
+);
+select assert_raises(
+  format($q$update public.wellness_tips set title = 'Changed' where id = %L$q$, :'ada_tip'),
+  'ASSISTANT_DRAFTS_ONLY',
+  'nor edit a tip a person has kept'
+);
+select assert_raises(
+  format('update public.wellness_tips set deleted_at = now() where id = %L', :'ada_tip'),
+  'ASSISTANT_DRAFTS_ONLY',
+  'nor remove one'
+);
+insert into public.wellness_tips (couple_id, category, title, body, source_url)
+values (:'ada_couple', 'diet', 'Second thought', 'Withdrawn.', 'https://example.org/2')
+returning id as withdrawn \gset ada_
+update public.wellness_tips set deleted_at = now() where id = :'ada_withdrawn';
+select assert(
+  (select deleted_at is not null from public.wellness_tips where id = :'ada_withdrawn'),
+  'but may withdraw a draft it made'
+);
+set request.jwt.claims = '';
+
+-- The other partner sees the draft, and keeping it records who kept it.
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select status from public.wellness_tips where id = :'ada_draft') = 'draft',
+  'partners see a draft waiting for them'
+);
+update public.wellness_tips set status = 'published' where id = :'ada_draft';
+select assert(
+  (select status = 'published' and reviewed_by = :'bo_bo' and reviewed_at is not null
+     from public.wellness_tips where id = :'ada_draft'),
+  'keeping a draft publishes it and records who kept it'
+);
+select assert_raises(
+  format($q$update public.wellness_tips set status = 'draft' where id = %L$q$, :'ada_draft'),
+  'ALREADY_PUBLISHED',
+  'a kept tip does not slide back into drafts'
+);
+select assert(
+  not has_function_privilege('authenticated', 'public.wellness_tips_guard()', 'execute'),
+  'the guard is a trigger and nothing else'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
 \echo '== leaving =='
 set request.jwt.claim.sub = :'bo_bo';
 select public.leave_couple();

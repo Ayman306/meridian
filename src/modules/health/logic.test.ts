@@ -19,6 +19,10 @@ import {
   planDaySave,
   summariseIntimacy,
   visibleTips,
+  describeTipOrigin,
+  isOwnTip,
+  isTipSourceUrl,
+  splitTips,
   matchRestrictions,
   periodLength,
   predict,
@@ -592,5 +596,67 @@ describe('planDaySave', () => {
     const plan = planDaySave(rows, 'a', '2026-09-03')
     expect(plan.kind).toBe('conflict')
     expect(plan.kind === 'conflict' && plan.existing.id).toBe('b')
+  })
+})
+
+describe('wellness tips of your own (0040)', () => {
+  const tip = (over: Partial<WellnessTip> = {}): WellnessTip =>
+    ({
+      id: 't1',
+      couple_id: 'c1',
+      origin: 'manual',
+      status: 'published',
+      created_by: OWNER,
+      reviewed_by: OWNER,
+      deleted_at: null,
+      ...over,
+    }) as WellnessTip
+
+  it('keeps drafts out of the guidance and in their own list', () => {
+    const { published, drafts } = splitTips([
+      tip({ id: 'kept' }),
+      tip({ id: 'seed', couple_id: null, origin: 'seed' }),
+      tip({ id: 'draft', origin: 'assistant', status: 'draft', reviewed_by: null }),
+    ])
+    expect(published.map((t) => t.id)).toEqual(['kept', 'seed'])
+    expect(drafts.map((t) => t.id)).toEqual(['draft'])
+  })
+
+  it('drops a removed tip from both, even from a stale cache', () => {
+    const removed = '2026-09-28T00:00:00Z'
+    const { published, drafts } = splitTips([
+      tip({ deleted_at: removed }),
+      tip({ id: 'd', status: 'draft', origin: 'assistant', deleted_at: removed }),
+    ])
+    expect(published).toEqual([])
+    expect(drafts).toEqual([])
+  })
+
+  it('treats only a couple row as editable — the seeded set is nobody\'s', () => {
+    expect(isOwnTip({ couple_id: 'c1' })).toBe(true)
+    expect(isOwnTip({ couple_id: null })).toBe(false)
+  })
+
+  it('accepts only a link a browser can open, as the table does', () => {
+    expect(isTipSourceUrl('https://www.nhs.uk/live-well/')).toBe(true)
+    expect(isTipSourceUrl('  http://example.org/a  ')).toBe(true)
+    for (const bad of ['', 'nhs.uk', 'see a doctor', 'ftp://x.org', 'https://', 'https://a b.org', 'javascript:alert(1)']) {
+      expect(`${bad}:${isTipSourceUrl(bad)}`).toBe(`${bad}:false`)
+    }
+  })
+
+  it('names who added or kept a tip, from either side', () => {
+    const people = { selfId: OWNER, partnerId: VIEWER, partnerName: 'Bo' }
+    expect(describeTipOrigin(tip(), people)).toBe('Added by you')
+    expect(describeTipOrigin(tip({ created_by: VIEWER }), people)).toBe('Added by Bo')
+    expect(describeTipOrigin(tip({ origin: 'assistant', status: 'draft', reviewed_by: null }), people)).toBe(
+      'Suggested by an assistant',
+    )
+    expect(describeTipOrigin(tip({ origin: 'assistant', reviewed_by: VIEWER }), people)).toBe(
+      'Suggested by an assistant, kept by Bo',
+    )
+    expect(describeTipOrigin(tip({ couple_id: null, origin: 'seed' }), people)).toBeNull()
+    // A partner who left, or a profile deleted since: never a blank.
+    expect(describeTipOrigin(tip({ created_by: null }), people)).toBe('Added by one of you')
   })
 })

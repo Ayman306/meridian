@@ -38,6 +38,7 @@ import type {
   MedicationRestriction,
   Prediction,
   SupplyCheck,
+  TipAudience,
   TipCategory,
   WellnessTip,
 } from './types'
@@ -772,6 +773,85 @@ export function groupTips(
     category,
     tips: tips.filter((tip) => tip.category === category),
   })).filter((group) => group.tips.length > 0)
+}
+
+// ---------------------------------------------------------------------------
+// Wellness tips of your own (0040)
+// ---------------------------------------------------------------------------
+
+export const TIP_AUDIENCES: TipAudience[] = ['everyone', 'female', 'male']
+
+export const TIP_AUDIENCE_LABELS: Record<TipAudience, string> = {
+  everyone: 'Everyone',
+  female: 'Women',
+  male: 'Men',
+}
+
+/** The same limits `sensible_length` holds the table to. */
+export const TIP_TITLE_MAX = 120
+export const TIP_BODY_MAX = 1200
+
+/**
+ * Is this a link a browser can open? The table's `source_is_a_link` check,
+ * in the one place the form and the assistant's tool both read it from — so
+ * neither sends something the database is certain to refuse.
+ */
+export function isTipSourceUrl(value: string): boolean {
+  const trimmed = value.trim()
+  if (!/^https?:\/\/\S+$/i.test(trimmed)) return false
+  try {
+    return Boolean(new URL(trimmed).hostname)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The published list and the drafts waiting for a partner, apart.
+ *
+ * A draft is an assistant's proposal and is never mixed into the guidance
+ * itself: it shows under "Waiting for you" until somebody keeps it
+ * (non-negotiable #5). Removed tips are dropped from both — the query already
+ * filters them, and this makes sure a stale cache cannot show one either.
+ */
+export function splitTips(tips: readonly WellnessTip[]): {
+  published: WellnessTip[]
+  drafts: WellnessTip[]
+} {
+  const live = tips.filter((tip) => tip.deleted_at === null)
+  return {
+    published: live.filter((tip) => tip.status !== 'draft'),
+    drafts: live.filter((tip) => tip.status === 'draft'),
+  }
+}
+
+/** A couple's own tip, as opposed to the shared seeded set nobody can edit. */
+export function isOwnTip(tip: Pick<WellnessTip, 'couple_id'>): boolean {
+  return tip.couple_id !== null
+}
+
+/**
+ * Where a tip came from, in a phrase. Null for the seeded set, which says
+ * where it came from through its source link instead.
+ */
+export function describeTipOrigin(
+  tip: Pick<WellnessTip, 'origin' | 'status' | 'created_by' | 'reviewed_by'>,
+  people: { selfId: string | null; partnerId: string | null; partnerName: string | null },
+): string | null {
+  const who = (id: string | null) =>
+    id !== null && id === people.selfId
+      ? 'you'
+      : id !== null && id === people.partnerId
+        ? (people.partnerName ?? 'your partner')
+        : 'one of you'
+
+  if (tip.origin === 'manual') return `Added by ${who(tip.created_by)}`
+  if (tip.origin === 'assistant') {
+    return tip.status === 'draft'
+      ? 'Suggested by an assistant'
+      : `Suggested by an assistant, kept by ${who(tip.reviewed_by)}`
+  }
+  return null
 }
 
 /**

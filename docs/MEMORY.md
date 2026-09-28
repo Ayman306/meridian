@@ -17,7 +17,7 @@ work up next — including a future session with no memory of this one.
 | Branch | `claude/ldr-travel-app-foundation-56w6xg` |
 | Stack | Next.js 16 App Router, React 19. Migrated from Vite after phase 3 — see D19. |
 | Supabase project | `meridian` / `ylrpxrfneonjzctgtnmj`, ap-northeast-1, Postgres 17 |
-| Migrations applied | 0001–0039, live — checked against `supabase_migrations.schema_migrations` on 28 Sep 2026 (D139). From 0039 on, `/api/health` reports `drift` when the live schema and the deployed app disagree (D140). |
+| Migrations applied | 0001–0040, live — checked against `supabase_migrations.schema_migrations` on 28 Sep 2026 (D139). From 0039 on, `/api/health` reports `drift` when the live schema and the deployed app disagree (D140). |
 | Deployed | Vercel, `meridian-ay-za.vercel.app` |
 
 ### What runs today
@@ -3274,6 +3274,101 @@ been polled — correctly, as none is inside the six-hour window yet. `SETUP.md`
 §6 now documents every key. Open questions 15 and 21 had already been done and
 their entries had gone stale; both are closed, with what was actually there.
 
+### D141 — Wellness tips of your own; an assistant proposes, a person keeps
+
+0036 seeded seventeen tips and gave `wellness_tips` no write path. The owner
+asked to add tips through the MCP. 0040 adds that without loosening either of
+the rules the tab was built on.
+
+**Advisory data stays advisory.** A couple's own tip still points at the
+authority. `source_url` is required and must be an http(s) link: that is
+checked in the table (`source_is_a_link`), and `isTipSourceUrl` in
+`health/logic` applies the same test for both the form and the tool, so
+neither sends something the database would refuse. `verified_on` keeps its
+D137 meaning — the day it was written down. It is set when the tip is
+created, and moves only when the link changes.
+
+**Nothing auto-inserts, and here the database enforces it.** The itinerary
+tray holds non-negotiable #5 at the tool surface: there is no accept tool.
+This time the database can hold it too, because every `/api/mcp/rpc` call
+carries a Supabase OAuth token, and that token has a `client_id` claim which
+a person's own session never has. `wellness_tips_guard` reads it from
+`request.jwt.claims`:
+
+- **An assistant's insert** is forced to `origin = 'assistant'`,
+  `status = 'draft'`, whatever it sent.
+- **An assistant's update** may touch drafts only. Publishing is refused
+  (`ASSISTANT_CANNOT_PUBLISH`), and so is editing or removing a kept tip
+  (`ASSISTANT_DRAFTS_ONLY`).
+- **A person's insert** is published immediately and records who wrote it.
+- **Keeping a draft** records who kept it and when. A kept tip cannot go back
+  to draft (`ALREADY_PUBLISHED`).
+
+The guard stands aside when `auth.uid()` is null, i.e. a migration or the
+service role, so a future seed migration still works. The table constraints
+hold those writes to the table's shape regardless.
+
+**Partners only.** The seeded set stays readable by anyone signed in and
+writable by nobody. A couple's rows are read and written by `is_couple_partner`,
+not by membership. A friend on one trip has no business reading a couple's
+sexual-wellness notes, and 0037's rule applies: decide per couple. Removal is a
+soft delete. Column privileges restrict inserts to the content columns plus
+`couple_id`, and updates to the content columns plus `status` and
+`deleted_at`. Who wrote a row, and how it arrived, are set by the trigger and
+never by the client. 0036's global title key is replaced: titles are unique
+within the seeded set and within each couple's live tips, so a couple may
+reuse a seeded title.
+
+**The tools.** All three are in the opt-in `health` grant.
+
+| Tool | Access | What it does |
+| --- | --- | --- |
+| `list_wellness_tips` | read | Marks each tip shared, yours, or a draft waiting |
+| `propose_wellness_tip` | write | Tells the model, in capitals, that it wrote a DRAFT |
+| `withdraw_wellness_tip` | write | Takes back an unkept draft |
+
+There is no keep tool, and one could not work if it were added. The name
+avoids `delete|remove` so it passes the existing guard against health-delete
+tools. `wellness.ts` imports only the health module's pure `logic`, deriving
+its two types from the exported arrays. The intimacy-log guards still pass
+unchanged.
+
+**The screen.** Drafts appear under "Waiting for you", outside the guidance
+itself, with Keep and Discard. The list gains an "Add a tip" form (hidden in
+solo mode, since a tip belongs to a couple), and your own tips have Edit and
+Remove, with a confirm before removing. Each own tip says who added it, or
+which assistant suggested it and who kept it. The list query is keyed by
+couple and uses the default staleness instead of a one-hour cache, because it
+now changes from outside the screen and a refetch on focus is how a new draft
+appears.
+
+**Proven.** 24 RLS assertions cover:
+
+- friend and stranger refused, both reading and writing;
+- column grants;
+- the link check;
+- the duplicate-title rule;
+- the seeded set being immutable;
+- no hard delete;
+- every assistant refusal, including an assistant withdrawing its own draft;
+- keeping a draft recording who kept it;
+- no slide back to draft.
+
+Registry tests pin the three tool names, the DRAFT wording, and that no tool
+sets a status. The status check was proven by planting a publish and watching
+it fail. Unit tests cover `splitTips`, `isTipSourceUrl`, `describeTipOrigin`
+and the form schema. Applied live on 28 Sep 2026; the 17 seeded rows were
+intact afterwards.
+
+**Not verified:** the screen in a real browser. The app needs a Supabase
+session, and this sandbox cannot reach one. Typecheck, lint, build and unit
+tests all pass.
+
+**Also fixed:** D140's edit had replaced the "Deviations from the spec" heading
+instead of inserting above it, so the deviations table sat under D140. The
+heading is restored.
+
+## Deviations from the spec
 
 | Spec | Code | Why |
 | --- | --- | --- |

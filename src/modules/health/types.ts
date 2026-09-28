@@ -22,6 +22,10 @@ export type ConsentScope =
 export type RecordKind = 'medication' | 'vaccination' | 'condition' | 'allergy'
 export type TipCategory = 'lifestyle' | 'diet' | 'connection' | 'body' | 'trip_prep'
 export type TipAudience = 'everyone' | 'female' | 'male'
+/** Mirrors 0040: the shared seed, typed in by a partner, or proposed by an assistant. */
+export type TipOrigin = 'seed' | 'manual' | 'assistant'
+/** An assistant's tip is a `draft` until a partner keeps it. Everything else is published. */
+export type TipStatus = 'draft' | 'published'
 
 /**
  * What a stretch of intimacy logs adds up to.

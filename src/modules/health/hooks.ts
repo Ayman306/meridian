@@ -8,8 +8,9 @@ import { useCouple } from '@/providers/CoupleProvider'
 import type { InsertDto, UpdateDto } from '@/types/database'
 import * as api from './api'
 import { MAX_PROJECTED_CYCLES, calendarMarks, predict, predictCycles } from './logic'
-import type { DateOnly } from '@/lib/dates'
-import type { ConsentScope, DayMark, Prediction, RecordKind } from './types'
+import { todayIn, type DateOnly } from '@/lib/dates'
+import { AppError } from '@/lib/errors'
+import type { ConsentScope, DayMark, Prediction, RecordKind, WellnessTip } from './types'
 
 /** The signed-in person's own id. Everything here is owner-scoped. */
 function useOwnerId(): string | null {
@@ -242,13 +243,67 @@ export function useDeleteIntimacy() {
 }
 
 /**
- * The guidance list. Reference data that changes only by migration, so it is
- * cached for the session rather than refetched.
+ * The guidance list: the shared seeded set, the couple's own tips, and any
+ * assistant drafts waiting for them.
+ *
+ * Keyed by couple, and on the default freshness rather than cached for the
+ * session: since 0040 the list changes from outside this screen — an
+ * assistant's draft arrives through the MCP — and a refetch on focus is how
+ * it shows up without a reload.
  */
 export function useWellnessTips() {
+  const { coupleId } = useCouple()
   return useQuery({
-    queryKey: qk.wellnessTips,
+    queryKey: qk.wellnessTips(coupleId ?? 'none'),
     queryFn: api.listWellnessTips,
-    staleTime: 60 * 60_000,
+  })
+}
+
+function invalidateTips(qc: ReturnType<typeof useQueryClient>) {
+  return qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'wellness-tips' })
+}
+
+export function useCreateWellnessTip() {
+  const qc = useQueryClient()
+  const { coupleId, tzSelf } = useCouple()
+  return useMutation({
+    mutationFn: (input: api.WellnessTipInput) => {
+      if (!coupleId) throw new AppError('Pair up first — tips of your own belong to the two of you.', { kind: 'validation' })
+      return api.createWellnessTip(coupleId, input, todayIn(tzSelf))
+    },
+    onSuccess: () => invalidateTips(qc),
+  })
+}
+
+/**
+ * Changing where a tip points is writing it down again, so its date moves;
+ * rewording it is not.
+ */
+export function useUpdateWellnessTip() {
+  const qc = useQueryClient()
+  const { tzSelf } = useCouple()
+  return useMutation({
+    mutationFn: ({ tip, input }: { tip: WellnessTip; input: api.WellnessTipInput }) =>
+      api.updateWellnessTip(tip.id, {
+        ...input,
+        ...(input.source_url !== tip.source_url ? { verified_on: todayIn(tzSelf) } : {}),
+      }),
+    onSuccess: () => invalidateTips(qc),
+  })
+}
+
+export function useKeepWellnessTip() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.keepWellnessTip(id),
+    onSuccess: () => invalidateTips(qc),
+  })
+}
+
+export function useRemoveWellnessTip() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.removeWellnessTip(id),
+    onSuccess: () => invalidateTips(qc),
   })
 }
