@@ -25,8 +25,10 @@ import type {
   EntryExitLog,
   LogSuggestion,
   OverlapWarning,
+  PlannedTrip,
   RuleType,
   Stay,
+  TripAhead,
 } from './types'
 
 /**
@@ -149,6 +151,127 @@ export function checkPlannedStay(
     breachDate !== null ? 'breach' : headroom <= TIGHT_HEADROOM_DAYS ? 'tight' : 'ok'
 
   return { verdict, rule, breachDate, peak, peakDate, headroom, limit }
+}
+
+// ---------------------------------------------------------------------------
+// Planning against other plans
+// ---------------------------------------------------------------------------
+
+/**
+ * The days one person spends on a trip: their own arrival and departure where
+ * they set them, the trip's dates otherwise. Null when the trip has no end —
+ * an open-ended trip has no last day to count to.
+ */
+export function plannedSpanFor(
+  trip: PlannedTrip,
+  userId: string,
+): { from: DateOnly; to: DateOnly } | null {
+  if (!trip.start_date || !trip.end_date) return null
+  const mine = trip.travellers.find((t) => t.user_id === userId)
+  const from = mine?.arrival_date ?? trip.start_date
+  const to = mine?.departure_date ?? trip.end_date
+  return to < from ? null : { from, to }
+}
+
+/**
+ * The person's other planned trips that fall under this rule, as stays.
+ *
+ * The entry log holds crossings somebody confirmed, so on its own it cannot
+ * see that two planned visits which each fit will not fit together — the
+ * second 60 days in Schengen inside 180 is the breach a long-distance couple
+ * actually walks into. Counting plans is the conservative reading: a trip
+ * that is later cancelled over-warns, where leaving it out would under-warn,
+ * and a planned trip already in the log merges with its log row rather than
+ * counting twice (`usedOnFor` merges before it counts).
+ *
+ * `excludeTripId` is the trip being evaluated. Its own dates are the planned
+ * stay under test — and on the destination board the candidate city is an
+ * *alternative* to its chosen one, so counting both would double the trip.
+ */
+export function plannedStaysFor(
+  trips: readonly PlannedTrip[],
+  userId: string,
+  rule: AllowanceRule,
+  excludeTripId: string | null,
+): { stay: Stay; title: string }[] {
+  const covered = new Set(countriesCovered(rule.destination_country, rule.region_members))
+  return trips.flatMap((trip) => {
+    if (trip.id === excludeTripId) return []
+    if (!trip.country_code || !covered.has(trip.country_code.toUpperCase())) return []
+    const span = plannedSpanFor(trip, userId)
+    return span ? [{ stay: { entered_on: span.from, exited_on: span.to }, title: trip.title }] : []
+  })
+}
+
+/**
+ * `checkPlannedStay`, counting the person's other planned trips as well as
+ * their log. `alongside` names the plans inside the stretch the rule looks
+ * back over, so the screen can say why the answer differs from the log's.
+ */
+export function checkTripAgainstPlans(
+  logStays: readonly Stay[],
+  trips: readonly PlannedTrip[],
+  userId: string,
+  excludeTripId: string | null,
+  plannedFrom: DateOnly,
+  plannedTo: DateOnly,
+  rule: AllowanceRule | null,
+  today: DateOnly,
+): AllowanceCheck {
+  if (!rule) return checkPlannedStay(logStays, plannedFrom, plannedTo, rule, today)
+
+  const plans = plannedStaysFor(trips, userId, rule, excludeTripId)
+  const check = checkPlannedStay(
+    [...logStays, ...plans.map((p) => p.stay)],
+    plannedFrom,
+    plannedTo,
+    rule,
+    today,
+  )
+
+  // A year is the longest look-back any rule type takes (`per_year`); a
+  // rolling rule names its own. A plan outside that stretch cannot have
+  // moved the count, so naming it would only confuse.
+  const lookBack = rule.rule_type === 'rolling' ? (rule.window_days ?? 180) : 366
+  const earliest = addDaysTo(plannedFrom, -lookBack)
+  const alongside = plans
+    .filter((p) => (p.stay.exited_on ?? plannedTo) >= earliest && p.stay.entered_on <= plannedTo)
+    .map((p) => p.title)
+
+  return { ...check, alongside: [...new Set(alongside)] }
+}
+
+/**
+ * Every upcoming trip, for each person, against their log and every other
+ * plan. What the dashboard warns from: checking only the next trip meant a
+ * breach on the one after it stayed silent until it was next, which for a
+ * visa is usually after it has been booked.
+ *
+ * A trip is upcoming until its last day has passed, so one under way is
+ * still checked. Trips without a chosen country, or without an end, are
+ * skipped — there is no one country, or no last day, to check.
+ */
+export function checkTripsAhead(
+  trips: readonly PlannedTrip[],
+  people: readonly { id: string; passports: readonly (string | null)[] }[],
+  rules: readonly AllowanceRule[],
+  log: readonly EntryExitLog[],
+  today: DateOnly,
+): TripAhead[] {
+  const out: TripAhead[] = []
+  for (const trip of trips) {
+    if (!trip.country_code || !trip.end_date || trip.end_date < today) continue
+    for (const person of people) {
+      const span = plannedSpanFor(trip, person.id)
+      if (!span) continue
+      const rule = ruleFor(rules, person.id, trip.country_code, person.passports)
+      const theirLog = log.filter((row) => row.user_id === person.id)
+      const stays = rule ? staysForRule(theirLog, rule) : []
+      const check = checkTripAgainstPlans(stays, trips, person.id, trip.id, span.from, span.to, rule, today)
+      out.push({ trip, userId: person.id, check })
+    }
+  }
+  return out
 }
 
 /**

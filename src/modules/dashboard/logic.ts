@@ -215,9 +215,9 @@ export function buildAlerts(payload: DashboardPayload, today: DateOnly): Alert[]
 
   // Flight-delay alerts slot in at priority 4 when there is a channel to
   // deliver them through. Stay-allowance sits at 3 and is built by
-  // `allowanceAlert`, called separately: it needs the allowance rules and the
-  // entry log, which are two more queries and do not belong in a payload this
-  // screen fetches on every load.
+  // `allowanceAlert`, called separately: it needs the allowance rules, the
+  // entry log and every planned trip, which are three more queries and do not
+  // belong in a payload this screen fetches on every load.
 
   return sortAlerts(alerts)
 }
@@ -239,12 +239,18 @@ export function buildAlerts(payload: DashboardPayload, today: DateOnly): Alert[]
 export function allowanceAlert(
   check: AllowanceCheck,
   person: { id: string; displayName: string; isSelf: boolean },
-  tripTitle: string,
+  trip: { id: string; title: string },
 ): Alert | null {
   if (check.verdict === 'ok' || check.verdict === 'untracked') return null
 
   const who = person.isSelf ? 'You' : person.displayName
   const breach = check.verdict === 'breach'
+  const tripTitle = trip.title
+  // The Allowance page reads only the log. When other plans made the
+  // difference, say which, or this and that page appear to disagree.
+  const counting = check.alongside?.length
+    ? ` — counting ${check.alongside.map((t) => `“${t}”`).join(', ')}`
+    : ''
 
   return {
     kind: 'stay_allowance',
@@ -254,10 +260,14 @@ export function allowanceAlert(
     title: breach
       ? `${who} would be over the limit on “${tripTitle}”`
       : `${who} would be close to the limit on “${tripTitle}”`,
-    detail: breach
-      ? `${check.peak} of ${check.limit} days counted by ${check.breachDate ?? check.peakDate}`
-      : `${check.headroom} ${check.headroom === 1 ? 'day' : 'days'} to spare at the worst point`,
-    href: '/allowance',
+    detail:
+      (breach
+        ? `${check.peak} of ${check.limit} days counted by ${check.breachDate ?? check.peakDate}`
+        : `${check.headroom} ${check.headroom === 1 ? 'day' : 'days'} to spare at the worst point`) +
+      counting,
+    // The trip, not the Allowance page: its strip names the date, the rule,
+    // the source and the disclaimer, and it is where the dates get changed.
+    href: `/trips/${trip.id}`,
     ownerId: person.id,
   }
 }

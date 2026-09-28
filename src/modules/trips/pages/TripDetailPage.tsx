@@ -176,6 +176,7 @@ export function TripDetailPage({ children }: { children: React.ReactNode }) {
 
       {/* Only speaks up when a limit is close or crossed (spec 10.2). */}
       <TripAllowanceStrip
+        tripId={trip.id}
         countryCode={destinationCountry}
         from={trip.date_precision === 'exact' ? trip.start_date : null}
         to={trip.date_precision === 'exact' ? trip.end_date : null}

@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase/client'
 import { toAppError, unwrap, unwrapList } from '@/lib/errors'
 import type { DateOnly } from '@/lib/dates'
 import type { InsertDto, UpdateDto } from '@/types/database'
-import type { AllowanceRule, EntryExitLog } from './types'
+import type { AllowanceRule, EntryExitLog, PlannedTrip } from './types'
 
 /**
  * Every rule this couple can see: the seeded defaults plus their own
@@ -131,24 +131,21 @@ export async function deleteLogEntry(id: string): Promise<void> {
   if (error) throw toAppError(error)
 }
 
-/** Trips with dates and a chosen destination — what the suggestions read. */
-export async function listTripsForSuggestions(coupleId: string): Promise<
-  {
-    id: string
-    title: string
-    start_date: string | null
-    end_date: string | null
-    date_precision: string
-    country_code: string | null
-    travellers: { user_id: string; arrival_date: string | null; departure_date: string | null }[]
-  }[]
-> {
+/**
+ * Trips with dates, their chosen country, and each traveller's own dates.
+ *
+ * Read by the log suggestions and by every allowance check that counts other
+ * plans. Every precision is returned: the suggestions refuse anything but
+ * exact dates themselves (`suggestFromTrip`), while a check counting a trip
+ * pinned to "June" as the whole of June is the conservative reading — it can
+ * over-warn, never under-warn.
+ */
+export async function listPlannedTrips(coupleId: string): Promise<PlannedTrip[]> {
   const trips = unwrapList(
     await supabase
       .from('trips')
       .select('id, title, start_date, end_date, date_precision')
       .eq('couple_id', coupleId)
-      .eq('date_precision', 'exact')
       .is('deleted_at', null)
       .not('start_date', 'is', null)
       .order('start_date', { ascending: false })

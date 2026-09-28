@@ -308,6 +308,7 @@ describe('daylight', () => {
 
 describe('stay-allowance alerts', () => {
   const person = { id: 'u1', displayName: 'Ada', isSelf: false }
+  const lisbon = { id: 't1', title: 'Lisbon' }
   const check = (over: Partial<AllowanceCheck> = {}): AllowanceCheck =>
     ({
       verdict: 'ok',
@@ -321,20 +322,20 @@ describe('stay-allowance alerts', () => {
     }) as AllowanceCheck
 
   it('says nothing when there is nothing to say', () => {
-    expect(allowanceAlert(check(), person, 'Lisbon')).toBeNull()
+    expect(allowanceAlert(check(), person, lisbon)).toBeNull()
   })
 
   it('stays silent when the country is not tracked', () => {
     // Deliberate. There is no rule for that country, and inventing
     // reassurance from an absence is what this module refuses to do.
-    expect(allowanceAlert(check({ verdict: 'untracked' }), person, 'Lisbon')).toBeNull()
+    expect(allowanceAlert(check({ verdict: 'untracked' }), person, lisbon)).toBeNull()
   })
 
   it('blocks on a breach and names the day', () => {
     const alert = allowanceAlert(
       check({ verdict: 'breach', breachDate: '2026-06-18', peak: 91, limit: 90 }),
       person,
-      'Lisbon',
+      lisbon,
     )
     expect(alert?.severity).toBe('blocking')
     expect(alert?.priority).toBe(3)
@@ -343,20 +344,30 @@ describe('stay-allowance alerts', () => {
   })
 
   it('warns without blocking when it is merely tight', () => {
-    const alert = allowanceAlert(check({ verdict: 'tight', headroom: 3 }), person, 'Lisbon')
+    const alert = allowanceAlert(check({ verdict: 'tight', headroom: 3 }), person, lisbon)
     expect(alert?.severity).toBe('warning')
     expect(alert?.detail).toContain('3 days to spare')
   })
 
   it('gets the person right from either side', () => {
     expect(
-      allowanceAlert(check({ verdict: 'breach' }), { ...person, isSelf: true }, 'Lisbon')?.title,
+      allowanceAlert(check({ verdict: 'breach' }), { ...person, isSelf: true }, lisbon)?.title,
     ).toMatch(/^You would/)
-    expect(allowanceAlert(check({ verdict: 'breach' }), person, 'Lisbon')?.title).toMatch(/^Ada/)
+    expect(allowanceAlert(check({ verdict: 'breach' }), person, lisbon)?.title).toMatch(/^Ada/)
+  })
+
+  it('links to the trip, where the strip carries the source and the disclaimer', () => {
+    expect(allowanceAlert(check({ verdict: 'breach' }), person, lisbon)?.href).toBe('/trips/t1')
+  })
+
+  it('names the other plans it counted, so it cannot seem to contradict the log', () => {
+    const alert = allowanceAlert(check({ verdict: 'breach', alongside: ['Berlin', 'Rome'] }), person, lisbon)
+    expect(alert?.detail).toMatch(/counting “Berlin”, “Rome”$/)
+    expect(allowanceAlert(check({ verdict: 'tight', headroom: 2 }), person, lisbon)?.detail).not.toContain('counting')
   })
 
   it('sorts above a stale trip and below an expiring document', () => {
-    const alert = allowanceAlert(check({ verdict: 'breach' }), person, 'Lisbon')!
+    const alert = allowanceAlert(check({ verdict: 'breach' }), person, lisbon)!
     expect(alert.priority).toBeGreaterThan(1)
     expect(alert.priority).toBeLessThan(5)
   })

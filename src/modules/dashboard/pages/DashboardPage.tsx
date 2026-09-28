@@ -9,7 +9,7 @@ import { ErrorState, Skeleton, SkeletonList } from '@/components/common/states'
 import { useCouple } from '@/providers/CoupleProvider'
 import { pluralise } from '@/lib/utils'
 import { useAllowanceAlerts, useDashboard, useToday } from '../hooks'
-import { buildAlerts, countdown, nightsTogether } from '../logic'
+import { buildAlerts, countdown, nightsTogether, sortAlerts } from '../logic'
 import { CountdownBlock } from '../components/CountdownBlock'
 import { ClocksCard } from '../components/ClocksCard'
 import { AlertStrip } from '../components/AlertStrip'
@@ -29,9 +29,9 @@ export function DashboardPage() {
     if (!data) return null
     return {
       countdown: countdown(data, today),
-      alerts: [...buildAlerts(data, today), ...allowanceAlerts].sort(
-        (a, b) => a.priority - b.priority,
-      ),
+      // `sortAlerts`, not a bare priority sort: with an alert per trip and per
+      // person, a breach on one trip must still outrank "close" on another.
+      alerts: sortAlerts([...buildAlerts(data, today), ...allowanceAlerts]),
       nights: nightsTogether(data.together_windows ?? [], today),
     }
   }, [data, today, allowanceAlerts])

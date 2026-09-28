@@ -21,7 +21,9 @@ export function AlertStrip({ alerts }: { alerts: Alert[] }) {
   return (
     <div className="space-y-2">
       {shown.map((alert, i) => (
-        <AlertRow key={`${alert.kind}-${alert.href ?? i}`} alert={alert} />
+        // Kind and href alone repeat: both partners' allowance alerts for one
+        // trip share a link. The owner and title tell them apart.
+        <AlertRow key={`${alert.kind}-${alert.href ?? i}-${alert.ownerId ?? ''}-${alert.title}`} alert={alert} />
       ))}
 
       {hidden > 0 && (
