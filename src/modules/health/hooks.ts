@@ -173,3 +173,82 @@ export function useDeleteAllHealthData() {
     onSuccess: () => qc.clear(),
   })
 }
+
+// ---------------------------------------------------------------------------
+// Intimacy
+// ---------------------------------------------------------------------------
+
+/**
+ * One person's log. Pass the partner's id to read theirs — which returns an
+ * empty list unless they have granted the `intimacy` scope, because RLS says
+ * so and not because this hook checked.
+ */
+export function useIntimacy(ownerId: string | null, from: DateOnly) {
+  return useQuery({
+    queryKey: qk.intimacy(ownerId ?? 'none', from),
+    queryFn: () => api.listIntimacy(ownerId!, from),
+    enabled: Boolean(ownerId),
+  })
+}
+
+/**
+ * After a write, every intimacy query is stale — but only the writer's own is
+ * worth waiting for.
+ *
+ * The own list is returned, so a mutation's `onSuccess` keeps it pending until
+ * that list holds the row just written; the caller's `onSuccess` then remounts
+ * the day form against current data rather than planning over a stale list.
+ * Anything else — the partner's view, other windows — refreshes in the
+ * background. Waiting on those too made every save as slow as the slowest
+ * year-long query mounted anywhere on the page.
+ */
+function invalidateIntimacy(qc: ReturnType<typeof useQueryClient>, ownerId: string | null) {
+  const root = qk.intimacy('', '')[0]
+  void qc.invalidateQueries({
+    predicate: (q) => q.queryKey[0] === root && q.queryKey[1] !== ownerId,
+  })
+  return qc.invalidateQueries({
+    predicate: (q) => q.queryKey[0] === root && q.queryKey[1] === ownerId,
+  })
+}
+
+export function useCreateIntimacy() {
+  const qc = useQueryClient()
+  const ownerId = useOwnerId()
+  return useMutation({
+    mutationFn: (input: Omit<InsertDto<'intimacy_logs'>, 'owner_id'>) =>
+      api.createIntimacy(ownerId!, input),
+    onSuccess: () => invalidateIntimacy(qc, ownerId),
+  })
+}
+
+export function useUpdateIntimacy() {
+  const qc = useQueryClient()
+  const ownerId = useOwnerId()
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: UpdateDto<'intimacy_logs'> }) =>
+      api.updateIntimacy(id, patch),
+    onSuccess: () => invalidateIntimacy(qc, ownerId),
+  })
+}
+
+export function useDeleteIntimacy() {
+  const qc = useQueryClient()
+  const ownerId = useOwnerId()
+  return useMutation({
+    mutationFn: api.deleteIntimacy,
+    onSuccess: () => invalidateIntimacy(qc, ownerId),
+  })
+}
+
+/**
+ * The guidance list. Reference data that changes only by migration, so it is
+ * cached for the session rather than refetched.
+ */
+export function useWellnessTips() {
+  return useQuery({
+    queryKey: qk.wellnessTips,
+    queryFn: api.listWellnessTips,
+    staleTime: 60 * 60_000,
+  })
+}

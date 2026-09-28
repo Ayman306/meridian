@@ -41,6 +41,9 @@
 --   supabase/migrations/0033_suggestion_authorship.sql
 --   supabase/migrations/0034_flight_date_follows_departure.sql
 --   supabase/migrations/0035_open_ended_trips_roll_forward.sql
+--   supabase/migrations/0036_intimacy.sql
+--   supabase/migrations/0037_partner_is_never_a_friend.sql
+--   supabase/migrations/0038_pin_sync_flight_date.sql
 --
 -- Safe to re-run: every statement is idempotent or uses "or replace".
 -- =============================================================================
@@ -6481,4 +6484,620 @@ comment on function public.sync_trip_days(uuid) is
   'Scaffolds trip_days between the start date and the horizon, unscheduling any item that falls outside it. An open-ended trip rolls thirty days forward from today once it has begun; a dated one ends at its end date.';
 
 grant execute on function public.sync_trip_days(uuid) to authenticated;
+
+
+-- ===========================================================================
+-- 0036_intimacy.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0036_intimacy — an intimacy log, and wellness guidance worth reading.
+-- Extends Module 12.
+--
+-- The cycle calendar only applies to one of them. This is the half of the
+-- health module that applies to both: what you felt like, what you did about
+-- it, and — when the two of you are finally in the same country — how to
+-- arrive feeling like a person rather than a jet-lagged one.
+--
+-- ## It inherits 0014's rules rather than reinventing them
+--
+-- Owner-private by default, and the database refuses the read: no policy here
+-- is keyed on `is_couple_member`, being in the couple grants nothing, and a
+-- partner sees these rows only while an unrevoked `intimacy` consent exists.
+-- Spec 12.1's line holds — *a hidden tab is not privacy.*
+--
+-- This is the most personal table in the application, so two things that are
+-- conventions elsewhere are hard rules here:
+--
+-- 1. **Its own consent scope.** `intimacy` is separate from `cycle` and from
+--    `notes`. Sharing when your period started is not sharing this, and the
+--    sharing screen must never let one imply the other.
+-- 2. **The assistant cannot reach it.** No MCP tool reads or writes this
+--    table, deliberately, and that is a property of the tool surface rather
+--    than of the prompt. Cycle logs are opt-in over MCP because "when is she
+--    due" is a question worth answering out loud. This is not.
+--
+-- Hard delete applies, as in 0014: `delete_all_health_data()` is extended
+-- below rather than left to miss a table, which is the failure mode that makes
+-- somebody believe they erased something they did not.
+--
+-- ## One row per day
+--
+-- Not a timestamped ledger. A daily row is what the cycle log already is, it
+-- is the grain the summaries want, and it is markedly less of an intrusion to
+-- keep: "that Tuesday" rather than a time of night.
+-- =============================================================================
+
+alter table public.health_consents drop constraint if exists valid_scope;
+alter table public.health_consents add constraint valid_scope check (
+  scope in (
+    'cycle', 'cycle_predictions', 'symptoms',
+    'medications', 'vaccinations', 'notes',
+    'intimacy'
+  )
+);
+
+create table if not exists public.intimacy_logs (
+  id         uuid primary key default gen_random_uuid(),
+  owner_id   uuid not null references public.profiles(id) on delete cascade,
+  logged_on  date not null,
+
+  -- How much wanting, 0–5. Nullable because "I did not think about it" is a
+  -- real answer and zero is a different one.
+  desire     smallint,
+
+  solo       boolean not null default false,
+  partnered  boolean not null default false,
+  orgasms    smallint not null default 0,
+
+  notes      text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  unique (owner_id, logged_on),
+  constraint valid_desire  check (desire is null or (desire >= 0 and desire <= 5)),
+  -- An upper bound only so a typo cannot poison an average. It is deliberately
+  -- far above anything plausible; this is not the app's business.
+  constraint valid_orgasms check (orgasms >= 0 and orgasms <= 50)
+);
+
+create index if not exists intimacy_logs_owner_idx
+  on public.intimacy_logs (owner_id, logged_on desc);
+
+drop trigger if exists intimacy_logs_updated_at on public.intimacy_logs;
+create trigger intimacy_logs_updated_at before update on public.intimacy_logs
+  for each row execute function public.set_updated_at();
+
+alter table public.intimacy_logs enable row level security;
+
+drop policy if exists "owner full access" on public.intimacy_logs;
+create policy "owner full access" on public.intimacy_logs
+  for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
+
+-- Read-only, and only with consent. As in 0014 there is no viewer write policy
+-- at all: a partner's view is read-only by construction, not by convention.
+drop policy if exists "viewer with active consent" on public.intimacy_logs;
+create policy "viewer with active consent" on public.intimacy_logs
+  for select using (public.has_health_consent(owner_id, 'intimacy'));
+
+-- =============================================================================
+-- Wellness guidance.
+--
+-- Couple-independent reference data, same shape and same honesty as
+-- `medication_restrictions`: every row carries the official source and the
+-- date somebody last checked it. **The app is not the authority. The linked
+-- page is.** Nothing here is a diagnosis, a prescription, or a claim about
+-- what anybody should want.
+--
+-- `audience` picks a default, exactly as `profiles.gender` does for the cycle
+-- calendar in 0017 — and for the same reason it is only a default. The screen
+-- offers everything to anyone who asks, because a list that hides itself based
+-- on a profile field is a worse answer than one that starts somewhere sensible.
+-- =============================================================================
+create table if not exists public.wellness_tips (
+  id          uuid primary key default gen_random_uuid(),
+  category    text not null,
+  audience    text not null default 'everyone',
+  title       text not null,
+  body        text not null,
+  source_url  text not null,
+  verified_on date,
+  created_at  timestamptz not null default now(),
+  constraint valid_category check (
+    category in ('lifestyle', 'diet', 'connection', 'body', 'trip_prep')
+  ),
+  constraint valid_audience check (audience in ('everyone', 'female', 'male'))
+);
+
+create unique index if not exists wellness_tips_key on public.wellness_tips (lower(title));
+
+alter table public.wellness_tips enable row level security;
+
+drop policy if exists "signed in read" on public.wellness_tips;
+create policy "signed in read" on public.wellness_tips
+  for select using (auth.uid() is not null);
+
+-- =============================================================================
+-- Hard delete, extended.
+--
+-- Spec 12.2. One transaction, and now four tables: a delete that missed this
+-- one would leave the most personal rows in the database while telling
+-- somebody their health data was gone.
+-- =============================================================================
+create or replace function public.delete_all_health_data()
+returns void language plpgsql security definer
+set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'NOT_AUTHENTICATED'; end if;
+  delete from public.cycle_logs     where owner_id = auth.uid();
+  delete from public.health_records where owner_id = auth.uid();
+  delete from public.intimacy_logs  where owner_id = auth.uid();
+  delete from public.health_consents where owner_id = auth.uid();
+end $$;
+
+revoke all on function public.delete_all_health_data() from public, anon;
+grant execute on function public.delete_all_health_data() to authenticated;
+
+-- =============================================================================
+-- Seed: wellness guidance.
+--
+-- Deliberately small, like 0014's restriction list, and for the same reason:
+-- every row is a pointer to guidance somebody else maintains, not the guidance
+-- itself. Public-health sources only (NHS, CDC) — no supplement marketing, no
+-- folk remedies, and nothing that treats desire as a performance target.
+--
+-- `verified_on` is the date these were written down, **not** the date a human
+-- read the page. Open the source before relying on a row; MEMORY's open
+-- question about the seeded visa rules applies here word for word.
+-- =============================================================================
+insert into public.wellness_tips (category, audience, title, body, source_url, verified_on) values
+  ('lifestyle', 'everyone',
+   'Sleep first',
+   'Short or broken sleep lowers desire and energy for most people, and it is usually the easiest of these to change. Aim for a regular bedtime for a week before you travel rather than trying to catch up in one night.',
+   'https://www.nhs.uk/live-well/sleep-and-tiredness/', '2026-09-27'),
+
+  ('lifestyle', 'everyone',
+   'Move most days',
+   'Regular activity improves circulation, mood and body confidence, all of which matter more than any single "performance" tip. The NHS guideline is 150 minutes of moderate activity a week — a brisk walk counts.',
+   'https://www.nhs.uk/live-well/exercise/', '2026-09-27'),
+
+  ('lifestyle', 'everyone',
+   'Alcohol does less than it promises',
+   'A drink can lower inhibition, but alcohol depresses arousal and makes orgasm harder for everyone. If you are marking an occasion, keep it modest rather than making it the occasion.',
+   'https://www.nhs.uk/live-well/alcohol-advice/', '2026-09-27'),
+
+  ('lifestyle', 'everyone',
+   'Stress is a desire problem, not only a mood one',
+   'Sustained stress reliably suppresses libido. Treating the stress tends to do more than anything aimed directly at sex — and the weeks before a long-awaited trip are often the most stressful ones.',
+   'https://www.nhs.uk/mental-health/', '2026-09-27'),
+
+  ('diet', 'everyone',
+   'Eat for circulation, not for aphrodisiacs',
+   'No food has been shown to reliably increase desire. What does help is the ordinary heart-healthy pattern — vegetables, whole grains, fish, less processed meat and salt — because arousal depends on blood flow in both bodies.',
+   'https://www.nhs.uk/live-well/eat-well/', '2026-09-27'),
+
+  ('diet', 'everyone',
+   'Heavy meals are a poor prelude',
+   'A very large or very late meal leaves most people sleepy rather than interested. If you are planning an evening together, eat earlier and lighter than you would on an ordinary night.',
+   'https://www.nhs.uk/live-well/eat-well/', '2026-09-27'),
+
+  ('body', 'everyone',
+   'Pelvic floor exercises are for everyone',
+   'Pelvic floor muscles support arousal, sensation and control in every body. The NHS has a simple routine that takes a few minutes a day and shows results over weeks, not days — so start well before a trip.',
+   'https://www.nhs.uk/conditions/pelvic-floor-exercises/', '2026-09-27'),
+
+  ('body', 'everyone',
+   'Desire that shows up afterwards is still desire',
+   'Many people rarely feel spontaneous desire and only notice wanting once something has already started. That is a recognised pattern, not a fault, and expecting it can take a great deal of pressure off a first night back together.',
+   'https://www.nhs.uk/conditions/loss-of-libido/', '2026-09-27'),
+
+  ('body', 'female',
+   'Dryness is common, and easily solved',
+   'Vaginal dryness affects people at every age and has many ordinary causes — stress, contraception, cycle stage, not enough time. A lubricant solves most of it; persistent dryness or pain is worth a GP appointment rather than endurance.',
+   'https://www.nhs.uk/conditions/vaginal-dryness/', '2026-09-27'),
+
+  ('body', 'female',
+   'Desire often moves with the cycle',
+   'Many people notice desire rising around ovulation and falling before a period. If you track your cycle in this app, the pattern may be visible in your own log — and it is useful context for planning, not a rule to obey.',
+   'https://www.nhs.uk/conditions/loss-of-libido/', '2026-09-27'),
+
+  ('body', 'male',
+   'Erection problems are usually circulatory',
+   'Occasional difficulty is normal and often caused by tiredness, alcohol or anxiety. Persistent difficulty is a cardiovascular signal worth taking to a GP early — it is frequently the first symptom of something treatable.',
+   'https://www.nhs.uk/conditions/erection-problems-erectile-dysfunction/', '2026-09-27'),
+
+  ('body', 'male',
+   'Smoking shows up here first',
+   'Smoking narrows the small blood vessels erections depend on, and the effect appears earlier than most other damage. Stopping improves it for many people.',
+   'https://www.nhs.uk/conditions/erection-problems-erectile-dysfunction/', '2026-09-27'),
+
+  ('connection', 'everyone',
+   'Have the conversation outside the bedroom',
+   'Mismatched desire is one of the most common things couples deal with, and the worst moment to raise it is during or just after sex. A calm conversation on an ordinary afternoon does far more.',
+   'https://www.nhs.uk/conditions/loss-of-libido/', '2026-09-27'),
+
+  ('connection', 'everyone',
+   'A reunion carries expectations — say them out loud',
+   'Time apart tends to build a picture of the first night back that neither of you has agreed to. Saying what you are actually hoping for, including "mostly I want to sleep next to you", prevents a quiet disappointment neither of you planned.',
+   'https://www.nhs.uk/conditions/loss-of-libido/', '2026-09-27'),
+
+  ('trip_prep', 'everyone',
+   'Deal with jet lag before anything else',
+   'Crossing several time zones affects sleep, mood and appetite for days. Shifting your bedtime an hour a day toward the destination before you fly, and getting daylight on arrival, does more for a first evening together than anything else on this list.',
+   'https://www.nhs.uk/conditions/jet-lag/', '2026-09-27'),
+
+  ('trip_prep', 'everyone',
+   'Pack what you actually use',
+   'Contraception, lubricant and any regular medication are all far harder to buy in an unfamiliar country, and some are restricted in ways you would not expect. The Documents and Medications tabs already track what expires — this is the other half of the same packing list.',
+   'https://www.nhs.uk/contraception/', '2026-09-27'),
+
+  ('trip_prep', 'everyone',
+   'Testing is a kindness, not an accusation',
+   'If either of you has had other partners since you last met, testing beforehand is routine sexual healthcare. Many infections carry no symptoms, so "feeling fine" is not information.',
+   'https://www.cdc.gov/sti/', '2026-09-27')
+on conflict do nothing;
+
+
+-- ===========================================================================
+-- 0037_partner_is_never_a_friend.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0037_partner_is_never_a_friend — make "who is my partner" a real answer.
+--
+-- `partner_id()` has been, since 0001:
+--
+--     select cm2.user_id from couple_members cm1
+--       join couple_members cm2 on cm1.couple_id = cm2.couple_id
+--      where cm1.user_id = auth.uid() and cm2.user_id <> auth.uid()
+--      limit 1;
+--
+-- "The other member", unordered. That was sound while a couple held exactly
+-- two people — D1's one-couple-per-user index guaranteed it, and the comment
+-- above that index said so. 0013 then let a couple invite a *friend* or a
+-- *guest*, and from that moment the answer was whichever member the planner
+-- reached first: the partner, or the friend, varying with uuid order and
+-- scan choice.
+--
+-- ## What that broke
+--
+-- The client builds `partnerRef` from this function, and nearly everything
+-- two-person reads it. The worst consequence is on the health Sharing screen,
+-- which grants consent to `partnerRef.id` — with a friend in the couple it
+-- could offer to share somebody's cycle, or their intimacy log, with the
+-- friend. `profiles read partner` is keyed on it too, so the same coin-flip
+-- decided whether you could read your own partner's profile or the friend's.
+-- Profiles carry a home location, which is not something a friend on one trip
+-- should be handed by accident.
+--
+-- ## The rule now
+--
+-- A partner is the other **owner or partner** in a space of kind `couple`.
+-- Friends and guests are members, never partners, whoever asks. Ties — which
+-- a couple should never have, but a bad row should not make random — break on
+-- `joined_at`, then `user_id`, so the answer is the same on every call.
+--
+-- A friend asking gets null: a friend is nobody's partner. An earlier draft
+-- answered the couple's owner instead, so the client would not show a friend
+-- as orphaned — and in doing so gave every friend the owner's profile, home
+-- location included, through `profiles read partner`. The worry was unfounded:
+-- nothing in the client reads `isOrphaned`, and every screen that uses
+-- `partnerRef` already guards for null, because solo mode has always produced
+-- one. A friend takes the same paths as somebody unpaired. So the database
+-- gives the true answer.
+--
+-- ## Authorisation is per couple
+--
+-- `couple_settings` "partners write" was `is_couple_member(couple_id) and
+-- my_role() in ('owner', 'partner')`. `my_role()` is the caller's role in
+-- *their own* space, not in the couple being written, so a friend on Eve's trip
+-- who is a partner at home passed the check for Eve's couple and could rewrite
+-- her settings. It had been a coin-flip; this migration's first draft, by
+-- ordering `my_role()` to prefer the partner membership, made it certain. A
+-- global role is the wrong tool for a per-couple decision, so there is now a
+-- per-couple one: `is_couple_partner(couple_id)`.
+--
+-- Two older gaps sat beside it and close the same way:
+--
+-- - `invites` "couple write" required only membership. `create_invite` refuses
+--   a friend or guest — "a guest who could invite would route around every
+--   grant on their own membership" — but the table let one write an invite
+--   directly, and even a partner could skip every rule in `create_invite` by
+--   inserting one, or un-revoke an old one with a five-year expiry. The client
+--   may now only revoke; see the column privileges at the end of this file.
+-- - `couple_members` had no update policy and deleted only your own row. So
+--   Settings' "change what they see" and "remove" both affected zero rows and
+--   reported success: a friend you removed kept their access, and nothing on
+--   the screen said so. Partners may now update and remove **friends and
+--   guests** in their own couple — never each other, and a friend can never
+--   raise their own role.
+
+-- ## Consent follows the relationship
+--
+-- `has_health_consent` checked that a consent row existed and nothing else. So
+-- a grant that reached a friend through the old coin-flip kept working after
+-- this fix — and the Sharing screen, now keyed on the real partner, would not
+-- even show it to be revoked. The same hole let a *former* partner keep reading
+-- after leaving the couple, if nobody remembered to revoke first.
+--
+-- Health sharing has only ever been offered to the partner, so each viewer
+-- policy now also requires the row's owner to *be* the viewer's partner:
+--
+--     owner_id = (select public.partner_id())
+--
+-- The subselect is deliberate. Written bare, `partner_id()` — a three-table
+-- join — would run once per row; wrapped, Postgres evaluates it once per query
+-- as an initPlan and the comparison prunes every row that is not the
+-- partner's before `has_health_consent` ever runs. An earlier draft called
+-- `partner_id()` inside `has_health_consent` instead, which ran the join per
+-- row of the table. The function keeps a relationship check of its own — see
+-- its comment — but a cheap one, reached only for the partner's rows.
+
+-- ## "Which space is mine" had the same flaw, and it was reachable
+--
+-- `my_couple_id()`, `my_role()` and `my_modules()` each read one membership
+-- with an unordered `limit 1`. That looked unreachable — spec 16.9 rules out
+-- group spaces — but it is not: `join_couple` only refuses a *partner* invite
+-- to someone who is already an owner or partner somewhere. A person who is a
+-- friend on another couple's trip can therefore accept a partner invite and
+-- hold two memberships, and the unordered read could hand them back the
+-- friend's space as their own — every couple-scoped screen pointed at the
+-- wrong couple. So all three now prefer, in order: the membership where you
+-- are an owner or partner, a couple over a group, then the earliest.
+-- =============================================================================
+
+create or replace function public.partner_id()
+returns uuid language sql security definer stable
+set search_path = public as $$
+  select other.user_id
+    from public.couple_members me
+    join public.couples c       on c.id = me.couple_id and c.kind = 'couple'
+    join public.couple_members other
+      on other.couple_id = me.couple_id
+     and other.user_id <> me.user_id
+     and other.role in ('owner', 'partner')
+   where me.user_id = auth.uid()
+     and me.role in ('owner', 'partner')
+   order by other.joined_at, other.user_id
+   limit 1;
+$$;
+
+create or replace function public.my_couple_id()
+returns uuid language sql security definer stable
+set search_path = public as $$
+  select me.couple_id
+    from public.couple_members me
+    join public.couples c on c.id = me.couple_id
+   where me.user_id = auth.uid()
+   order by (me.role in ('owner', 'partner')) desc, (c.kind = 'couple') desc,
+            me.joined_at, me.couple_id
+   limit 1;
+$$;
+
+-- The relationship is checked here too, not only in the policies. The function
+-- is callable as an RPC, and without it a former partner holding a stray
+-- consent row would get `true` — learning that the sharing was never revoked —
+-- and any future health table whose policy forgot the prefilter would reopen
+-- the hole this migration closes. Written as an indexed pair lookup rather
+-- than a call to `partner_id()`, and reached only for rows the policy
+-- prefilter has already narrowed to the partner's, so it costs a couple of
+-- index probes per partner row rather than a join per row of the table.
+create or replace function public.has_health_consent(owner uuid, scope_name text)
+returns boolean language sql security definer stable
+set search_path = public as $$
+  select exists (
+    select 1 from public.health_consents c
+     where c.owner_id = owner
+       and c.viewer_id = auth.uid()
+       and c.scope = scope_name
+       -- Checked here rather than by a sweep: revocation has to take effect on
+       -- the next query, with no cache to expire (spec 12.6).
+       and c.revoked_at is null
+  )
+  and exists (
+    select 1
+      from public.couple_members viewer
+      join public.couple_members holder on holder.couple_id = viewer.couple_id
+      join public.couples c on c.id = viewer.couple_id and c.kind = 'couple'
+     where viewer.user_id = auth.uid() and viewer.role in ('owner', 'partner')
+       and holder.user_id = owner      and holder.role in ('owner', 'partner')
+  );
+$$;
+
+drop policy if exists "viewer with active consent" on public.cycle_logs;
+create policy "viewer with active consent" on public.cycle_logs
+  for select using (
+    owner_id = (select public.partner_id())
+    and public.has_health_consent(owner_id, 'cycle')
+  );
+
+drop policy if exists "viewer with active consent" on public.health_records;
+create policy "viewer with active consent" on public.health_records
+  for select using (
+    owner_id = (select public.partner_id())
+    and case kind
+      when 'medication'   then public.has_health_consent(owner_id, 'medications')
+      when 'vaccination'  then public.has_health_consent(owner_id, 'vaccinations')
+      else public.has_health_consent(owner_id, 'notes')
+    end
+  );
+
+drop policy if exists "viewer with active consent" on public.intimacy_logs;
+create policy "viewer with active consent" on public.intimacy_logs
+  for select using (
+    owner_id = (select public.partner_id())
+    and public.has_health_consent(owner_id, 'intimacy')
+  );
+
+revoke all on function public.has_health_consent(uuid, text) from public, anon;
+grant execute on function public.has_health_consent(uuid, text) to authenticated;
+
+-- The role that goes with `my_couple_id()`, so the two can never describe
+-- different spaces.
+create or replace function public.my_role()
+returns text language sql security definer stable
+set search_path = public as $$
+  select me.role
+    from public.couple_members me
+    join public.couples c on c.id = me.couple_id
+   where me.user_id = auth.uid()
+   order by (me.role in ('owner', 'partner')) desc, (c.kind = 'couple') desc,
+            me.joined_at, me.couple_id
+   limit 1;
+$$;
+
+-- The module grants that go with the same membership, so the nav, the role
+-- and the couple can never describe three different spaces.
+create or replace function public.my_modules()
+returns text[] language sql security definer stable
+set search_path = public as $$
+  select coalesce(
+    (select me.module_grants
+       from public.couple_members me
+       join public.couples c on c.id = me.couple_id
+      where me.user_id = auth.uid()
+      order by (me.role in ('owner', 'partner')) desc, (c.kind = 'couple') desc,
+               me.joined_at, me.couple_id
+      limit 1),
+    public.all_modules()
+  );
+$$;
+
+revoke all on function public.partner_id()   from public, anon;
+revoke all on function public.my_couple_id() from public, anon;
+revoke all on function public.my_role()      from public, anon;
+revoke all on function public.my_modules()   from public, anon;
+grant execute on function public.partner_id()   to authenticated;
+grant execute on function public.my_couple_id() to authenticated;
+grant execute on function public.my_role()      to authenticated;
+grant execute on function public.my_modules()   to authenticated;
+
+create or replace function public.is_couple_partner(target uuid)
+returns boolean language sql security definer stable
+set search_path = public as $$
+  -- Security definer for the same reason as `is_couple_member`: it is read
+  -- from `couple_members` policies, and reading that table through its own RLS
+  -- would recurse.
+  select exists (
+    select 1 from public.couple_members
+     where couple_id = target
+       and user_id = auth.uid()
+       and role in ('owner', 'partner')
+  );
+$$;
+
+revoke all on function public.is_couple_partner(uuid) from public, anon;
+grant execute on function public.is_couple_partner(uuid) to authenticated;
+
+drop policy if exists "partners write" on public.couple_settings;
+create policy "partners write" on public.couple_settings
+  for all using (public.is_couple_partner(couple_id))
+      with check (public.is_couple_partner(couple_id));
+
+
+-- Only friends and guests are managed, on both sides of the check: the row
+-- being changed must be a friend's or a guest's, and so must the row it
+-- becomes. That is what stops a partner demoting the other partner, and a
+-- friend promoting themselves — they are not a partner of the couple, so
+-- `is_couple_partner` refuses them before the role is even looked at.
+drop policy if exists "partners manage friends" on public.couple_members;
+create policy "partners manage friends" on public.couple_members
+  for update using (public.is_couple_partner(couple_id) and role in ('friend', 'guest'))
+         with check (public.is_couple_partner(couple_id) and role in ('friend', 'guest'));
+
+drop policy if exists "partners remove friends" on public.couple_members;
+create policy "partners remove friends" on public.couple_members
+  for delete using (public.is_couple_partner(couple_id) and role in ('friend', 'guest'));
+
+-- The couple row itself, resolved the same way, so the app can load it in one
+-- round trip instead of asking for the id and then the row. `setof` so that
+-- "no couple" is an empty result rather than a composite NULL whose meaning
+-- depends on the client.
+create or replace function public.my_couple()
+returns setof public.couples language sql security definer stable
+set search_path = public as $$
+  select c.* from public.couples c where c.id = public.my_couple_id();
+$$;
+
+revoke all on function public.my_couple() from public, anon;
+grant execute on function public.my_couple() to authenticated;
+
+-- =============================================================================
+-- Column privileges: what the client may write at all.
+--
+-- `authenticated` held full table-level INSERT, UPDATE and DELETE on every
+-- membership table, so RLS policies were the only gate — and a policy says
+-- *which rows*, never *which columns*. Every policy fix in this migration's
+-- earlier drafts therefore left something adjacent open. The worst: the new
+-- "partners manage friends" policy let a partner rewrite a friend's row
+-- wholesale, `user_id` included, which would enrol somebody in a couple they
+-- never agreed to join. So the client's writes are now narrowed to the columns
+-- it actually has a reason to write, and everything else goes through the
+-- `SECURITY DEFINER` RPCs that already enforce the rules — `create_couple`,
+-- `join_couple`, `create_invite` and `leave_couple`, all of which run as the
+-- function owner and are unaffected.
+-- =============================================================================
+
+-- Membership: Settings changes what a friend can see, and nothing else.
+-- Joining is `join_couple`; leaving is `leave_couple`. Identity, role and join
+-- date are not editable from a browser by anybody.
+revoke update on public.couple_members from authenticated;
+grant update (module_grants) on public.couple_members to authenticated;
+
+-- Invites: issued by `create_invite`, redeemed by `join_couple`. The client
+-- only ever revokes one, so that is all it may do — and only one way: a
+-- revoked invite cannot be un-revoked, re-dated or re-addressed.
+revoke insert, update, delete on public.invites from authenticated;
+grant update (revoked_at) on public.invites to authenticated;
+-- 0013's "couple write" was FOR ALL to any member. Policies are OR'd, so
+-- leaving it in place would re-open every write below to friends and guests —
+-- which an earlier draft of this file did, and the privilege matrix in the RLS
+-- tests caught.
+drop policy if exists "couple write" on public.invites;
+drop policy if exists "partners revoke" on public.invites;
+create policy "partners revoke" on public.invites
+  for update using (public.is_couple_partner(couple_id))
+         with check (public.is_couple_partner(couple_id) and revoked_at is not null);
+
+-- The couple itself: the same per-couple rule as its settings. It was any
+-- member, so a guest could rename somebody else's couple or change its base
+-- currency — and the mirror trigger into `couple_settings`, now partner-only,
+-- would then have silently matched no rows and let the two drift apart.
+drop policy if exists "couples update" on public.couples;
+create policy "couples update" on public.couples
+  for update using (public.is_couple_partner(id))
+         with check (public.is_couple_partner(id));
+
+-- 0013 dropped the one-couple-per-user unique index so a person could hold a
+-- friend membership too, and replaced it with nothing. Every "which space is
+-- mine" lookup — `my_couple_id()`, `partner_id()`, `my_role()`, `my_modules()`
+-- and the relationship check in `has_health_consent` — starts from `user_id`,
+-- and the primary key leads with `couple_id`, so each was a scan.
+create index if not exists couple_members_user_idx on public.couple_members (user_id);
+
+
+-- ===========================================================================
+-- 0038_pin_sync_flight_date.sql
+-- ===========================================================================
+
+-- =============================================================================
+-- 0038_pin_sync_flight_date — the one function 0034 left with a mutable path.
+--
+-- Supabase's security advisor flagged `sync_flight_date` as the only function
+-- in the schema without a pinned `search_path`. The risk is small, exactly as
+-- it was for `set_updated_at` in 0004: it runs as invoker and touches only
+-- `new`. But a trigger that resolves names against whatever path the writer
+-- happens to have is the pattern 0004 already closed once, so it is closed the
+-- same way here — pinned empty, which is safe because everything it uses
+-- (`at time zone`, the `date` cast) lives in `pg_catalog`, which is always
+-- searched first.
+--
+-- `alter function` rather than a restatement of the body, so this cannot drift
+-- from 0034's logic. And like every trigger function since 0004, nobody calls
+-- it directly: a trigger fires as its owner regardless of EXECUTE.
+-- =============================================================================
+
+alter function public.sync_flight_date() set search_path = '';
+
+revoke all on function public.sync_flight_date() from public, anon, authenticated;
 

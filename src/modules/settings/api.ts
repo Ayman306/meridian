@@ -2,7 +2,7 @@
 'use client'
 
 import { supabase } from '@/lib/supabase/client'
-import { toAppError, unwrap, unwrapList, unwrapMaybe } from '@/lib/errors'
+import { AppError, toAppError, unwrap, unwrapList, unwrapMaybe } from '@/lib/errors'
 import type { UpdateDto } from '@/types/database'
 import type { StoredSubscription } from '@/lib/push/client'
 import type {
@@ -97,21 +97,41 @@ export async function setMemberGrants(
   userId: string,
   grants: ModuleName[] | null,
 ): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('couple_members')
     .update({ module_grants: grants })
     .eq('couple_id', coupleId)
     .eq('user_id', userId)
+    .select('user_id')
   if (error) throw toAppError(error)
+  assertChanged(data, 'That access was not changed.')
 }
 
 export async function removeMember(coupleId: string, userId: string): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('couple_members')
     .delete()
     .eq('couple_id', coupleId)
     .eq('user_id', userId)
+    .select('user_id')
   if (error) throw toAppError(error)
+  assertChanged(data, 'They were not removed.')
+}
+
+/**
+ * A write RLS refused is not an error to Postgres — it simply matches no rows.
+ *
+ * That is how "remove this friend" reported success for months while removing
+ * nobody: `couple_members` had no policy allowing it, the delete matched zero
+ * rows, and the client took the absence of an error as the presence of a
+ * result. 0037 added the policy; this closes the class. Any write here that
+ * changed nothing says so, whatever the reason — refused, already gone, or
+ * never there.
+ */
+function assertChanged(rows: unknown[] | null, message: string): void {
+  if (!rows || rows.length === 0) {
+    throw new AppError(message, { kind: 'permission' })
+  }
 }
 
 export async function listInvites(coupleId: string): Promise<Invite[]> {
@@ -147,11 +167,13 @@ export async function createInvite(input: InviteInput): Promise<Invite> {
 }
 
 export async function revokeInvite(id: string): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('invites')
     .update({ revoked_at: new Date().toISOString() })
     .eq('id', id)
+    .select('id')
   if (error) throw toAppError(error)
+  assertChanged(data, 'That invite was not revoked.')
 }
 
 export async function acceptInvite(code: string): Promise<string> {

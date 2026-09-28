@@ -66,6 +66,62 @@ describe('the sensitive modules', () => {
     expect(filters.length).toBeGreaterThanOrEqual(queries.length)
   })
 
+  it('has no way to reach the intimacy log at all', () => {
+    // Not a gated tool — no tool. Cycle logs are reachable over MCP because
+    // "when is she due, should I move the flight" is worth answering out loud;
+    // this is not, and the safest guarantee is that the capability does not
+    // exist rather than that a prompt declines it. `mcp/README.md` promises
+    // exactly that, so the promise is enforced here: every file in the MCP
+    // layer and its route is scanned, so a new tool anywhere fails the suite.
+    const roots = [join(process.cwd(), 'src/mcp'), join(process.cwd(), 'src/app/api/mcp')]
+    const files = roots.flatMap((root) =>
+      (readdirSync(root, { recursive: true }) as string[])
+        .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+        .map((f) => join(root, f)),
+    )
+    expect(files.length).toBeGreaterThan(0)
+
+    // Three ways in, each closed. The table by name; the health module's own
+    // data functions by name; and the health module's data layer by import —
+    // `health/logic` is pure and allowed (the tools borrow its disclaimers),
+    // `health/api`, `health/hooks` and the barrel that re-exports them are not.
+    const DATA_NAMES = /\b(?:intimacy_logs|listIntimacy|createIntimacy|updateIntimacy|deleteIntimacy|useIntimacy)\b/
+    // Any path into the health module except its pure `logic` — alias or
+    // relative, with or without an extension, static, dynamic or `require`.
+    const DATA_IMPORT =
+      /(?:from\s*|import\s*\(\s*|require\s*\(\s*)['"][^'"]*modules\/health(?!\/logic(?:\.ts)?['"])[^'"]*['"]/
+    const offenders = files.filter((file) => {
+      const source = readFileSync(file, 'utf8')
+      return DATA_NAMES.test(source) || DATA_IMPORT.test(source)
+    })
+    expect(offenders).toEqual([])
+  })
+
+  it('has no database function that could hand the intimacy log to anyone', () => {
+    // The fourth way in: an RPC. A tool calling a function that returns these
+    // rows would contain none of the names above. So every function in the
+    // schema that touches the table is listed here, and a new one fails the
+    // suite until somebody decides, on purpose, that it may exist.
+    // The authoritative version of this check reads `pg_proc` and `pg_views`
+    // in the RLS tests. This one reads source, so it still guards the promise
+    // on a machine with no Postgres — any `create [or replace] function`, any
+    // dollar-quote tag.
+    const schema = readFileSync(join(process.cwd(), 'supabase/setup.sql'), 'utf8')
+    const functions = [
+      ...schema.matchAll(
+        /create\s+(?:or\s+replace\s+)?function\s+(?:public\.)?(\w+)\s*\([^)]*\)[\s\S]*?(\$\w*\$)([\s\S]*?)\2/gi,
+      ),
+    ].map(([, name, , body]) => [name, body] as const)
+    expect(functions.length).toBeGreaterThan(20)
+    const touching = [
+      ...new Set(functions.filter(([, body]) => body!.includes('intimacy_logs')).map(([name]) => name)),
+    ]
+    const views = [...schema.matchAll(/create\s+(?:or\s+replace\s+)?(?:materialized\s+)?view[^;]*;/gi)]
+    expect(views.filter(([text]) => text.includes('intimacy_logs'))).toEqual([])
+    // Deletes the caller's own rows and returns nothing.
+    expect(touching).toEqual(['delete_all_health_data'])
+  })
+
   it('never exposes a document file, link or number', () => {
     // The column list in the query is the boundary. `storage_path` would invite
     // a fetch; a signed URL outliving its 300 seconds in a model's context

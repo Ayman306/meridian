@@ -5,6 +5,8 @@ export type HealthConsent = Tables<'health_consents'>
 export type CycleLog = Tables<'cycle_logs'>
 export type HealthRecord = Tables<'health_records'>
 export type MedicationRestriction = Tables<'medication_restrictions'>
+export type IntimacyLog = Tables<'intimacy_logs'>
+export type WellnessTip = Tables<'wellness_tips'>
 
 /** The scopes consent is granted at. Mirrors the check constraint in 0014. */
 export type ConsentScope =
@@ -14,8 +16,34 @@ export type ConsentScope =
   | 'medications'
   | 'vaccinations'
   | 'notes'
+  /** Its own scope on purpose: sharing a cycle is not sharing this. */
+  | 'intimacy'
 
 export type RecordKind = 'medication' | 'vaccination' | 'condition' | 'allergy'
+export type TipCategory = 'lifestyle' | 'diet' | 'connection' | 'body' | 'trip_prep'
+export type TipAudience = 'everyone' | 'female' | 'male'
+
+/**
+ * What a stretch of intimacy logs adds up to.
+ *
+ * Counts and an average, and deliberately nothing that reads as a score. The
+ * app has no opinion about what these numbers should be, and any wording that
+ * implied one would turn a private log into a target.
+ */
+export interface IntimacySummary {
+  /** Days in the window that carry a log at all. */
+  daysLogged: number
+  /** Days in the window, logged or not. */
+  daysInWindow: number
+  solo: number
+  partnered: number
+  orgasms: number
+  /** Mean of the days where desire was recorded, or null if none were. */
+  averageDesire: number | null
+  /** How many days carried a desire figure — the average's denominator. */
+  desireDays: number
+}
+
 export type Flow = 'light' | 'medium' | 'heavy'
 
 /**

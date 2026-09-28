@@ -68,6 +68,12 @@ export function CoupleProvider({ children }: { children: ReactNode }) {
       isSolo: !isLoading && couple === null,
       // Paired, but the other member's profile is gone — they deleted their
       // account. The app must stay usable; shared data survives.
+      //
+      // Only meaningful for an owner or partner. A friend or guest also has a
+      // null partner (0037: a friend is nobody's partner), and would read as
+      // orphaned here. Nothing consumes this flag today; anything that starts
+      // to must check the member's role first, or it will tell a friend their
+      // partner deleted their account.
       isOrphaned: !isLoading && couple !== null && partner === null,
       isLoading,
       error: coupleQ.error ?? selfQ.error ?? partnerQ.error,

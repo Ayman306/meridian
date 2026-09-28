@@ -160,21 +160,6 @@ function toCityResult(p: NominatimPlace): CityResult {
 }
 
 /**
- * Best-effort IANA zone for a coordinate without a network call.
- *
- * The `tz-lookup` package (added in the Destinations module, which needs
- * precision) does this properly from a shapefile. Until then we only need the
- * zone the browser already reports for the user's own machine, so profile setup
- * defaults to that and offers this as a coarse fallback for remote coordinates.
- */
-export function coarseTimezoneFromLongitude(lng: number): string {
-  const hours = Math.round(lng / 15)
-  if (hours === 0) return 'UTC'
-  // Etc/GMT zones are sign-inverted: Etc/GMT-5 is UTC+5.
-  return `Etc/GMT${hours > 0 ? '-' : '+'}${Math.abs(hours)}`
-}
-
-/**
  * Coordinates to a street address.
  *
  * The other direction from `searchPlaces`, and the half a pasted map link

@@ -1681,14 +1681,104 @@ select assert(
   'and revoking one scope leaves the others alone'
 );
 
+-- ---------------------------------------------------------------------------
+-- The intimacy log (0036) — the most personal table in the app, so every
+-- guarantee 0014 makes is proven again here rather than assumed to carry over.
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.intimacy_logs (owner_id, logged_on, desire, solo, orgasms)
+values (:'ada_ada', '2026-07-01', 4, true, 2)
+returning id as intimacy \gset ada_
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.intimacy_logs) = 0,
+  'the partner reads zero intimacy logs without consent'
+);
+
+-- The scope is its own. Sharing the cycle must not drag this along with it.
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.health_consents (owner_id, viewer_id, scope)
+values (:'ada_ada', :'bo_bo', 'cycle')
+on conflict (owner_id, viewer_id, scope) do update set revoked_at = null;
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.intimacy_logs) = 0,
+  'sharing the cycle does not share the intimacy log — separate scope, separate decision'
+);
+
+set request.jwt.claim.sub = :'ada_ada';
+insert into public.health_consents (owner_id, viewer_id, scope)
+values (:'ada_ada', :'bo_bo', 'intimacy')
+returning id as intimacy_consent \gset ada_
+
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.intimacy_logs where id = :'ada_intimacy') = 1,
+  'and granting intimacy explicitly does'
+);
+
+-- Read-only by construction, exactly as the cycle log is.
+update public.intimacy_logs set orgasms = 9 where id = :'ada_intimacy';
+select assert(
+  (select orgasms from public.intimacy_logs where id = :'ada_intimacy') = 2,
+  'a viewer cannot edit the log they were shown'
+);
+select assert_raises(
+  format(
+    'insert into public.intimacy_logs (owner_id, logged_on) values (%L, %L)',
+    :'ada_ada', '2026-07-02'
+  ),
+  'row-level security',
+  'nor write one on their behalf'
+);
+
+set request.jwt.claim.sub = :'ada_ada';
+update public.health_consents set revoked_at = now() where id = :'ada_intimacy_consent';
+set request.jwt.claim.sub = :'bo_bo';
+select assert(
+  (select count(*) from public.intimacy_logs) = 0,
+  'revoking intimacy blocks the read on the very next query'
+);
+
+-- The constraints keep an average honest: a typo cannot poison it.
+set request.jwt.claim.sub = :'ada_ada';
+select assert_raises(
+  format(
+    'insert into public.intimacy_logs (owner_id, logged_on, desire) values (%L, %L, 9)',
+    :'ada_ada', '2026-07-03'
+  ),
+  'valid_desire',
+  'desire outside 0-5 is refused'
+);
+select assert_raises(
+  format(
+    'insert into public.intimacy_logs (owner_id, logged_on, orgasms) values (%L, %L, -1)',
+    :'ada_ada', '2026-07-03'
+  ),
+  'valid_orgasms',
+  'and a negative count is refused'
+);
+
+-- One row per day, so editing yesterday is an edit and not a second entry.
+select assert_raises(
+  format(
+    'insert into public.intimacy_logs (owner_id, logged_on) values (%L, %L)',
+    :'ada_ada', '2026-07-01'
+  ),
+  'intimacy_logs_owner_id_logged_on_key',
+  'a second row for the same day is refused — the log is one entry per day'
+);
+
 -- Hard delete, in one transaction. Spec 12.2 allows no soft-delete grace.
 set request.jwt.claim.sub = :'ada_ada';
 select public.delete_all_health_data();
 select assert(
   (select count(*) from public.cycle_logs) = 0
     and (select count(*) from public.health_records) = 0
+    and (select count(*) from public.intimacy_logs) = 0
     and (select count(*) from public.health_consents) = 0,
-  'deleting removes every row, with no soft-delete residue'
+  'deleting removes every row, the intimacy log included, with no soft-delete residue'
 );
 
 set request.jwt.claim.sub = :'bo_bo';
@@ -1711,6 +1801,26 @@ select assert_raises(
      values (''JP'', ''something'', ''https://example.com'')',
   'row-level security',
   'nobody adds a restriction through the API — these change by migration'
+);
+
+-- Wellness guidance (0036) is reference data on the same terms.
+select assert(
+  (select count(*) from public.wellness_tips) >= 10,
+  'the wellness seed is readable by anyone signed in'
+);
+select assert(
+  (select count(*) from public.wellness_tips where source_url is null) = 0,
+  'and every row carries the source it points at'
+);
+select assert(
+  (select count(*) from public.wellness_tips where audience = 'everyone') >= 1,
+  'with guidance that applies to anyone, so no profile sees an empty screen'
+);
+select assert_raises(
+  'insert into public.wellness_tips (category, title, body, source_url)
+     values (''diet'', ''whatever'', ''x'', ''https://example.com'')',
+  'row-level security',
+  'and nobody adds one through the API'
 );
 
 -- ---------------------------------------------------------------------------
@@ -2047,6 +2157,387 @@ begin
   raise notice '  ok   health and credentials are deliberately not published';
 end $$;
 set role authenticated;
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== partner_id() is never a friend (0037) =='
+-- The bug: `partner_id()` was "the other member, limit 1", unordered. Phase 13
+-- lets a couple invite a friend or a guest, and from that moment the answer was
+-- a coin-flip between the partner and the friend. The client builds `partnerRef`
+-- from it, so the health Sharing screen could offer to grant consent to the
+-- friend — and `profiles read partner` would admit the friend's profile while
+-- hiding the actual partner's.
+--
+-- Built on a couple of its own so nothing earlier in this file is disturbed.
+-- The friend is whichever of two fresh users has the lower uuid, and is also
+-- inserted first, so every scan the old unordered `limit 1` could take reaches
+-- the friend before the partner. That turns a coin-flip into a deterministic
+-- failure against the old function.
+reset role;
+select auth.test_signup('eve@example.com', 'Eve Owner') as eve \gset eve_
+select auth.test_signup('pat1@example.com', 'Pat One') as p1 \gset p1_
+select auth.test_signup('pat2@example.com', 'Pat Two') as p2 \gset p2_
+select least(:'p1_p1'::uuid, :'p2_p2'::uuid)    as friend,
+       greatest(:'p1_p1'::uuid, :'p2_p2'::uuid) as mate \gset x_
+
+insert into public.couples (name, kind, created_by)
+values ('Three of us', 'couple', :'eve_eve')
+returning id as couple \gset eve_
+insert into public.couple_members (couple_id, user_id, role, joined_at)
+values (:'eve_couple', :'eve_eve', 'owner', now() - interval '3 days');
+insert into public.couple_members (couple_id, user_id, role, module_grants, joined_at)
+values (:'eve_couple', :'x_friend', 'friend', array['trips'], now() - interval '2 days');
+insert into public.couple_members (couple_id, user_id, role, joined_at)
+values (:'eve_couple', :'x_mate', 'partner', now() - interval '1 day');
+set role authenticated;
+
+set request.jwt.claim.sub = :'eve_eve';
+select assert(
+  public.partner_id() = :'x_mate'::uuid,
+  'with a friend in the couple, the owner''s partner is still the partner'
+);
+select assert(
+  (select count(*) from public.profiles where id = :'x_mate') = 1,
+  'and the owner can read the partner''s profile'
+);
+select assert(
+  (select count(*) from public.profiles where id = :'x_friend') = 0,
+  'but not the friend''s — a profile carries a home location'
+);
+
+set request.jwt.claim.sub = :'x_mate';
+select assert(
+  public.partner_id() = :'eve_eve'::uuid,
+  'and the partner''s partner is the owner, never the friend'
+);
+
+-- A friend is nobody's partner. The first draft of 0037 answered the owner here,
+-- so the client would not show a friend as orphaned — and in doing so handed
+-- every friend the owner's profile, home location included, through `profiles
+-- read partner`. The client now knows a friend is not orphaned from their role,
+-- so the database can give the true answer.
+set request.jwt.claim.sub = :'x_friend';
+select assert(
+  public.partner_id() is null,
+  'a friend has no partner'
+);
+select assert(
+  (select count(*) from public.profiles where id <> :'x_friend') = 0,
+  'and reads no profile but their own — not the owner''s, not the partner''s'
+);
+
+-- Consent follows the relationship, not just the row. A grant that reached a
+-- friend — which the old coin-flip made possible from the Sharing screen —
+-- must grant nothing, because the Sharing screen now keys on the real partner
+-- and the owner could not even see it to revoke it.
+set request.jwt.claim.sub = :'eve_eve';
+insert into public.cycle_logs (owner_id, started_on) values (:'eve_eve', '2026-08-01')
+returning id as cycle \gset eve_
+insert into public.health_consents (owner_id, viewer_id, scope)
+values (:'eve_eve', :'x_friend', 'cycle');
+
+set request.jwt.claim.sub = :'x_friend';
+select assert(
+  (select count(*) from public.cycle_logs where id = :'eve_cycle') = 0,
+  'a consent row pointing at a friend grants the friend nothing'
+);
+
+set request.jwt.claim.sub = :'eve_eve';
+insert into public.health_consents (owner_id, viewer_id, scope)
+values (:'eve_eve', :'x_mate', 'cycle');
+set request.jwt.claim.sub = :'x_mate';
+select assert(
+  (select count(*) from public.cycle_logs where id = :'eve_cycle') = 1,
+  'while the same grant to the actual partner still works'
+);
+
+-- And it stops working the moment they are no longer partners, whether or not
+-- anybody remembered to revoke it. Leaving a couple is not a sharing decision.
+reset role;
+delete from public.couple_members where couple_id = :'eve_couple' and user_id = :'x_mate';
+set role authenticated;
+set request.jwt.claim.sub = :'x_mate';
+select assert(
+  (select count(*) from public.cycle_logs where id = :'eve_cycle') = 0,
+  'a former partner reads nothing, even with a consent row nobody revoked'
+);
+select assert(
+  not public.has_health_consent(:'eve_eve'::uuid, 'cycle'),
+  'nor can they ask has_health_consent directly and learn the row was never revoked'
+);
+
+-- The same unordered `limit 1` sat in my_couple_id(). Unreachable while nobody
+-- can belong to two spaces, and deterministic now so it stays that way.
+set request.jwt.claim.sub = :'eve_eve';
+select assert(
+  public.my_couple_id() = :'eve_couple'::uuid,
+  'my_couple_id() resolves to the couple'
+);
+select assert(
+  public.my_role() = 'owner',
+  'and my_role() describes the same space'
+);
+
+-- Two memberships is reachable: `join_couple` only refuses a *partner* invite
+-- to someone already an owner or partner, so a friend on Eve's trip can accept
+-- a partner invite elsewhere. Their own couple must win, even though they
+-- joined it later — the unordered read would have handed back Eve's.
+reset role;
+select auth.test_signup('zed@example.com', 'Zed Other') as zed \gset zed_
+set role authenticated;
+set request.jwt.claim.sub = :'zed_zed';
+select assert(
+  (select count(*) from public.my_couple()) = 0,
+  'my_couple() is an empty result for somebody in no couple, not a row of nulls'
+);
+reset role;
+insert into public.couples (name, kind, created_by)
+values ('Their own', 'couple', :'x_friend')
+returning id as own \gset x_
+insert into public.couple_members (couple_id, user_id, role, joined_at)
+values (:'x_own', :'x_friend', 'partner', now());
+insert into public.couple_members (couple_id, user_id, role, joined_at)
+values (:'x_own', :'zed_zed', 'partner', now());
+set role authenticated;
+
+set request.jwt.claim.sub = :'x_friend';
+select assert(
+  public.my_couple_id() = :'x_own'::uuid,
+  'with two memberships, my couple is the one I am a partner in, not the one I visit'
+);
+select assert(
+  public.my_role() = 'partner',
+  'and my role is the partner role, not the friend one'
+);
+select assert(
+  public.my_modules() = public.all_modules(),
+  'and my modules are my own couple''s, not the friend whitelist'
+);
+select assert(
+  public.partner_id() = :'zed_zed'::uuid,
+  'and my partner is my actual partner'
+);
+select assert(
+  (select id from public.my_couple()) = :'x_own'::uuid,
+  'and my_couple() — what the app loads — returns the same couple, in one call'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== partners manage the space; friends do not (0037) =='
+-- "Partners write" on couple_settings was `is_couple_member(couple_id) and
+-- my_role() in ('owner','partner')`. But `my_role()` is the caller's role in
+-- *their* space, not in the couple being written — so a friend on Eve's trip
+-- who is a partner at home passed it for Eve's couple. It had been a coin-flip;
+-- ordering `my_role()` made it certain. Authorisation is now per couple.
+reset role;
+insert into public.couple_settings (couple_id) values (:'eve_couple') on conflict do nothing;
+set role authenticated;
+
+set request.jwt.claim.sub = :'x_friend';
+update public.couple_settings set base_currency = 'XXX' where couple_id = :'eve_couple';
+select assert(
+  (select base_currency from public.couple_settings where couple_id = :'eve_couple') <> 'XXX',
+  'a friend who is a partner at home still cannot change another couple''s settings'
+);
+select assert_raises(
+  format(
+    'insert into public.invites (couple_id, code, invited_email, role, module_grants, expires_at)
+       values (%L, %L, %L, %L, %L, now() + interval ''1 day'')',
+    :'eve_couple', 'FRIENDX1', 'zz@example.com', 'friend', '{trips}'
+  ),
+  'permission denied',
+  'nor mint an invite into it — create_invite refuses a guest, and so must the table'
+);
+
+-- The owner keeps every power they should have.
+set request.jwt.claim.sub = :'eve_eve';
+update public.couple_settings set base_currency = 'EUR' where couple_id = :'eve_couple';
+select assert(
+  (select base_currency from public.couple_settings where couple_id = :'eve_couple') = 'EUR',
+  'while the owner can still change their own couple''s settings'
+);
+select (public.create_invite('yy@example.com', 'friend', array['trips'], 7)).id as owner_invite \gset eve_
+select assert(
+  (select count(*) from public.invites where invited_email = 'yy@example.com' and revoked_at is null) = 1,
+  'and issue an invite for it, through create_invite'
+);
+
+-- Managing a friend used to do nothing at all. `couple_members` had no update
+-- policy and deleted only your own row, so "change what they see" and "remove"
+-- both affected zero rows and reported success — the friend kept their access.
+update public.couple_members set module_grants = array['trips', 'wishlist']
+ where couple_id = :'eve_couple' and user_id = :'x_friend';
+select assert(
+  (select module_grants from public.couple_members
+    where couple_id = :'eve_couple' and user_id = :'x_friend') = array['trips', 'wishlist'],
+  'the owner can change what a friend sees — this used to report success and change nothing'
+);
+
+-- The same policies must not open anything they should not.
+set request.jwt.claim.sub = :'x_friend';
+-- Refused outright rather than silently matching no rows: `role` is not a
+-- column the client may write at all (see the privileges section below).
+select assert_raises(
+  format('update public.couple_members set role = %L, module_grants = null
+            where couple_id = %L and user_id = %L', 'partner', :'eve_couple', :'x_friend'),
+  'permission denied',
+  'a friend cannot promote themselves'
+);
+select assert(
+  (select role from public.couple_members
+    where couple_id = :'eve_couple' and user_id = :'x_friend') = 'friend',
+  'and is still a friend afterwards'
+);
+delete from public.couple_members where couple_id = :'x_own' and user_id = :'zed_zed';
+select assert(
+  (select count(*) from public.couple_members where couple_id = :'x_own' and user_id = :'zed_zed') = 1,
+  'and a partner cannot remove the other partner — they leave, or nobody removes them'
+);
+
+set request.jwt.claim.sub = :'eve_eve';
+delete from public.couple_members where couple_id = :'eve_couple' and user_id = :'x_friend';
+select assert(
+  (select count(*) from public.couple_members
+    where couple_id = :'eve_couple' and user_id = :'x_friend') = 0,
+  'and the owner can remove a friend — this used to report success and leave them in'
+);
+
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== what the client may write to the membership tables, at all (0037) =='
+-- RLS says which rows; privileges say which columns. Each earlier draft of
+-- 0037 fixed one policy and left something beside it open, because every
+-- table was fully writable by `authenticated` and only policies stood in the
+-- way. This is the whole surface, asserted at once, so the next change has to
+-- break a line here rather than slip past one.
+reset role;
+insert into public.couple_members (couple_id, user_id, role, module_grants, joined_at)
+values (:'eve_couple', :'x_friend', 'friend', array['trips'], now());
+set role authenticated;
+set request.jwt.claim.sub = :'eve_eve';
+
+-- couple_members: grants only.
+select assert_raises(
+  format('update public.couple_members set user_id = %L where couple_id = %L and user_id = %L',
+         :'dee_dee', :'eve_couple', :'x_friend'),
+  'permission denied',
+  'the owner cannot re-point a friend''s membership at somebody else — that would enrol them unasked'
+);
+select assert_raises(
+  format('update public.couple_members set role = %L where couple_id = %L and user_id = %L',
+         'partner', :'eve_couple', :'x_friend'),
+  'permission denied',
+  'nor promote a friend to partner from the table'
+);
+select assert_raises(
+  format('update public.couple_members set joined_at = now() - interval ''9 years'' where couple_id = %L and user_id = %L',
+         :'eve_couple', :'x_friend'),
+  'permission denied',
+  'nor back-date a join, which decides which space a two-membership person lands in'
+);
+select assert_raises(
+  format('insert into public.couple_members (couple_id, user_id, role, module_grants) values (%L, %L, %L, %L)',
+         :'eve_couple', :'dee_dee', 'friend', '{trips}'),
+  'row-level security',
+  'nor add a member without an invite'
+);
+
+-- invites: revoke, and nothing else.
+select assert_raises(
+  format('update public.invites set expires_at = now() + interval ''5 years'' where id = %L', :'eve_owner_invite'),
+  'permission denied',
+  'the owner cannot extend an invite past what create_invite allows'
+);
+select assert_raises(
+  format('update public.invites set invited_email = %L where id = %L', 'else@example.com', :'eve_owner_invite'),
+  'permission denied',
+  'nor re-address one'
+);
+select assert_raises(
+  format('delete from public.invites where id = %L', :'eve_owner_invite'),
+  'permission denied',
+  'nor delete one — revocation is the record'
+);
+update public.invites set revoked_at = now() where id = :'eve_owner_invite';
+select assert(
+  (select revoked_at from public.invites where id = :'eve_owner_invite') is not null,
+  'but can revoke it'
+);
+select assert_raises(
+  format('update public.invites set revoked_at = null where id = %L', :'eve_owner_invite'),
+  'row-level security',
+  'and cannot un-revoke it'
+);
+
+-- A friend cannot revoke. Measured before and after rather than assumed, with
+-- a live invite in place so there is something to revoke.
+select (public.create_invite('ww@example.com', 'friend', array['trips'], 7)).id as live_invite \gset eve_
+set request.jwt.claim.sub = :'x_friend';
+update public.invites set revoked_at = now() where id = :'eve_live_invite';
+set request.jwt.claim.sub = :'eve_eve';
+select assert(
+  (select revoked_at from public.invites where id = :'eve_live_invite') is null,
+  'a friend cannot revoke the couple''s invites'
+);
+set request.jwt.claim.sub = :'x_friend';
+
+-- couples: partners only, like their settings.
+update public.couples set name = 'Renamed by a guest' where id = :'eve_couple';
+set request.jwt.claim.sub = :'eve_eve';
+select assert(
+  (select name from public.couples where id = :'eve_couple') <> 'Renamed by a guest',
+  'a friend cannot rename the couple they are visiting'
+);
+update public.couples set name = 'Eve and co' where id = :'eve_couple';
+select assert(
+  (select name from public.couples where id = :'eve_couple') = 'Eve and co',
+  'while the owner can'
+);
+
+-- The index every "which space is mine" lookup starts from.
+select assert(
+  exists (select 1 from pg_indexes
+           where tablename = 'couple_members' and indexdef ilike '%(user_id)%'),
+  'couple_members is indexed on user_id'
+);
+
+-- And the intimacy log's reach, from the catalogue rather than from source
+-- text: whatever the syntax — `create function`, any dollar-quote tag, a view —
+-- this is what the database actually holds.
+select assert(
+  (select coalesce(array_agg(p.proname::text order by p.proname), '{}')
+     from pg_proc p
+    where p.pronamespace = 'public'::regnamespace
+      and p.prosrc ilike '%intimacy_logs%') = array['delete_all_health_data'],
+  'the only function that touches intimacy_logs is the hard delete'
+);
+select assert(
+  not exists (select 1 from pg_views where definition ilike '%intimacy_logs%')
+  and not exists (select 1 from pg_matviews where definition ilike '%intimacy_logs%'),
+  'and no view exposes it'
+);
+
+-- Every function of ours pins its search_path (0004, 0038). Supabase's advisor
+-- checks this on the live project; this checks it before anything gets there.
+-- The test harness's own helpers and extension functions are not ours.
+select assert(
+  not exists (
+    select 1 from pg_proc p
+     where p.pronamespace = 'public'::regnamespace
+       and p.prokind = 'f'
+       and p.proname not in ('assert', 'assert_raises')
+       and not exists (select 1 from pg_depend d
+                        where d.objid = p.oid and d.deptype = 'e')
+       and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c
+                        where c like 'search_path=%')
+  ),
+  'every function pins its search_path'
+);
+select assert(
+  not has_function_privilege('authenticated', 'public.sync_flight_date()', 'execute'),
+  'and the flight-date trigger cannot be called directly'
+);
 
 -- ---------------------------------------------------------------------------
 \echo ''

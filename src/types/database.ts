@@ -1567,6 +1567,86 @@ export type Database = {
           },
         ]
       }
+      intimacy_logs: {
+        Row: {
+          created_at: string
+          desire: number | null
+          id: string
+          logged_on: string
+          notes: string | null
+          orgasms: number
+          owner_id: string
+          partnered: boolean
+          solo: boolean
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          desire?: number | null
+          id?: string
+          logged_on: string
+          notes?: string | null
+          orgasms?: number
+          owner_id: string
+          partnered?: boolean
+          solo?: boolean
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          desire?: number | null
+          id?: string
+          logged_on?: string
+          notes?: string | null
+          orgasms?: number
+          owner_id?: string
+          partnered?: boolean
+          solo?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "intimacy_logs_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wellness_tips: {
+        Row: {
+          audience: string
+          body: string
+          category: string
+          created_at: string
+          id: string
+          source_url: string
+          title: string
+          verified_on: string | null
+        }
+        Insert: {
+          audience?: string
+          body: string
+          category: string
+          created_at?: string
+          id?: string
+          source_url: string
+          title: string
+          verified_on?: string | null
+        }
+        Update: {
+          audience?: string
+          body?: string
+          category?: string
+          created_at?: string
+          id?: string
+          source_url?: string
+          title?: string
+          verified_on?: string | null
+        }
+        Relationships: []
+      }
       health_records: {
         Row: {
           created_at: string
@@ -3170,6 +3250,27 @@ export type Database = {
           total_bytes: number
           trashed_count: number
         }[]
+      }
+      my_couple: {
+        Args: never
+        Returns: {
+          anniversary_date: string | null
+          base_currency: string
+          created_at: string
+          created_by: string | null
+          id: string
+          invite_code: string | null
+          invite_expires_at: string | null
+          kind: string
+          name: string | null
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "couples"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       my_couple_id: { Args: never; Returns: string }
       my_email: { Args: never; Returns: string }

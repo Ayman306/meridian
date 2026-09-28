@@ -51,9 +51,19 @@ export async function getProfile(userId: string): Promise<Profile | null> {
   return row ? toProfile(row) : null
 }
 
-/** The caller's couple, or null in solo mode. */
+/**
+ * The caller's own couple, or null in solo mode.
+ *
+ * Asked of `my_couple()` rather than read as "whichever couple RLS lets me
+ * see, limit 1". Somebody who is a friend on another couple's trip can see
+ * that couple too, and an unordered read could hand it back as their own —
+ * every screen then pointing at the wrong space. `my_couple()` resolves
+ * through `my_couple_id()`, which prefers the membership where you are an
+ * owner or partner (0037), so the client and every policy agree on which space
+ * is yours — in the one round trip this always took.
+ */
 export async function getCouple(): Promise<Couple | null> {
-  return unwrapMaybe(await supabase.from('couples').select('*').limit(1).maybeSingle())
+  return unwrapMaybe(await supabase.rpc('my_couple').maybeSingle())
 }
 
 /** The other member's profile. Null in solo mode or if they deleted their account. */
